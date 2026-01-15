@@ -25,11 +25,16 @@ const Auth = () => {
   // Load auth logo from database
   useEffect(() => {
     const loadAuthLogo = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('site_config')
         .select('config_value')
         .eq('config_key', 'auth_logo')
-        .single();
+        .maybeSingle();
+      
+      // Ignorar erro 406 (Not Acceptable) ou PGRST116 (not found)
+      if (error && error.code !== 'PGRST116') {
+        console.warn('Error loading auth logo:', error);
+      }
       
       if (data?.config_value && typeof data.config_value === 'object' && 'image_url' in data.config_value) {
         setAuthLogo((data.config_value as { image_url: string }).image_url);
