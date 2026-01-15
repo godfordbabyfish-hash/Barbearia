@@ -5,11 +5,19 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+// #region agent log
+fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase/client.ts:5',message:'Env vars check',data:{hasUrl:!!SUPABASE_URL,hasKey:!!SUPABASE_PUBLISHABLE_KEY,urlPrefix:SUPABASE_URL?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+// #endregion
+
 // Validação das variáveis de ambiente
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   const missing = [];
   if (!SUPABASE_URL) missing.push('VITE_SUPABASE_URL');
   if (!SUPABASE_PUBLISHABLE_KEY) missing.push('VITE_SUPABASE_PUBLISHABLE_KEY');
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase/client.ts:15',message:'Missing env vars',data:{missing},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+  // #endregion
   
   console.error('❌ Erro: Variáveis de ambiente não configuradas:', missing.join(', '));
   console.error('📝 Configure as variáveis de ambiente no Netlify:');

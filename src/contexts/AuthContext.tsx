@@ -113,6 +113,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signInOrSignUp = async (name: string, phone: string) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:115',message:'SignInOrSignUp start',data:{name,phone},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
+    
     try {
       const tempEmail = `${phone.replace(/\D/g, '')}@cliente.com`;
       const tempPassword = phone.replace(/\D/g, '');
@@ -122,6 +126,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         email: tempEmail,
         password: tempPassword,
       });
+
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:126',message:'SignIn attempt result',data:{hasError:!!signInError,errorCode:signInError?.code,errorMessage:signInError?.message,hasUser:!!signInData?.user},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
 
       if (signInError) {
         // If sign in fails, try to sign up
@@ -136,13 +144,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           },
         });
 
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:140',message:'SignUp attempt result',data:{hasError:!!signUpError,errorCode:signUpError?.code,errorMessage:signUpError?.message,hasUser:!!signUpData?.user,userId:signUpData?.user?.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
+
         if (signUpError) {
           return { error: signUpError };
         }
 
         // Create profile after signup
         if (signUpData.user) {
-          await (supabase as any)
+          const profileResult = await (supabase as any)
             .from('profiles')
             .upsert({
               id: signUpData.user.id,
@@ -152,8 +164,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               onConflict: 'id'
             });
 
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:151',message:'Profile upsert result',data:{hasError:!!profileResult.error,errorCode:profileResult.error?.code,errorMessage:profileResult.error?.message,status:profileResult.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+
           // Create cliente role
-          await (supabase as any)
+          const roleResult = await (supabase as any)
             .from('user_roles')
             .upsert({
               user_id: signUpData.user.id,
@@ -162,6 +178,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               onConflict: 'user_id,role',
               ignoreDuplicates: true
             });
+
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:163',message:'Role upsert result',data:{hasError:!!roleResult.error,errorCode:roleResult.error?.code,errorMessage:roleResult.error?.message,status:roleResult.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
         }
 
         return { error: null };
@@ -169,7 +189,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       // Update profile on sign in
       if (signInData.user) {
-        await (supabase as any)
+        const profileUpdateResult = await (supabase as any)
           .from('profiles')
           .upsert({
             id: signInData.user.id,
@@ -178,10 +198,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           }, {
             onConflict: 'id'
           });
+
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:180',message:'Profile update on signin result',data:{hasError:!!profileUpdateResult.error,errorCode:profileUpdateResult.error?.code,errorMessage:profileUpdateResult.error?.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
       }
 
       return { error: null };
     } catch (error: any) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:188',message:'SignInOrSignUp catch error',data:{errorMessage:error?.message,errorStack:error?.stack},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       return { error };
     }
   };
