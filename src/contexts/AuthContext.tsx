@@ -161,9 +161,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         // O trigger handle_new_user cria profile e role automaticamente
-        // Não precisamos fazer INSERT manual - isso causava erros 42501
+        // Após signup, fazer signIn para criar a sessão (se não houver sessão)
+        if (signUpData.user && !signUpData.session) {
+          // Aguardar um pouco para o trigger executar
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Fazer signIn para criar a sessão
+          const { data: signInAfterSignUp, error: signInAfterSignUpError } = await supabase.auth.signInWithPassword({
+            email: tempEmail,
+            password: tempPassword,
+          });
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:153',message:'SignIn after signup',data:{hasError:!!signInAfterSignUpError,errorCode:signInAfterSignUpError?.code,hasSession:!!signInAfterSignUp?.session},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          
+          if (signInAfterSignUpError) {
+            // Se falhar, ainda retorna sucesso pois o usuário foi criado
+            // O usuário pode precisar confirmar email ou fazer login manualmente
+            console.warn('SignIn after signup failed:', signInAfterSignUpError);
+          }
+        }
+        
         // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:149',message:'Signup successful - trigger will create profile/role',data:{userId:signUpData?.user?.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:149',message:'Signup successful - trigger will create profile/role',data:{userId:signUpData?.user?.id,hasSession:!!signUpData?.session},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
         // #endregion
 
         return { error: null };
