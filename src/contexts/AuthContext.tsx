@@ -160,37 +160,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           return { error: signUpError };
         }
 
-        // Create profile after signup
-        if (signUpData.user) {
-          const profileResult = await (supabase as any)
-            .from('profiles')
-            .upsert({
-              id: signUpData.user.id,
-              name,
-              phone,
-            }, {
-              onConflict: 'id'
-            });
-
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:151',message:'Profile upsert result',data:{hasError:!!profileResult.error,errorCode:profileResult.error?.code,errorMessage:profileResult.error?.message,status:profileResult.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-
-          // Create cliente role
-          const roleResult = await (supabase as any)
-            .from('user_roles')
-            .upsert({
-              user_id: signUpData.user.id,
-              role: 'cliente'
-            }, {
-              onConflict: 'user_id,role',
-              ignoreDuplicates: true
-            });
-
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:163',message:'Role upsert result',data:{hasError:!!roleResult.error,errorCode:roleResult.error?.code,errorMessage:roleResult.error?.message,status:roleResult.status},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-        }
+        // O trigger handle_new_user cria profile e role automaticamente
+        // Não precisamos fazer INSERT manual - isso causava erros 42501
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:149',message:'Signup successful - trigger will create profile/role',data:{userId:signUpData?.user?.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
 
         return { error: null };
       }
