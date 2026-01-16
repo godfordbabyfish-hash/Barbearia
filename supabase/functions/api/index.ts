@@ -714,10 +714,18 @@ serve(async (req) => {
       }
     }
     
-    console.log(`API Request: ${req.method} ${path}`);
+    const authHeader = req.headers.get('authorization');
+    console.log(`API Request: ${req.method} ${path}`, {
+      hasAuthHeader: !!authHeader,
+      authHeaderPrefix: authHeader?.substring(0, 20),
+      pathFromUrl: url.pathname,
+      pathAfterProcessing: path,
+      bodyAction: body?.action
+    });
 
     // Validate API Key (optional)
     const authResult = validateApiKey(req);
+    console.log('Auth validation result:', { valid: authResult.valid, message: authResult.message });
     if (!authResult.valid) {
       return new Response(JSON.stringify({
         success: false,
@@ -959,8 +967,11 @@ serve(async (req) => {
 
     // GET or POST /admin/users - List all users (admin and gestor only)
     if ((req.method === 'GET' || req.method === 'POST') && path === 'admin/users') {
+      console.log('Processing admin/users request');
       const authHeader = req.headers.get('authorization');
+      console.log('Getting caller role, authHeader exists:', !!authHeader);
       const { userId: callerId, role: callerRole } = await getCallerRole(authHeader);
+      console.log('Caller role result:', { userId: callerId, role: callerRole });
 
       if (!callerRole || (callerRole !== 'admin' && callerRole !== 'gestor')) {
         return new Response(JSON.stringify({
