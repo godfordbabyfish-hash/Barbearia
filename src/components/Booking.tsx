@@ -184,20 +184,28 @@ const Booking = () => {
     setStep("time");
   };
 
+  // Helper function to format date in local timezone (not UTC)
+  const formatLocalDate = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const findNextAvailableDateTime = async (currentFormData: typeof formData) => {
     if (!currentFormData.service || !currentFormData.barber || hoursLoading) return;
 
     const today = new Date();
     const maxDaysToCheck = 30; // Check next 30 days
     const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
+    const todayStr = formatLocalDate(today);
     
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:187',message:'FindNextAvailableDateTime start',data:{todayDate:today.toISOString().split('T')[0],currentTime,service:currentFormData.service,barber:currentFormData.barber},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:187',message:'FindNextAvailableDateTime start',data:{todayDate:todayStr,currentTime,service:currentFormData.service,barber:currentFormData.barber},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
     // #endregion
     
     // Check if today has any slots left - if not, start from tomorrow
     let startOffset = 0;
-    const todayStr = today.toISOString().split('T')[0];
     if (isDateOpen(today)) {
       const todaySlots = getTimeSlotsForDate(today);
       const hasSlotsToday = todaySlots.some(slot => slot >= currentTime);
@@ -212,7 +220,7 @@ const Booking = () => {
     for (let i = startOffset; i < maxDaysToCheck; i++) {
       const checkDate = new Date(today);
       checkDate.setDate(today.getDate() + i);
-      const dateStr = checkDate.toISOString().split('T')[0];
+      const dateStr = formatLocalDate(checkDate);
       const dayName = checkDate.toLocaleDateString('pt-BR', { weekday: 'long' });
       
       // Check if date is open
@@ -686,7 +694,7 @@ const Booking = () => {
                         setFormData({ ...formData, date: newDate, time: "" });
                       }}
                       required
-                      min={new Date().toISOString().split('T')[0]}
+                      min={formatLocalDate(new Date())}
                       className="bg-secondary border-border focus:border-primary transition-colors"
                     />
                   </div>
