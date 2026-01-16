@@ -64,9 +64,16 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AdminDashboard.tsx:66',message:'AdminDashboard access check',data:{hasUser:!!user,userId:user?.id,role,loading,willAllow:!loading && user && (role === 'admin' || role === 'gestor')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+    // #endregion
+    
     if (!loading) {
       // Allow access for admin and gestor roles
       if (!user || (role !== 'admin' && role !== 'gestor')) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AdminDashboard.tsx:70',message:'AdminDashboard - access denied',data:{hasUser:!!user,role,reason:!user?'no_user':role !== 'admin' && role !== 'gestor'?'wrong_role':'unknown'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
         navigate('/auth');
         toast.error('Acesso negado', {
           description: 'Você precisa ser um administrador ou gestor para acessar esta página.',

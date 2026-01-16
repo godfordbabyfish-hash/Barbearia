@@ -37,20 +37,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       .eq('user_id', userId);
 
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:34',message:'FetchUserRole result',data:{hasError:!!error,errorCode:error?.code,errorMessage:error?.message,hasData:!!data,dataLength:data?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:34',message:'FetchUserRole result',data:{hasError:!!error,errorCode:error?.code,errorMessage:error?.message,hasData:!!data,dataLength:data?.length,roles:data?.map((r:any)=>r.role)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
     // #endregion
 
     if (error || !data || data.length === 0) {
       console.error('Error fetching user role:', error);
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:43',message:'FetchUserRole - no roles found',data:{userId,hasError:!!error,errorMessage:error?.message,dataLength:data?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+      // #endregion
       return null;
     }
 
     // Priorizar role admin > gestor > barbeiro > cliente
     const roles = data.map((r: any) => r.role);
-    if (roles.includes('admin')) return 'admin';
-    if (roles.includes('gestor')) return 'gestor';
-    if (roles.includes('barbeiro')) return 'barbeiro';
-    return 'cliente';
+    const finalRole = roles.includes('admin') ? 'admin' : roles.includes('gestor') ? 'gestor' : roles.includes('barbeiro') ? 'barbeiro' : 'cliente';
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthContext.tsx:53',message:'FetchUserRole - final role determined',data:{userId,allRoles:roles,finalRole},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
+    // #endregion
+    
+    return finalRole;
   };
 
   useEffect(() => {
