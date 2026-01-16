@@ -263,14 +263,38 @@ const Booking = () => {
   }, [formData.date, formData.barber, formData.service, hoursLoading]);
 
   const loadAvailableSlots = async () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:265',message:'LoadAvailableSlots start',data:{date:formData.date,barber:formData.barber,service:formData.service,currentTime:formData.time},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
+    
     const slots = await getAvailableSlotsForDate();
     setAvailableSlots(slots);
     
-    // Auto-select first available time if none selected
-    if (slots.length > 0 && !formData.time) {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:272',message:'LoadAvailableSlots result',data:{slotsCount:slots.length,firstSlot:slots[0],currentTime:formData.time},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+    // #endregion
+    
+    // Auto-select first available time (always update to next available)
+    if (slots.length > 0) {
+      // Check if current selected time is still available in new slots
+      const currentTimeStillAvailable = formData.time && slots.includes(formData.time);
+      
+      // Only update if current time is not available or no time is selected
+      if (!currentTimeStillAvailable) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:280',message:'Auto-selecting first available slot',data:{newTime:slots[0],oldTime:formData.time,reason:!currentTimeStillAvailable?'time_not_available':'no_time_selected'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+        // #endregion
+        
+        setFormData(prev => ({
+          ...prev,
+          time: slots[0],
+        }));
+      }
+    } else {
+      // No slots available, clear time selection
       setFormData(prev => ({
         ...prev,
-        time: slots[0],
+        time: "",
       }));
     }
   };
@@ -585,7 +609,15 @@ const Booking = () => {
                       id="date"
                       type="date"
                       value={formData.date}
-                      onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                      onChange={async (e) => {
+                        const newDate = e.target.value;
+                        // #region agent log
+                        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:588',message:'Date changed manually',data:{oldDate:formData.date,newDate},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+                        // #endregion
+                        
+                        // Update date and clear time so it will be auto-selected
+                        setFormData({ ...formData, date: newDate, time: "" });
+                      }}
                       required
                       min={new Date().toISOString().split('T')[0]}
                       className="bg-secondary border-border focus:border-primary transition-colors"
@@ -605,10 +637,13 @@ const Booking = () => {
                             day: 'numeric' 
                           })}
                         </p>
-                        {availableSlots.length > 0 && (
+                        {availableSlots.length > 0 && formData.time && (
                           <>
-                            <p className="text-sm text-muted-foreground mb-1">Próximo horário disponível:</p>
-                            <p className="text-3xl font-bold text-primary">{availableSlots[0]}</p>
+                            <p className="text-sm text-muted-foreground mb-1">Horário selecionado:</p>
+                            <p className="text-3xl font-bold text-primary">{formData.time}</p>
+                            <p className="text-xs text-muted-foreground mt-2">
+                              (Selecionado automaticamente - você pode escolher outro horário abaixo)
+                            </p>
                           </>
                         )}
                       </div>
