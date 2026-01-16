@@ -697,7 +697,7 @@ serve(async (req) => {
 
   try {
     const url = new URL(req.url);
-    let path = url.pathname.replace('/api/', '').replace('/api', '');
+    let path = url.pathname.replace('/api/', '').replace('/api', '').replace('/functions/v1/api', '');
     
     // For POST requests, check if action is in body (used by supabase.functions.invoke)
     let body: any = null;
@@ -705,8 +705,8 @@ serve(async (req) => {
       try {
         const clonedReq = req.clone();
         body = await clonedReq.json();
-        // If path is empty but action is provided in body, use action as path
-        if (!path && body?.action) {
+        // If action is provided in body, use it as path (prioritize body.action)
+        if (body?.action) {
           path = body.action;
         }
       } catch (e) {
@@ -957,8 +957,8 @@ serve(async (req) => {
     // ADMIN USER MANAGEMENT ENDPOINTS
     // ==========================================
 
-    // GET /admin/users - List all users (admin and gestor only)
-    if (req.method === 'GET' && path === 'admin/users') {
+    // GET or POST /admin/users - List all users (admin and gestor only)
+    if ((req.method === 'GET' || req.method === 'POST') && path === 'admin/users') {
       const authHeader = req.headers.get('authorization');
       const { userId: callerId, role: callerRole } = await getCallerRole(authHeader);
 
