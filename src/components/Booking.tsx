@@ -190,15 +190,36 @@ const Booking = () => {
     const today = new Date();
     const maxDaysToCheck = 30; // Check next 30 days
     
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:187',message:'FindNextAvailableDateTime start',data:{todayDate:today.toISOString().split('T')[0],service:currentFormData.service,barber:currentFormData.barber},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+    // #endregion
+    
     for (let i = 0; i < maxDaysToCheck; i++) {
       const checkDate = new Date(today);
       checkDate.setDate(today.getDate() + i);
+      const dateStr = checkDate.toISOString().split('T')[0];
+      const dayName = checkDate.toLocaleDateString('pt-BR', { weekday: 'long' });
+      
+      // Check if date is open
+      const dateIsOpen = isDateOpen(checkDate);
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:199',message:'Checking date',data:{dayOffset:i,dateStr,dayName,dateIsOpen},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+      // #endregion
       
       // Skip closed days
-      if (!isDateOpen(checkDate)) continue;
+      if (!dateIsOpen) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:204',message:'Date is closed, skipping',data:{dateStr,dayName},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+        // #endregion
+        continue;
+      }
       
-      const dateStr = checkDate.toISOString().split('T')[0];
       const dayTimeSlots = getTimeSlotsForDate(checkDate);
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:210',message:'Day time slots generated',data:{dateStr,totalSlots:dayTimeSlots.length,slots:dayTimeSlots.slice(0,5)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+      // #endregion
       
       const { data: appointments } = await (supabase as any)
         .from('appointments')
@@ -218,8 +239,16 @@ const Booking = () => {
         return !isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === currentFormData.service));
       });
 
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:228',message:'Available slots calculated',data:{dateStr,totalSlots:dayTimeSlots.length,availableCount:availableSlots.length,availableSlots:availableSlots.slice(0,5),appointmentsCount:appointments?.length || 0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+      // #endregion
+
       if (availableSlots.length > 0) {
         // Found a date with available slots
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:234',message:'Found first available date',data:{selectedDate:dateStr,selectedTime:availableSlots[0],totalAvailable:availableSlots.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+        // #endregion
+        
         setFormData(prev => ({
           ...prev,
           date: dateStr,
@@ -231,6 +260,10 @@ const Booking = () => {
     }
     
     // No available slots found in next 30 days
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:246',message:'No available slots found in 30 days',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+    // #endregion
+    
     setAvailableSlots([]);
   };
 
