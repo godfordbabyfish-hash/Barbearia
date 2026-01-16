@@ -88,14 +88,13 @@ export const UserManager = () => {
   const [deleting, setDeleting] = useState(false);
 
   const loadUsers = async () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:90',message:'LoadUsers start',data:{hasSession:!!session,hasAccessToken:!!session?.access_token},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+    // #endregion
+    
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('api', {
-        body: { action: 'admin/users' },
-        method: 'POST',
-      });
-
-      // Also try GET method
+      // Try GET method first (direct fetch)
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api/admin/users`,
         {
@@ -107,18 +106,30 @@ export const UserManager = () => {
         }
       );
 
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:105',message:'LoadUsers fetch response',data:{status:response.status,statusText:response.statusText,ok:response.ok},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+      // #endregion
+
       const result = await response.json();
+
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:111',message:'LoadUsers result',data:{success:result.success,usersCount:result.users?.length,errorMessage:result.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+      // #endregion
 
       if (result.success) {
         setUsers(result.users || []);
       } else {
         toast.error('Erro ao carregar usuários', {
-          description: result.message,
+          description: result.message || 'Erro desconhecido',
         });
       }
     } catch (error: any) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:123',message:'LoadUsers catch error',data:{errorMessage:error?.message,errorName:error?.name},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+      // #endregion
+      
       toast.error('Erro ao carregar usuários', {
-        description: error.message,
+        description: error.message || 'Erro ao conectar com o servidor',
       });
     } finally {
       setLoading(false);
@@ -126,8 +137,16 @@ export const UserManager = () => {
   };
 
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:132',message:'UserManager useEffect',data:{hasSession:!!session,hasAccessToken:!!session?.access_token,willLoad:!!session?.access_token},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+    // #endregion
+    
     if (session?.access_token) {
       loadUsers();
+    } else {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:137',message:'UserManager - no session token, waiting',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+      // #endregion
     }
   }, [session?.access_token]);
 
