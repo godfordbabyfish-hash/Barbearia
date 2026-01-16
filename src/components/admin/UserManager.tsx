@@ -94,38 +94,29 @@ export const UserManager = () => {
     
     setLoading(true);
     try {
-      // Try GET method first (direct fetch)
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api/admin/users`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-          },
-        }
-      );
+      // Use supabase.functions.invoke to avoid CORS issues
+      const { data, error } = await supabase.functions.invoke('api', {
+        body: { action: 'admin/users' },
+      });
 
       // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:105',message:'LoadUsers fetch response',data:{status:response.status,statusText:response.statusText,ok:response.ok},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:96',message:'LoadUsers invoke result',data:{hasError:!!error,hasData:!!data,errorMessage:error?.message,usersCount:data?.users?.length,success:data?.success},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
       // #endregion
 
-      const result = await response.json();
+      if (error) {
+        throw error;
+      }
 
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:111',message:'LoadUsers result',data:{success:result.success,usersCount:result.users?.length,errorMessage:result.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
-      // #endregion
-
-      if (result.success) {
-        setUsers(result.users || []);
+      if (data?.success) {
+        setUsers(data.users || []);
       } else {
         toast.error('Erro ao carregar usuários', {
-          description: result.message || 'Erro desconhecido',
+          description: data?.message || 'Erro desconhecido',
         });
       }
     } catch (error: any) {
       // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:123',message:'LoadUsers catch error',data:{errorMessage:error?.message,errorName:error?.name},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:112',message:'LoadUsers catch error',data:{errorMessage:error?.message,errorName:error?.name},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
       // #endregion
       
       toast.error('Erro ao carregar usuários', {
@@ -171,22 +162,28 @@ export const UserManager = () => {
     }
 
     setCreating(true);
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:167',message:'HandleCreateUser start',data:{email:newUser.email,name:newUser.name,role:newUser.role},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+    // #endregion
+    
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api/admin/users`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-          },
-          body: JSON.stringify(newUser),
-        }
-      );
+      // Use supabase.functions.invoke to avoid CORS issues
+      const { data, error } = await supabase.functions.invoke('api', {
+        body: {
+          action: 'admin/users',
+          ...newUser,
+        },
+      });
 
-      const result = await response.json();
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:177',message:'HandleCreateUser result',data:{hasError:!!error,hasData:!!data,errorMessage:error?.message,success:data?.success},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+      // #endregion
 
-      if (result.success) {
+      if (error) {
+        throw error;
+      }
+
+      if (data?.success) {
         toast.success('Usuário criado com sucesso!', {
           description: `Senha: ${newUser.password}`,
         });
@@ -195,10 +192,13 @@ export const UserManager = () => {
         loadUsers();
       } else {
         toast.error('Erro ao criar usuário', {
-          description: result.message,
+          description: data?.message || 'Erro desconhecido',
         });
       }
     } catch (error: any) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:196',message:'HandleCreateUser catch error',data:{errorMessage:error?.message,errorName:error?.name},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+      // #endregion
       toast.error('Erro ao criar usuário', {
         description: error.message,
       });
@@ -215,28 +215,25 @@ export const UserManager = () => {
 
     setUpdatingPassword(true);
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api/admin/users/${selectedUser.id}/password`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-          },
-          body: JSON.stringify({ password: newPassword }),
-        }
-      );
+      const { data, error } = await supabase.functions.invoke('api', {
+        body: {
+          action: `admin/users/${selectedUser.id}/password`,
+          password: newPassword,
+        },
+      });
 
-      const result = await response.json();
+      if (error) {
+        throw error;
+      }
 
-      if (result.success) {
+      if (data?.success) {
         toast.success('Senha atualizada com sucesso!');
         setPasswordDialogOpen(false);
         setSelectedUser(null);
         setNewPassword('');
       } else {
         toast.error('Erro ao atualizar senha', {
-          description: result.message,
+          description: data?.message || 'Erro desconhecido',
         });
       }
     } catch (error: any) {
@@ -256,21 +253,18 @@ export const UserManager = () => {
 
     setUpdatingRole(true);
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api/admin/users/${selectedUser.id}/role`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-          },
-          body: JSON.stringify({ role: selectedRole }),
-        }
-      );
+      const { data, error } = await supabase.functions.invoke('api', {
+        body: {
+          action: `admin/users/${selectedUser.id}/role`,
+          role: selectedRole,
+        },
+      });
 
-      const result = await response.json();
+      if (error) {
+        throw error;
+      }
 
-      if (result.success) {
+      if (data?.success) {
         toast.success('Role atualizada com sucesso!');
         setRoleDialogOpen(false);
         setSelectedUser(null);
@@ -278,7 +272,7 @@ export const UserManager = () => {
         loadUsers();
       } else {
         toast.error('Erro ao atualizar role', {
-          description: result.message,
+          description: data?.message || 'Erro desconhecido',
         });
       }
     } catch (error: any) {
@@ -295,27 +289,25 @@ export const UserManager = () => {
 
     setDeleting(true);
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/api/admin/users/${selectedUser.id}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-          },
-        }
-      );
+      const { data, error } = await supabase.functions.invoke('api', {
+        body: {
+          action: `admin/users/${selectedUser.id}`,
+        },
+        method: 'DELETE',
+      });
 
-      const result = await response.json();
+      if (error) {
+        throw error;
+      }
 
-      if (result.success) {
+      if (data?.success) {
         toast.success('Usuário excluído com sucesso!');
         setDeleteDialogOpen(false);
         setSelectedUser(null);
         loadUsers();
       } else {
         toast.error('Erro ao excluir usuário', {
-          description: result.message,
+          description: data?.message || 'Erro desconhecido',
         });
       }
     } catch (error: any) {
