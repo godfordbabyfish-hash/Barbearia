@@ -189,12 +189,27 @@ const Booking = () => {
 
     const today = new Date();
     const maxDaysToCheck = 30; // Check next 30 days
+    const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
     
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:187',message:'FindNextAvailableDateTime start',data:{todayDate:today.toISOString().split('T')[0],service:currentFormData.service,barber:currentFormData.barber},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:187',message:'FindNextAvailableDateTime start',data:{todayDate:today.toISOString().split('T')[0],currentTime,service:currentFormData.service,barber:currentFormData.barber},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
     // #endregion
     
-    for (let i = 0; i < maxDaysToCheck; i++) {
+    // Check if today has any slots left - if not, start from tomorrow
+    let startOffset = 0;
+    const todayStr = today.toISOString().split('T')[0];
+    if (isDateOpen(today)) {
+      const todaySlots = getTimeSlotsForDate(today);
+      const hasSlotsToday = todaySlots.some(slot => slot >= currentTime);
+      if (!hasSlotsToday) {
+        startOffset = 1; // Start from tomorrow if today has no more slots
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:195',message:'Today has no more slots, starting from tomorrow',data:{todayDate:todayStr,currentTime,lastSlot:todaySlots[todaySlots.length-1]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+        // #endregion
+      }
+    }
+    
+    for (let i = startOffset; i < maxDaysToCheck; i++) {
       const checkDate = new Date(today);
       checkDate.setDate(today.getDate() + i);
       const dateStr = checkDate.toISOString().split('T')[0];
