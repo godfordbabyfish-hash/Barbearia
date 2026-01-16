@@ -100,10 +100,13 @@ export const UserManager = () => {
       });
 
       // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:96',message:'LoadUsers invoke result',data:{hasError:!!error,hasData:!!data,errorMessage:error?.message,usersCount:data?.users?.length,success:data?.success},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:96',message:'LoadUsers invoke result',data:{hasError:!!error,hasData:!!data,errorMessage:error?.message,errorName:error?.name,errorStatus:(error as any)?.status,errorContext:(error as any)?.context,usersCount:data?.users?.length,success:data?.success,dataKeys:data ? Object.keys(data) : []},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
       // #endregion
 
       if (error) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:106',message:'LoadUsers error details',data:{errorMessage:error?.message,errorName:error?.name,errorStatus:(error as any)?.status,errorContext:(error as any)?.context,errorString:JSON.stringify(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
+        // #endregion
         throw error;
       }
 
