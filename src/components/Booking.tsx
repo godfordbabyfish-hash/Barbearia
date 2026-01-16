@@ -234,9 +234,27 @@ const Booking = () => {
       const isToday = checkDate.toDateString() === today.toDateString();
       const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
       
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:233',message:'Filtering slots',data:{dateStr,isToday,currentTime,firstSlot:dayTimeSlots[0],lastSlot:dayTimeSlots[dayTimeSlots.length-1]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+      // #endregion
+      
       const availableSlots = dayTimeSlots.filter(slot => {
-        if (isToday && slot <= currentTime) return false;
-        return !isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === currentFormData.service));
+        // Use < instead of <= to include the current hour if we're still in the first 30 minutes
+        // For example, if current time is 09:15, 09:30 should still be available
+        if (isToday && slot < currentTime) {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:245',message:'Slot filtered as past',data:{dateStr,slot,currentTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+          // #endregion
+          return false;
+        }
+        const hasConflict = isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === currentFormData.service));
+        if (hasConflict) {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:251',message:'Slot filtered due to conflict',data:{dateStr,slot},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
+          // #endregion
+          return false;
+        }
+        return true;
       });
 
       // #region agent log
@@ -360,7 +378,8 @@ const Booking = () => {
 
     return dayTimeSlots.filter(slot => {
       // Filter out past times if it's today
-      if (isToday && slot <= currentTime) {
+      // Use < instead of <= to include the current hour slot if we're still in the first 30 minutes
+      if (isToday && slot < currentTime) {
         return false;
       }
       
