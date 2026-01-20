@@ -691,41 +691,44 @@ const Booking = () => {
       }
 
       // Disparar processamento da fila de WhatsApp (cliente + barbeiro)
-      try {
-        // Obter o token de autenticação do usuário
-        const { data: { session } } = await supabase.auth.getSession();
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-        
-        if (!supabaseUrl) {
-          console.error('VITE_SUPABASE_URL não configurado');
-          return;
+      // Fazer isso de forma assíncrona para não bloquear a UI
+      (async () => {
+        try {
+          // Obter o token de autenticação do usuário
+          const { data: { session } } = await supabase.auth.getSession();
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+          const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+          
+          if (!supabaseUrl) {
+            console.error('VITE_SUPABASE_URL não configurado');
+            return;
+          }
+
+          // Fazer chamada direta via fetch com o token do usuário
+          const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': supabaseAnonKey || '',
+              'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
+            },
+            body: JSON.stringify({}),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Error triggering WhatsApp queue:', response.status, errorData);
+          } else {
+            const data = await response.json().catch(() => ({}));
+            console.log('WhatsApp queue processed after online booking', data);
+          }
+        } catch (queueError) {
+          console.error('Error triggering WhatsApp queue after booking:', queueError);
+          // Não bloquear o fluxo do usuário se a fila falhar
         }
+      })();
 
-        // Fazer chamada direta via fetch com o token do usuário
-        const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': supabaseAnonKey || '',
-            'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
-          },
-          body: JSON.stringify({}),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          console.error('Error triggering WhatsApp queue:', response.status, errorData);
-        } else {
-          const data = await response.json().catch(() => ({}));
-          console.log('WhatsApp queue processed after online booking', data);
-        }
-      } catch (queueError) {
-        console.error('Error triggering WhatsApp queue after booking:', queueError);
-        // Não bloquear o fluxo do usuário se a fila falhar
-      }
-
-      // Set success step instead of resetting immediately
+      // Set success step immediately - não esperar pelo processamento da fila
       setStep("success");
     }
   };

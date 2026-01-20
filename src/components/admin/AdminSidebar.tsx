@@ -11,7 +11,8 @@ import {
   Image as ImageIcon, 
   ArrowLeft,
   Menu,
-  X
+  X,
+  MessageSquare
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
@@ -41,6 +42,7 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
     { id: 'users', label: 'Usuários', icon: <User className="h-4 w-4" />, adminOnly: true },
     { id: 'products', label: 'Produtos', icon: <ShoppingBag className="h-4 w-4" /> },
     { id: 'financial', label: 'Financeiro', icon: <DollarSign className="h-4 w-4" /> },
+    { id: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
     { id: 'config', label: 'Configurações', icon: <Settings className="h-4 w-4" />, adminOnly: true },
     { id: 'images', label: 'Imagens', icon: <ImageIcon className="h-4 w-4" />, adminOnly: true },
   ];

@@ -21,7 +21,30 @@ interface WhatsAppMessage {
 
 const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL')!;
 const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY')!;
-const evolutionInstanceName = Deno.env.get('EVOLUTION_INSTANCE_NAME')!;
+const evolutionInstanceNameEnv = Deno.env.get('EVOLUTION_INSTANCE_NAME')!;
+
+// Get active instance from database or fallback to env var
+const getActiveInstanceName = async (supabase: any): Promise<string> => {
+  try {
+    const { data, error } = await supabase
+      .from('site_config')
+      .select('config_value')
+      .eq('config_key', 'whatsapp_active_instance')
+      .maybeSingle(); // Usa maybeSingle() para evitar erro 406 quando não há registro
+
+    if (!error && data?.config_value) {
+      const config = data.config_value as any;
+      if (config.instanceName) {
+        return config.instanceName;
+      }
+    }
+  } catch (error) {
+    console.log('[WhatsApp] Could not load active instance from database, using env var');
+  }
+  
+  // Fallback to environment variable
+  return evolutionInstanceNameEnv;
+};
 
 // Format phone number (remove non-digits, add country code if needed)
 const formatPhoneNumber = (phone: string): string => {
@@ -36,8 +59,40 @@ const formatPhoneNumber = (phone: string): string => {
   return cleaned;
 };
 
+// Get barbershop Google Maps link from site_config
+const getBarbershopMapsLink = async (supabase: any): Promise<string | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('site_config')
+      .select('config_value')
+      .eq('config_key', 'footer_info')
+      .maybeSingle();
+
+    if (!error && data) {
+      const footerInfo = data.config_value as any;
+      // Priorizar o link salvo do Google Maps
+      if (footerInfo?.maps_link) {
+        return footerInfo.maps_link;
+      }
+      // Se não tiver link, gerar a partir do endereço
+      if (footerInfo?.address) {
+        // Se o endereço já for um link, usar diretamente
+        if (footerInfo.address.includes('http://') || footerInfo.address.includes('https://')) {
+          return footerInfo.address;
+        }
+        // Gerar link do Google Maps a partir do endereço
+        const encodedAddress = encodeURIComponent(footerInfo.address);
+        return `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
+      }
+    }
+  } catch (error) {
+    console.error('[WhatsApp] Error loading barbershop maps link:', error);
+  }
+  return null;
+};
+
 // Generate message based on action and target type
-const generateMessage = (data: WhatsAppMessage): string => {
+const generateMessage = (data: WhatsAppMessage, mapsLink?: string | null): string => {
   const { action, clientName, appointmentDate, appointmentTime, serviceName, barberName, targetType = 'client' } = data;
   
   const formattedDate = appointmentDate 
@@ -49,22 +104,36 @@ const generateMessage = (data: WhatsAppMessage): string => {
   if (targetType === 'client') {
     switch (action) {
       case 'created':
-        return `*Olá ${clientName}!* 👋\n\n` +
+        let createdMessage = `*Olá ${clientName}!* 👋\n\n` +
                `Seu agendamento foi *confirmado* com sucesso! ✅\n\n` +
                `📅 *Data:* ${formattedDate}\n` +
                `🕐 *Horário:* ${formattedTime}\n` +
                `${serviceName ? `💇 *Serviço:* ${serviceName}\n` : ''}` +
                `${barberName ? `👨‍💼 *Barbeiro:* ${barberName}\n` : ''}\n` +
                `Estamos te esperando! 🎉`;
+        
+        // Adicionar link do Google Maps se disponível
+        if (mapsLink) {
+          createdMessage += `\n\n📍 *Localização:*\n${mapsLink}`;
+        }
+        
+        return createdMessage;
                
       case 'updated':
-        return `*Olá ${clientName}!* 👋\n\n` +
+        let updatedMessage = `*Olá ${clientName}!* 👋\n\n` +
                `Seu agendamento foi *remarcado*. 📝\n\n` +
                `📅 *Nova Data:* ${formattedDate}\n` +
                `🕐 *Novo Horário:* ${formattedTime}\n` +
                `${serviceName ? `💇 *Serviço:* ${serviceName}\n` : ''}` +
                `${barberName ? `👨‍💼 *Barbeiro:* ${barberName}\n` : ''}\n` +
                `Por favor, confirme sua presença. ✅`;
+        
+        // Adicionar link do Google Maps se disponível
+        if (mapsLink) {
+          updatedMessage += `\n\n📍 *Localização:*\n${mapsLink}`;
+        }
+        
+        return updatedMessage;
                
       case 'cancelled':
         return `*Olá ${clientName}!* 👋\n\n` +
@@ -94,12 +163,12 @@ const generateMessage = (data: WhatsAppMessage): string => {
 };
 
 // Send message via Evolution API with retry logic
-const sendWhatsAppMessage = async (phone: string, message: string, retries: number = 3): Promise<{ success: boolean; error?: string }> => {
+const sendWhatsAppMessage = async (phone: string, message: string, instanceName: string, retries: number = 3): Promise<{ success: boolean; error?: string }> => {
   const formattedPhone = formatPhoneNumber(phone);
   
   console.log(`[WhatsApp] Attempting to send message to ${formattedPhone}`);
   console.log(`[WhatsApp] Evolution API URL: ${evolutionApiUrl}`);
-  console.log(`[WhatsApp] Instance Name: ${evolutionInstanceName}`);
+  console.log(`[WhatsApp] Instance Name: ${instanceName}`);
   console.log(`[WhatsApp] Retries remaining: ${retries}`);
   
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -111,7 +180,7 @@ const sendWhatsAppMessage = async (phone: string, message: string, retries: numb
       const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout (aumentado de 30s)
       
       const response = await fetch(
-        `${evolutionApiUrl}/message/sendText/${evolutionInstanceName}`,
+        `${evolutionApiUrl}/message/sendText/${instanceName}`,
         {
           method: 'POST',
           headers: {
@@ -195,6 +264,15 @@ const sendWhatsAppMessage = async (phone: string, message: string, retries: numb
 
 // Process queue from database
 const processQueue = async (supabase: any) => {
+  // Get active instance name
+  const activeInstanceName = await getActiveInstanceName(supabase);
+  
+  // Get barbershop maps link once (cache it for all messages in this batch)
+  const mapsLink = await getBarbershopMapsLink(supabase);
+  if (mapsLink) {
+    console.log('[Queue] Barbershop maps link loaded:', mapsLink);
+  }
+  
   // Get pending notifications (limit 10 at a time)
   const { data: queue, error } = await supabase
     .from('whatsapp_notifications_queue')
@@ -226,8 +304,9 @@ const processQueue = async (supabase: any) => {
 
       console.log(`[Queue] Processing item ${item.id} for ${targetPhone} (targetType=${targetType}, appointmentId=${payload.appointmentId})`);
 
-      const message = generateMessage(payload);
-      const result = await sendWhatsAppMessage(targetPhone, message);
+      // Passar o mapsLink apenas para mensagens de cliente
+      const message = generateMessage(payload, targetType === 'client' ? mapsLink : null);
+      const result = await sendWhatsAppMessage(targetPhone, message, activeInstanceName);
       
       // Update queue status
       const updateData: any = {
@@ -298,11 +377,11 @@ serve(async (req) => {
     const path = url.pathname.split('/').pop();
 
     // Check if environment variables are set
-    if (!evolutionApiUrl || !evolutionApiKey || !evolutionInstanceName) {
+    if (!evolutionApiUrl || !evolutionApiKey) {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: 'Variáveis de ambiente não configuradas. Configure EVOLUTION_API_URL, EVOLUTION_API_KEY e EVOLUTION_INSTANCE_NAME.' 
+          error: 'Variáveis de ambiente não configuradas. Configure EVOLUTION_API_URL e EVOLUTION_API_KEY.' 
         }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -311,6 +390,19 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    
+    // Get active instance (will use env var as fallback if not in database)
+    const activeInstanceName = await getActiveInstanceName(supabase);
+    
+    if (!activeInstanceName) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Nenhuma instância WhatsApp configurada. Configure uma instância ativa no painel admin ou defina EVOLUTION_INSTANCE_NAME.' 
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Process queue endpoint
     if (req.method === 'POST' && path === 'process-queue') {
@@ -332,11 +424,15 @@ serve(async (req) => {
       );
     }
 
-    // Generate message
-    const message = generateMessage(payload);
+    // Get barbershop maps link if message is for client
+    const targetType = payload.targetType || 'client';
+    const mapsLink = targetType === 'client' ? await getBarbershopMapsLink(supabase) : null;
 
-    // Send via Evolution API
-    const result = await sendWhatsAppMessage(payload.phone, message);
+    // Generate message
+    const message = generateMessage(payload, mapsLink);
+
+    // Send via Evolution API (using active instance)
+    const result = await sendWhatsAppMessage(payload.phone, message, activeInstanceName);
 
     if (!result.success) {
       return new Response(

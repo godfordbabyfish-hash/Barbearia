@@ -43,14 +43,18 @@ BEGIN
     action_type := 'created';
     appointment_data := NEW;
   ELSIF TG_OP = 'UPDATE' THEN
-    -- Only notify if status changed to cancelled
+    -- Only notify if status changed to cancelled (explicitly check this first)
     IF NEW.status = 'cancelled' AND OLD.status != 'cancelled' THEN
       action_type := 'cancelled';
       appointment_data := NEW;
-    -- Or if date/time changed (remarcação)
-    ELSIF NEW.appointment_date != OLD.appointment_date OR NEW.appointment_time != OLD.appointment_time THEN
+      -- Log para debug
+      RAISE NOTICE 'WhatsApp notification queued for cancelled appointment: %', NEW.id;
+    -- Or if date/time changed (remarcação) - but NOT if status is cancelled
+    ELSIF NEW.status != 'cancelled' AND (NEW.appointment_date != OLD.appointment_date OR NEW.appointment_time != OLD.appointment_time) THEN
       action_type := 'updated';
       appointment_data := NEW;
+      -- Log para debug
+      RAISE NOTICE 'WhatsApp notification queued for updated appointment: %', NEW.id;
     ELSE
       -- No significant change, don't notify
       RETURN NEW;

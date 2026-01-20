@@ -136,6 +136,36 @@ const ClienteDashboard = () => {
     if (error) {
       toast.error('Erro ao cancelar agendamento');
     } else {
+      // O trigger do banco de dados já deve ter adicionado a notificação na fila
+      // Mas vamos garantir que a fila seja processada após o cancelamento
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        
+        if (supabaseUrl) {
+          // Disparar processamento da fila de WhatsApp (cliente + barbeiro)
+          const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': supabaseAnonKey || '',
+              'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
+            },
+            body: JSON.stringify({}),
+          });
+
+          if (!response.ok) {
+            console.error('Error triggering WhatsApp queue after cancellation:', response.status);
+          } else {
+            console.log('WhatsApp queue processed after cancellation');
+          }
+        }
+      } catch (queueError) {
+        console.error('Error triggering WhatsApp queue after cancellation:', queueError);
+        // Não bloquear o fluxo do usuário se a fila falhar
+      }
+
       toast.success('Agendamento cancelado com sucesso');
       setCancelDialogOpen(false);
       setAppointmentToCancel(null);
