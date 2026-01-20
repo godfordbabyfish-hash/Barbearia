@@ -12,6 +12,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import ClienteDashboard from "./pages/ClienteDashboard";
 import BarbeiroDashboard from "./pages/BarbeiroDashboard";
 import FilaDaBarbearia from "./pages/FilaDaBarbearia";
+import Servicos from "./pages/Servicos";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ const App = () => (
             <Route path="/cliente" element={<ClienteDashboard />} />
             <Route path="/barbeiro" element={<BarbeiroDashboard />} />
             <Route path="/fila" element={<FilaDaBarbearia />} />
+            <Route path="/servicos" element={<Servicos />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>

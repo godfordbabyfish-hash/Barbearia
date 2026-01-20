@@ -49,6 +49,7 @@ interface User {
   phone: string;
   role: string;
   roles: string[];
+  image_url?: string | null;
   createdAt: string;
   lastSignIn: string | null;
 }
@@ -88,10 +89,6 @@ export const UserManager = () => {
   const [deleting, setDeleting] = useState(false);
 
   const loadUsers = async () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:90',message:'LoadUsers start',data:{hasSession:!!session,hasAccessToken:!!session?.access_token},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
-    // #endregion
-    
     setLoading(true);
     try {
       // Use supabase.functions.invoke to avoid CORS issues
@@ -99,29 +96,19 @@ export const UserManager = () => {
         body: { action: 'admin/users' },
       });
 
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:96',message:'LoadUsers invoke result',data:{hasError:!!error,hasData:!!data,errorMessage:error?.message,errorName:error?.name,errorStatus:(error as any)?.status,errorContext:(error as any)?.context,usersCount:data?.users?.length,success:data?.success,dataKeys:data ? Object.keys(data) : []},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
-      // #endregion
-
       if (error) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:106',message:'LoadUsers error details',data:{errorMessage:error?.message,errorName:error?.name,errorStatus:(error as any)?.status,errorContext:(error as any)?.context,errorString:JSON.stringify(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
-        // #endregion
         throw error;
       }
 
       if (data?.success) {
-        setUsers(data.users || []);
+        const usersList = data.users || [];
+        setUsers(usersList);
       } else {
         toast.error('Erro ao carregar usuários', {
           description: data?.message || 'Erro desconhecido',
         });
       }
     } catch (error: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:112',message:'LoadUsers catch error',data:{errorMessage:error?.message,errorName:error?.name},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
-      // #endregion
-      
       toast.error('Erro ao carregar usuários', {
         description: error.message || 'Erro ao conectar com o servidor',
       });
@@ -131,16 +118,8 @@ export const UserManager = () => {
   };
 
   useEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:132',message:'UserManager useEffect',data:{hasSession:!!session,hasAccessToken:!!session?.access_token,willLoad:!!session?.access_token},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
-    // #endregion
-    
     if (session?.access_token) {
       loadUsers();
-    } else {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:137',message:'UserManager - no session token, waiting',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
-      // #endregion
     }
   }, [session?.access_token]);
 
@@ -165,9 +144,6 @@ export const UserManager = () => {
     }
 
     setCreating(true);
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:167',message:'HandleCreateUser start',data:{email:newUser.email,name:newUser.name,role:newUser.role},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
-    // #endregion
     
     try {
       // Use supabase.functions.invoke to avoid CORS issues
@@ -177,10 +153,6 @@ export const UserManager = () => {
           ...newUser,
         },
       });
-
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:177',message:'HandleCreateUser result',data:{hasError:!!error,hasData:!!data,errorMessage:error?.message,success:data?.success},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
-      // #endregion
 
       if (error) {
         throw error;
@@ -199,9 +171,6 @@ export const UserManager = () => {
         });
       }
     } catch (error: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'UserManager.tsx:196',message:'HandleCreateUser catch error',data:{errorMessage:error?.message,errorName:error?.name},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'I'})}).catch(()=>{});
-      // #endregion
       toast.error('Erro ao criar usuário', {
         description: error.message,
       });
@@ -296,7 +265,7 @@ export const UserManager = () => {
         body: {
           action: `admin/users/${selectedUser.id}`,
         },
-        method: 'DELETE',
+          method: 'DELETE',
       });
 
       if (error) {
@@ -421,6 +390,7 @@ export const UserManager = () => {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Foto</TableHead>
                 <TableHead>Nome</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Telefone</TableHead>
@@ -431,6 +401,24 @@ export const UserManager = () => {
             <TableBody>
               {filteredUsers.map((user) => (
                 <TableRow key={user.id}>
+                  <TableCell>
+                    {user.image_url ? (
+                      <img
+                        src={user.image_url}
+                        alt={user.name || 'User'}
+                        className="w-10 h-10 rounded-full object-cover border-2 border-primary/50 shadow-md"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-secondary border-2 border-primary/30 flex items-center justify-center">
+                        <span className="text-xs font-semibold text-primary">
+                          {(user.name || user.email || '?').charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="font-medium">{user.name || '-'}</TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>{user.phone || '-'}</TableCell>

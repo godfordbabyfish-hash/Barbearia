@@ -48,14 +48,14 @@ const Barbers = () => {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
           {barbers.map((barber, index) => (
             <Card 
               key={barber.id} 
               className="group bg-card border-border hover:border-primary/50 transition-all duration-300 hover:shadow-gold cursor-pointer overflow-hidden"
               onClick={() => setSelectedBarber(barber)}
             >
-              <div className="relative h-64 overflow-hidden">
+              <div className="relative h-48 md:h-56 lg:h-64 overflow-hidden">
                 <img 
                   src={barber.image_url || defaultBarberImages[index] || barber1Img} 
                   alt={barber.name}
@@ -63,14 +63,14 @@ const Barbers = () => {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-card to-transparent"></div>
               </div>
-              <CardContent className="p-8 text-center">
-                <h3 className="text-2xl font-bold mb-2">{barber.name}</h3>
-                <p className="text-primary font-semibold mb-2">{barber.specialty}</p>
-                <p className="text-muted-foreground mb-4">{barber.experience}</p>
+              <CardContent className="p-3 md:p-6 lg:p-8 text-center">
+                <h3 className="text-sm md:text-lg lg:text-2xl font-bold mb-1 md:mb-2 line-clamp-1">{barber.name}</h3>
+                <p className="text-xs md:text-sm lg:text-base text-primary font-semibold mb-1 md:mb-2 line-clamp-1">{barber.specialty}</p>
+                <p className="text-xs md:text-sm text-muted-foreground mb-2 md:mb-4 line-clamp-1">{barber.experience}</p>
                 
-                <div className="flex items-center justify-center gap-1">
+                <div className="flex items-center justify-center gap-0.5 md:gap-1">
                   {[...Array(Math.floor(Number(barber.rating)))].map((_, i) => (
-                    <Star key={i} className="w-5 h-5 fill-primary text-primary" />
+                    <Star key={i} className="w-3 h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 fill-primary text-primary" />
                   ))}
                 </div>
               </CardContent>

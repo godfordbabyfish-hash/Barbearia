@@ -24,6 +24,7 @@ const FilaDaBarbearia = () => {
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState("");
+  const [quickBookingOpen, setQuickBookingOpen] = useState(false);
   const navigate = useNavigate();
   const { getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
 
@@ -91,19 +92,55 @@ const FilaDaBarbearia = () => {
 
     // Load profiles separately
     if (data && data.length > 0) {
-      const clientIds = data.map(apt => apt.client_id);
-      const { data: profiles } = await supabase
+      const clientIds = [...new Set(data.map(apt => apt.client_id))]; // Remove duplicatas
+      
+      const { data: profiles, error: profilesError } = await supabase
         .from("profiles")
         .select("id, name, phone")
         .in("id", clientIds);
 
+      if (profilesError) {
+        console.error("Error loading profiles:", profilesError);
+      }
+
+      console.log("Loaded profiles:", profiles);
+      console.log("Client IDs from appointments:", clientIds);
+
       const profilesMap = new Map(profiles?.map(p => [p.id, p]) || []);
       
-      const appointmentsWithProfiles = data.map(apt => ({
-        ...apt,
-        profiles: profilesMap.get(apt.client_id) || { name: "Cliente", phone: "" }
-      }));
+      const appointmentsWithProfiles = data.map(apt => {
+        const profile = profilesMap.get(apt.client_id);
+        
+        console.log(`Appointment ${apt.id} - client_id: ${apt.client_id}, profile found:`, profile);
+        
+        // Se encontrou o perfil e tem nome
+        if (profile && profile.name && profile.name.trim() !== '') {
+          return {
+            ...apt,
+            profiles: profile
+          };
+        }
+        
+        // Se perfil existe mas nome está vazio, tenta buscar do metadata do usuário
+        if (profile && (!profile.name || profile.name.trim() === '')) {
+          console.warn(`Profile exists but name is empty for client_id: ${apt.client_id}`);
+        } else {
+          console.warn(`Profile NOT found for client_id: ${apt.client_id}`);
+        }
+        
+        // Fallback: usa nome do perfil mesmo que vazio, ou cria um nome temporário
+        const fallbackName = profile?.name?.trim() || `Cliente ${apt.client_id.slice(0, 8)}`;
+        
+        return {
+          ...apt,
+          profiles: { 
+            name: fallbackName, 
+            phone: profile?.phone || ""
+          }
+        };
+      });
 
+      console.log("Appointments with profiles:", appointmentsWithProfiles);
       setAppointments(appointmentsWithProfiles as any);
     } else {
       setAppointments([]);
@@ -186,8 +223,8 @@ const FilaDaBarbearia = () => {
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-between mb-3">
             <h1 className="text-3xl md:text-4xl font-bold">
-              <span className="text-primary">Raimundos</span>{" "}
-              <span className="text-foreground">Barbershop</span>
+              <span className="text-primary">Barbearia</span>{" "}
+              <span className="text-foreground">Raimundos</span>
             </h1>
             <Button
               variant="ghost"
@@ -209,80 +246,146 @@ const FilaDaBarbearia = () => {
       </header>
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
+        {/* Available Slots - Card Clicável - Above Stats Cards */}
+        <button
+          onClick={() => {
+            if (availableSlots.length > 0) {
+              setQuickBookingOpen(true);
+            }
+          }}
+          disabled={availableSlots.length === 0}
+          className="w-full bg-card border-2 border-border p-5 md:p-6 lg:p-7 rounded-xl shadow-lg hover:border-success hover:bg-success/5 hover:shadow-xl transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border disabled:hover:bg-card disabled:hover:shadow-lg min-h-[120px] flex items-center"
+        >
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
+            <div className="flex items-start gap-3 md:gap-4">
+              <div className="p-2.5 md:p-3 bg-success/10 rounded-xl flex-shrink-0">
+                <Clock className="w-6 h-6 md:w-7 md:h-7 lg:w-8 lg:h-8 text-success" />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-primary text-lg md:text-xl lg:text-2xl font-bold mb-1.5 md:mb-2">Horários Disponíveis Hoje</h2>
+                {availableSlots.length > 0 ? (
+                  <p className="text-muted-foreground text-sm md:text-base">
+                    {availableSlots.length} horário{availableSlots.length > 1 ? 's' : ''} disponível{availableSlots.length > 1 ? 'eis' : ''} - Clique para iniciar atendimento local
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground text-sm md:text-base">Sem horários disponíveis hoje</p>
+                )}
+              </div>
+            </div>
+            {availableSlots.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 md:gap-3">
+                <div className="flex flex-wrap gap-2">
+                  {availableSlots.slice(0, 4).map((slot) => (
+                    <span key={slot} className="px-3 py-1.5 md:px-4 md:py-2 bg-success text-success-foreground rounded-full text-xs md:text-sm font-bold shadow-md">
+                      {slot}
+                    </span>
+                  ))}
+                  {availableSlots.length > 4 && (
+                    <span className="px-3 py-1.5 md:px-4 md:py-2 bg-success/80 text-success-foreground rounded-full text-xs md:text-sm font-bold shadow-md">
+                      +{availableSlots.length - 4}
+                    </span>
+                  )}
+                </div>
+                <div className="text-success flex-shrink-0">
+                  <svg className="w-5 h-5 md:w-6 md:h-6 lg:w-8 lg:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+            </div>
+          )}
+          </div>
+        </button>
+
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-card border border-border p-6 rounded-lg text-center">
-            <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm font-medium mb-2">
-              <Users className="w-4 h-4" />
+        <div className="grid grid-cols-3 gap-3 md:gap-4 lg:gap-6">
+          <div className="bg-card border border-border p-4 md:p-5 lg:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:border-primary/50 text-center flex flex-col justify-between min-h-[180px] md:min-h-[200px] lg:min-h-[220px]">
+            <div className="flex items-center justify-center gap-1.5 md:gap-2 text-muted-foreground text-xs md:text-sm font-semibold uppercase tracking-wide mb-2 md:mb-3">
+              <Users className="w-3 h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 text-primary" />
               NA FILA
             </div>
-            <div className="text-5xl text-primary font-bold mb-1">{waitingCount}</div>
-            <div className="text-muted-foreground text-sm">local + agendado</div>
+            <div className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl text-primary font-bold mb-1 md:mb-2 leading-none">{waitingCount}</div>
+            <div className="text-muted-foreground text-xs md:text-sm font-medium">local + agendado</div>
           </div>
-          <div className="bg-card border border-border p-6 rounded-lg text-center">
-            <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm font-medium mb-2">
-              <Scissors className="w-4 h-4" />
+          <div className="bg-card border border-border p-4 md:p-5 lg:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:border-primary/50 text-center flex flex-col justify-between min-h-[180px] md:min-h-[200px] lg:min-h-[220px]">
+            <div className="flex items-center justify-center gap-1.5 md:gap-2 text-muted-foreground text-xs md:text-sm font-semibold uppercase tracking-wide mb-2 md:mb-3">
+              <Scissors className="w-3 h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 text-primary" />
               EM ATENDIMENTO
             </div>
-            <div className="text-5xl text-primary font-bold mb-1">{inProgressCount}</div>
-            <div className="text-muted-foreground text-sm">barbeiros ocupados</div>
+            <div className="text-4xl md:text-5xl lg:text-6xl xl:text-7xl text-primary font-bold mb-1 md:mb-2 leading-none">{inProgressCount}</div>
+            <div className="text-muted-foreground text-xs md:text-sm font-medium">barbeiros ocupados</div>
           </div>
-          <div className="bg-card border border-border p-6 rounded-lg text-center">
-            <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm font-medium mb-2">
-              <Clock className="w-4 h-4" />
+          <div className="bg-card border border-border p-4 md:p-5 lg:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:border-primary/50 text-center flex flex-col justify-between min-h-[180px] md:min-h-[200px] lg:min-h-[220px]">
+            <div className="flex items-center justify-center gap-1.5 md:gap-2 text-muted-foreground text-xs md:text-sm font-semibold uppercase tracking-wide mb-2 md:mb-3">
+              <Clock className="w-3 h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 text-primary" />
               TEMPO MÉDIO
             </div>
-            <div className="text-5xl text-primary font-bold mb-1">
+            <div className="text-3xl md:text-4xl lg:text-5xl xl:text-6xl text-primary font-bold mb-1 md:mb-2 leading-none">
               ~{appointments.length > 0 ? Math.round(appointments.reduce((acc, apt) => acc + (apt.services?.duration || 30), 0) / appointments.length) : 30}min
             </div>
-            <div className="text-muted-foreground text-sm">até ser chamado</div>
+            <div className="text-muted-foreground text-xs md:text-sm font-medium">até ser chamado</div>
           </div>
         </div>
 
+        {/* Queues Side by Side */}
+        <div className="grid grid-cols-2 gap-4 md:gap-5 lg:gap-6">
         {/* Local Queue */}
-        <section className="bg-card border border-border p-6 rounded-lg">
-          <div className="flex items-center gap-3 mb-4">
-            <MapPin className="w-6 h-6 text-primary" />
-            <h2 className="text-primary text-xl md:text-2xl font-bold">Fila Local (No Local)</h2>
+        <section className="bg-card border border-border p-2.5 md:p-4 lg:p-6 rounded-xl shadow-lg flex flex-col min-h-[600px] md:min-h-[650px] lg:min-h-[700px]">
+          <div className="flex items-center gap-2 md:gap-3 mb-2.5 md:mb-4 pb-2 md:pb-3 border-b border-border">
+            <div className="p-1.5 bg-primary/10 rounded-lg">
+              <MapPin className="w-4 h-4 md:w-5 md:h-5 text-primary flex-shrink-0" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-primary text-sm md:text-base lg:text-lg font-bold break-words">Fila Local (No Local)</h2>
+              <span className="inline-block bg-success text-success-foreground px-2 py-0.5 rounded-full text-xs font-semibold mt-0.5">
+                Tablet Barbearia
+              </span>
+            </div>
           </div>
-          <span className="inline-block bg-success text-success-foreground px-4 py-1.5 rounded-full text-sm font-semibold mb-4">
-            Tablet Barbearia
-          </span>
           
           {localAppointments.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">Nenhum cliente na fila local</p>
+            <div className="text-center py-6 flex-1 flex items-center justify-center">
+              <div>
+                <MapPin className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                <p className="text-muted-foreground text-xs font-medium">Nenhum cliente na fila local</p>
+              </div>
+            </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-1 flex-1 overflow-y-auto">
               {localAppointments.map((apt, index) => {
                 const waitTime = calculateWaitTime(index);
                 return (
-                  <div key={apt.id} className="flex flex-col md:flex-row md:items-center gap-3 md:gap-5 p-4 border-l-4 border-primary bg-secondary/50 rounded-r-lg">
-                    <div className="text-xl font-bold text-primary min-w-[50px]">{index + 1}º</div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-foreground truncate">{apt.profiles.name}</div>
-                      <div className="text-muted-foreground text-sm">
-                        {apt.services.title} ({apt.services.duration} min) - {apt.barbers.name}
+                  <div key={apt.id} className="flex flex-col md:flex-row md:items-center gap-1.5 md:gap-2 lg:gap-3 p-1.5 md:p-2 lg:p-3 border-l-3 border-primary bg-secondary/30 hover:bg-secondary/50 rounded-r-lg transition-all duration-200">
+                    <div className="flex items-center justify-center w-6 h-6 md:w-7 md:h-7 lg:w-8 lg:h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex-shrink-0">
+                      {index + 1}º
+                    </div>
+                    <div className="flex items-center justify-center w-8 h-8 md:w-9 md:h-9 lg:w-10 lg:h-10 rounded-full bg-primary/20 text-primary text-xs md:text-sm lg:text-base font-bold flex-shrink-0">
+                      {apt.profiles.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0 space-y-0">
+                      <div className="font-bold text-foreground text-xs md:text-sm lg:text-base break-words leading-tight">{apt.profiles.name}</div>
+                      <div className="text-muted-foreground text-xs md:text-sm break-words leading-tight">
+                        {apt.services.title} ({apt.services.duration}min) - {apt.barbers.name}
+                      </div>
+                      <div className="text-primary text-xs md:text-sm font-medium break-words leading-tight">
+                        {apt.status === "in_progress"
+                          ? "⏳ Agora"
+                          : `⏱️ ~${waitTime}min`}
                       </div>
                     </div>
-                    <div className="text-primary text-sm flex-1">
-                      {apt.status === "in_progress"
-                        ? "Sendo atendido agora"
-                        : `Será chamado em ~${waitTime} min`}
-                    </div>
                     <span
-                      className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase whitespace-nowrap ${
+                      className={`px-2 py-0.5 md:px-2.5 md:py-1 lg:px-3 lg:py-1.5 rounded-full text-xs md:text-sm font-bold uppercase whitespace-nowrap self-start ${
                         apt.status === "in_progress"
                           ? "bg-warning text-warning-foreground"
                           : index === 0
                           ? "bg-success text-success-foreground"
-                          : "border border-border text-muted-foreground"
+                          : "bg-secondary border border-border text-muted-foreground"
                       }`}
                     >
                       {apt.status === "in_progress"
-                        ? "EM ATENDIMENTO"
+                        ? "ATEND."
                         : index === 0
-                        ? "PRÓXIMO"
-                        : "AGUARDANDO"}
+                        ? "PRÓX."
+                        : "AGUARD."}
                     </span>
                   </div>
                 );
@@ -292,19 +395,28 @@ const FilaDaBarbearia = () => {
         </section>
 
         {/* Online Queue */}
-        <section className="bg-card border border-border p-6 rounded-lg">
-          <div className="flex items-center gap-3 mb-4">
-            <Globe className="w-6 h-6 text-info" />
-            <h2 className="text-primary text-xl md:text-2xl font-bold">Fila Agendada (Online)</h2>
+        <section className="bg-card border border-border p-2.5 md:p-4 lg:p-6 rounded-xl shadow-lg flex flex-col min-h-[600px] md:min-h-[650px] lg:min-h-[700px]">
+          <div className="flex items-center gap-2 md:gap-3 mb-2.5 md:mb-4 pb-2 md:pb-3 border-b border-border">
+            <div className="p-1.5 bg-info/10 rounded-lg">
+              <Globe className="w-4 h-4 md:w-5 md:h-5 text-info flex-shrink-0" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-primary text-sm md:text-base lg:text-lg font-bold break-words">Fila Agendada (Online)</h2>
+              <span className="inline-block bg-info text-info-foreground px-2 py-0.5 rounded-full text-xs font-semibold mt-0.5">
+                Clientes Remotos
+              </span>
+            </div>
           </div>
-          <span className="inline-block bg-info text-info-foreground px-4 py-1.5 rounded-full text-sm font-semibold mb-4">
-            Clientes Remotos
-          </span>
           
           {onlineAppointments.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">Nenhum agendamento online hoje</p>
+            <div className="text-center py-6 flex-1 flex items-center justify-center">
+              <div>
+                <Globe className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                <p className="text-muted-foreground text-xs font-medium">Nenhum agendamento online hoje</p>
+              </div>
+            </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-1 flex-1 overflow-y-auto">
               {onlineAppointments.map((apt) => {
                 const now = new Date();
                 const [hours, minutes] = apt.appointment_time.split(":").map(Number);
@@ -316,55 +428,34 @@ const FilaDaBarbearia = () => {
                 const formattedDate = format(new Date(apt.appointment_date + "T12:00:00"), "dd/MM");
 
                 return (
-                  <div key={apt.id} className="flex flex-col md:flex-row md:items-center gap-3 md:gap-5 p-4 border-l-4 border-primary bg-secondary/50 rounded-r-lg">
-                    <div className="text-xl font-bold text-primary min-w-[100px]">
-                      {formattedDate} {apt.appointment_time.slice(0, 5)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-foreground truncate">{apt.profiles.name}</div>
-                      <div className="text-muted-foreground text-sm">
-                        {apt.services.title} ({apt.services.duration} min) - {apt.barbers.name}
+                  <div key={apt.id} className="flex flex-col md:flex-row md:items-center gap-1.5 md:gap-2 lg:gap-3 p-1.5 md:p-2 lg:p-3 border-l-3 border-info bg-secondary/30 hover:bg-secondary/50 rounded-r-lg transition-all duration-200">
+                    <div className="flex items-center justify-center min-w-[55px] md:min-w-[70px] lg:min-w-[80px] p-1 md:p-1.5 rounded-lg bg-info/10 flex-shrink-0">
+                      <div className="text-xs md:text-sm font-bold text-info leading-tight text-center">
+                        {formattedDate}<br className="hidden md:block" />
+                        <span className="text-xs">{apt.appointment_time.slice(0, 5)}</span>
                       </div>
                     </div>
-                    <div className="text-primary text-sm flex-1">
-                      {isToday 
-                        ? `Agendado para ${apt.appointment_time.slice(0, 5)} - ${minutesUntil > 0 ? `Em ~${minutesUntil} min` : "Agora"}`
-                        : `Agendado para ${formattedDate}`
-                      }
+                    <div className="flex items-center justify-center w-8 h-8 md:w-9 md:h-9 lg:w-10 lg:h-10 rounded-full bg-info/20 text-info text-xs md:text-sm lg:text-base font-bold flex-shrink-0">
+                      {apt.profiles.name.charAt(0).toUpperCase()}
                     </div>
-                    <span className="bg-info text-info-foreground px-4 py-1.5 rounded-full text-xs font-bold uppercase whitespace-nowrap">
-                      AGENDADO
-                    </span>
+                    <div className="flex-1 min-w-0 space-y-0">
+                      <div className="font-bold text-foreground text-xs md:text-sm lg:text-base break-words leading-tight">{apt.profiles.name}</div>
+                      <div className="text-muted-foreground text-xs md:text-sm break-words leading-tight">
+                        {apt.services.title} ({apt.services.duration}min) - {apt.barbers.name}
+                      </div>
+                      {isToday && minutesUntil > 0 && (
+                        <div className="text-primary text-xs md:text-sm font-medium break-words leading-tight">
+                          ⏱️ ~{minutesUntil}min
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
             </div>
           )}
         </section>
-
-        {/* Available Slots */}
-        <section className="bg-card border border-border p-6 rounded-lg">
-          <div className="flex items-center gap-3 mb-4">
-            <Clock className="w-6 h-6 text-success" />
-            <h2 className="text-primary text-xl md:text-2xl font-bold">Horários Disponíveis Hoje</h2>
-          </div>
-          {availableSlots.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">Sem horários disponíveis hoje</p>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-              {availableSlots.slice(0, 12).map((slot) => (
-                <button
-                  key={slot}
-                  onClick={() => handleSlotClick(slot)}
-                  className="min-h-[100px] flex flex-col justify-center items-center text-center p-4 border border-success/50 bg-success/5 hover:bg-success/10 hover:border-success transition-all duration-200 rounded-lg cursor-pointer group"
-                >
-                  <span className="text-2xl md:text-3xl font-bold text-primary group-hover:scale-105 transition-transform">{slot}</span>
-                  <span className="text-sm text-success font-semibold mt-2">LIVRE</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
+        </div>
 
         <QuickBookingDialog
           open={dialogOpen}
@@ -373,22 +464,53 @@ const FilaDaBarbearia = () => {
           date={format(new Date(), "yyyy-MM-dd")}
         />
 
+        {/* Quick Booking for Local Service - opens when clicking the Available Slots card */}
+        {quickBookingOpen && availableSlots.length > 0 && (
+          <QuickBookingDialog
+            open={quickBookingOpen}
+            onOpenChange={setQuickBookingOpen}
+            timeSlot={availableSlots[0]}
+            date={format(new Date(), "yyyy-MM-dd")}
+          />
+        )}
+
         {/* How it works */}
-        <section className="bg-card border border-border p-6 rounded-lg">
-          <h2 className="text-primary text-xl md:text-2xl font-bold mb-4">Como Funciona?</h2>
-          <div className="space-y-3 text-foreground">
-            <p>
-              <strong className="text-primary">Clientes Locais:</strong>{" "}
-              <span className="text-muted-foreground">Esperam fisicamente na barbearia.</span>
-            </p>
-            <p>
-              <strong className="text-primary">Clientes Agendados:</strong>{" "}
-              <span className="text-muted-foreground">Chegam no horário agendado sem conflitos.</span>
-            </p>
-            <p>
-              <strong className="text-primary">Garantia:</strong>{" "}
-              <span className="text-muted-foreground">Múltiplos barbeiros trabalham em paralelo!</span>
-            </p>
+        <section className="bg-card border border-border p-5 md:p-6 lg:p-7 rounded-xl shadow-lg">
+          <h2 className="text-primary text-lg md:text-xl lg:text-2xl font-bold mb-5 md:mb-6 pb-3 md:pb-4 border-b border-border">Como Funciona?</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 lg:gap-6">
+            <div className="p-4 md:p-5 rounded-lg bg-secondary/30 border border-border hover:bg-secondary/50 transition-colors flex flex-col min-h-[140px]">
+              <div className="flex items-center gap-2 md:gap-3 mb-3">
+                <div className="p-2 bg-primary/10 rounded-lg flex-shrink-0">
+                  <MapPin className="w-4 h-4 md:w-5 md:h-5 text-primary" />
+                </div>
+                <strong className="text-primary text-sm md:text-base font-bold">Clientes Locais</strong>
+              </div>
+              <p className="text-muted-foreground text-xs md:text-sm leading-relaxed flex-1">
+                Esperam fisicamente na barbearia e são atendidos na ordem de chegada.
+              </p>
+            </div>
+            <div className="p-4 md:p-5 rounded-lg bg-secondary/30 border border-border hover:bg-secondary/50 transition-colors flex flex-col min-h-[140px]">
+              <div className="flex items-center gap-2 md:gap-3 mb-3">
+                <div className="p-2 bg-info/10 rounded-lg flex-shrink-0">
+                  <Globe className="w-4 h-4 md:w-5 md:h-5 text-info" />
+                </div>
+                <strong className="text-primary text-sm md:text-base font-bold">Clientes Agendados</strong>
+              </div>
+              <p className="text-muted-foreground text-xs md:text-sm leading-relaxed flex-1">
+                Chegam no horário agendado sem conflitos e com prioridade garantida.
+              </p>
+            </div>
+            <div className="p-4 md:p-5 rounded-lg bg-secondary/30 border border-border hover:bg-secondary/50 transition-colors flex flex-col min-h-[140px]">
+              <div className="flex items-center gap-2 md:gap-3 mb-3">
+                <div className="p-2 bg-success/10 rounded-lg flex-shrink-0">
+                  <Scissors className="w-4 h-4 md:w-5 md:h-5 text-success" />
+                </div>
+                <strong className="text-primary text-sm md:text-base font-bold">Garantia</strong>
+              </div>
+              <p className="text-muted-foreground text-xs md:text-sm leading-relaxed flex-1">
+                Múltiplos barbeiros trabalham em paralelo para máxima eficiência!
+              </p>
+            </div>
           </div>
         </section>
       </main>

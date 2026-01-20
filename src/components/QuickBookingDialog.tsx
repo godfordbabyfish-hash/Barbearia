@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, X, ArrowLeft, Star, Scissors } from "lucide-react";
@@ -34,9 +36,10 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<"barber" | "service">("barber");
+  const [step, setStep] = useState<"barber" | "client" | "service">("barber");
   const [selectedBarberId, setSelectedBarberId] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [clientName, setClientName] = useState("");
 
   useEffect(() => {
     if (open) {
@@ -45,6 +48,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
       setStep("barber");
       setSelectedBarberId("");
       setSelectedServiceId("");
+      setClientName("");
     }
   }, [open]);
 
@@ -80,6 +84,10 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
 
   const handleBarberSelect = (barberId: string) => {
     setSelectedBarberId(barberId);
+    setStep("client");
+  };
+
+  const handleClientNameNext = () => {
     setStep("service");
   };
 
@@ -115,7 +123,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
         return;
       }
       const localPhone = "00000000000";
-      const localName = "LOCAL";
+      const localName = clientName.trim() || "LOCAL";
 
       const { data: existingProfile } = await supabase
         .from("profiles")
@@ -192,7 +200,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
           body: {
             action: 'notify-webhook',
             appointmentId: newAppointment.id,
-            clientName: 'LOCAL (presencial)',
+            clientName: localName === "LOCAL" ? 'LOCAL (presencial)' : localName,
             phone: '00000000000',
             service: selectedService?.title || 'Serviço',
             startTime: startDateTime.toISOString(),
@@ -207,7 +215,44 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
         // Don't block - appointment was already created
       }
 
-      toast.success("Agendamento local realizado com sucesso!");
+        // Disparar processamento da fila de WhatsApp (cliente + barbeiro)
+        try {
+          // Obter o token de autenticação do usuário
+          const { data: { session } } = await supabase.auth.getSession();
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+          const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+          
+          if (!supabaseUrl) {
+            console.error('VITE_SUPABASE_URL não configurado');
+            return;
+          }
+
+          // Fazer chamada direta via fetch com o token do usuário
+          const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': supabaseAnonKey || '',
+              'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
+            },
+            body: JSON.stringify({}),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Error triggering WhatsApp queue:', response.status, errorData);
+          } else {
+            const data = await response.json().catch(() => ({}));
+            console.log('WhatsApp queue processed after local booking', data);
+          }
+        } catch (queueError) {
+          console.error('Error triggering WhatsApp queue after local booking:', queueError);
+          // Não bloquear o fluxo se a fila falhar
+        }
+
+      toast.success(localName === "LOCAL" 
+        ? "Agendamento local realizado com sucesso!" 
+        : `Agendamento para ${localName} realizado com sucesso!`);
       onOpenChange(false);
     } catch (error: any) {
       console.error("Error creating booking:", error);
@@ -228,8 +273,12 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
   };
 
   const handleBack = () => {
-    setStep("barber");
-    setSelectedServiceId("");
+    if (step === "service") {
+      setStep("client");
+      setSelectedServiceId("");
+    } else if (step === "client") {
+      setStep("barber");
+    }
   };
 
   if (!open) return null;
@@ -286,7 +335,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
               <p className="text-gray-400 text-sm mt-1">Selecione seu barbeiro preferido</p>
             </div>
 
-            <div className={`grid gap-4 ${barbers.length === 1 ? 'grid-cols-1 max-w-xs mx-auto' : barbers.length === 2 ? 'grid-cols-2 max-w-lg mx-auto' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'}`}>
+            <div className={`grid gap-3 md:gap-4 ${barbers.length === 1 ? 'grid-cols-1 max-w-xs mx-auto' : barbers.length === 2 ? 'grid-cols-2 max-w-lg mx-auto' : 'grid-cols-3 sm:grid-cols-2 lg:grid-cols-3'}`}>
               {barbers.map((barber) => (
                 <button
                   key={barber.id}
@@ -308,19 +357,19 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
                       />
                     ) : (
                       <div className="w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex items-center justify-center">
-                        <Scissors className="h-16 w-16 text-gray-500" />
+                        <Scissors className="h-8 w-8 md:h-16 md:w-16 text-gray-500" />
                       </div>
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                   </div>
-                  <div className="p-4">
-                    <h4 className="text-lg font-bold text-white">{barber.name}</h4>
-                    <p className="text-gray-400 text-sm">{barber.specialty}</p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-gray-500 text-sm">{barber.experience}</span>
-                      <div className="flex items-center gap-1">
-                        <Star className="h-4 w-4 fill-yellow-500 text-yellow-500" />
-                        <span style={{ color: "#FFD700" }} className="font-semibold">
+                  <div className="p-2 md:p-4">
+                    <h4 className="text-xs md:text-base lg:text-lg font-bold text-white line-clamp-1">{barber.name}</h4>
+                    <p className="text-gray-400 text-xs md:text-sm line-clamp-1">{barber.specialty}</p>
+                    <div className="flex items-center justify-between mt-1 md:mt-2">
+                      <span className="text-gray-500 text-xs hidden md:inline">{barber.experience}</span>
+                      <div className="flex items-center gap-1 ml-auto">
+                        <Star className="h-3 w-3 md:h-4 md:w-4 fill-yellow-500 text-yellow-500" />
+                        <span style={{ color: "#FFD700" }} className="font-semibold text-xs md:text-sm">
                           {barber.rating?.toFixed(1) || "5.0"}
                         </span>
                       </div>
@@ -328,6 +377,77 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
                   </div>
                 </button>
               ))}
+            </div>
+          </>
+        ) : step === "client" ? (
+          <>
+            {/* Client Name Input */}
+            <div className="flex items-center gap-4 mb-6">
+              <button
+                onClick={handleBack}
+                className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+              >
+                <ArrowLeft className="h-5 w-5" />
+                Voltar
+              </button>
+              {selectedBarber && (
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full overflow-hidden border-2" style={{ borderColor: "#FFD700" }}>
+                    {selectedBarber.image_url ? (
+                      <img src={selectedBarber.image_url} alt={selectedBarber.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+                        <Scissors className="h-4 w-4 text-gray-500" />
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-white font-medium">{selectedBarber.name}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="text-center mb-6">
+              <h3 className="text-xl font-semibold text-white">
+                Nome do <span style={{ color: "#FFD700" }}>Cliente</span>
+              </h3>
+              <p className="text-gray-400 text-sm mt-1">Opcional - Deixe em branco para agendamento local</p>
+            </div>
+
+            <div className="max-w-md mx-auto mb-6">
+              <Label htmlFor="clientName" className="text-gray-300 mb-2 block">
+                Nome do Cliente (Opcional)
+              </Label>
+              <Input
+                id="clientName"
+                type="text"
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+                placeholder="Digite o nome do cliente ou deixe em branco para LOCAL"
+                className="w-full bg-gray-800 border-gray-700 text-white placeholder:text-gray-500 focus:border-yellow-500"
+                onKeyPress={(e) => {
+                  if (e.key === "Enter") {
+                    handleClientNameNext();
+                  }
+                }}
+              />
+              {clientName.trim() === "" && (
+                <p className="text-xs text-gray-500 mt-2">
+                  ℹ️ Se deixar em branco, será criado como agendamento "LOCAL"
+                </p>
+              )}
+            </div>
+
+            <div className="flex justify-center">
+              <Button
+                onClick={handleClientNameNext}
+                className="px-8 py-6 text-lg font-semibold"
+                style={{
+                  backgroundColor: "#FFD700",
+                  color: "#000",
+                }}
+              >
+                Continuar para Serviços
+              </Button>
             </div>
           </>
         ) : (
@@ -353,6 +473,9 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
                     )}
                   </div>
                   <span className="text-white font-medium">{selectedBarber.name}</span>
+                  {clientName.trim() && (
+                    <span className="text-gray-400 text-sm">• {clientName}</span>
+                  )}
                 </div>
               )}
             </div>

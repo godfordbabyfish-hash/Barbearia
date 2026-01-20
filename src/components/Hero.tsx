@@ -3,6 +3,8 @@ import { Scissors } from "lucide-react";
 import heroImage from "@/assets/hero-barber.jpg";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface HeroConfig {
   title: string;
@@ -12,6 +14,8 @@ interface HeroConfig {
 }
 
 const Hero = () => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [config, setConfig] = useState<HeroConfig>({
     title: "Elegância em Cada Corte",
     subtitle: "Premium Barbershop",
@@ -36,11 +40,19 @@ const Hero = () => {
   };
 
   const scrollToBooking = () => {
+    // Verificar se o usuário está autenticado
+    if (!user) {
+      // Se não estiver logado, redirecionar para a página de login
+      navigate('/auth');
+      return;
+    }
+    
+    // Se estiver logado, fazer scroll para a seção de agendamento
     document.getElementById('agendamento')?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const scrollToServices = () => {
-    document.getElementById('servicos')?.scrollIntoView({ behavior: 'smooth' });
+    navigate('/servicos');
   };
 
   const backgroundImage = config.image_url || heroImage;

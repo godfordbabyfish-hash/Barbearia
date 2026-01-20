@@ -12,6 +12,7 @@ interface Barber {
   id: string;
   name: string;
   user_id?: string;
+  whatsapp_phone?: string | null;
 }
 
 export const BarbeiroManager = () => {
@@ -22,6 +23,7 @@ export const BarbeiroManager = () => {
     email: '',
     password: '',
     phone: '',
+    whatsapp_phone: '',
     specialty: '',
     experience: '',
   });
@@ -92,14 +94,15 @@ export const BarbeiroManager = () => {
           experience: newBarber.experience,
           rating: 5.0,
           visible: true,
+          whatsapp_phone: newBarber.whatsapp_phone || null,
           order_index: barbers.length,
         }]);
 
       if (barberError) throw barberError;
 
-      toast.success('Barbeiro criado com sucesso! Login e senha configurados.');
+      toast.success('Barbeiro criado com sucesso! Login, senha e WhatsApp configurados.');
       setShowNewBarberDialog(false);
-      setNewBarber({ name: '', email: '', password: '', phone: '', specialty: '', experience: '' });
+      setNewBarber({ name: '', email: '', password: '', phone: '', whatsapp_phone: '', specialty: '', experience: '' });
       loadBarbers();
     } catch (error: any) {
       toast.error('Erro ao criar barbeiro: ' + error.message);
@@ -174,6 +177,18 @@ export const BarbeiroManager = () => {
               />
             </div>
             <div>
+              <Label>WhatsApp do Barbeiro (opcional)</Label>
+              <Input
+                type="tel"
+                value={newBarber.whatsapp_phone}
+                onChange={(e) => setNewBarber({ ...newBarber, whatsapp_phone: e.target.value })}
+                placeholder="Ex: 5582999999999"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Use apenas números. Exemplo: 5582982212126 (55 + DDD + número).
+              </p>
+            </div>
+            <div>
               <Label>Especialidade *</Label>
               <Input
                 value={newBarber.specialty}
@@ -207,7 +222,7 @@ export const BarbeiroManager = () => {
         {barbers.map((barber) => (
           <Card key={barber.id} className="bg-card border-border">
             <CardContent className="p-4">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-start gap-4">
                 <div className="flex items-center gap-3">
                   <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
                     <Key className="h-5 w-5 text-primary" />
@@ -216,6 +231,12 @@ export const BarbeiroManager = () => {
                     <h3 className="text-lg font-bold">{barber.name}</h3>
                     <p className="text-sm text-muted-foreground">
                       {barber.user_id ? 'Acesso configurado' : 'Sem acesso ao sistema'}
+                    </p>
+                    <p className="text-xs mt-1">
+                      WhatsApp:{' '}
+                      {barber.whatsapp_phone
+                        ? <span className="text-emerald-500 font-medium">{barber.whatsapp_phone}</span>
+                        : <span className="text-muted-foreground">não configurado</span>}
                     </p>
                   </div>
                 </div>

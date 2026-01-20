@@ -74,12 +74,12 @@ const OperatingHoursEditor = () => {
           {dayDisplayOrder.map((day) => (
             <div 
               key={day} 
-              className={`p-3 rounded-lg border ${
+              className={`p-3 md:p-4 rounded-lg border ${
                 hours[day].closed ? 'bg-muted/50 border-border' : 'bg-card border-primary/20'
               }`}
             >
-              <div className="flex items-center gap-4">
-                <div className="w-32 font-medium">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+                <div className="w-full sm:w-32 font-medium text-sm sm:text-base">
                   {dayNames[day]}
                 </div>
                 
@@ -88,71 +88,71 @@ const OperatingHoursEditor = () => {
                     checked={!hours[day].closed}
                     onCheckedChange={(checked) => updateDayHours(day, 'closed', !checked)}
                   />
-                  <span className="text-sm text-muted-foreground w-16">
+                  <span className="text-sm text-muted-foreground w-20 sm:w-16">
                     {hours[day].closed ? 'Fechado' : 'Aberto'}
                   </span>
                 </div>
                 
                 {!hours[day].closed && (
-                  <div className="flex items-center gap-2 flex-1">
-                    <div className="flex items-center gap-2">
-                      <Label className="text-sm text-muted-foreground">De:</Label>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 flex-1">
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <Label className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">De:</Label>
                       <Input
                         type="time"
                         value={hours[day].open}
                         onChange={(e) => updateDayHours(day, 'open', e.target.value)}
-                        className="w-28"
+                        className="w-full sm:w-28"
                       />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Label className="text-sm text-muted-foreground">Até:</Label>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <Label className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">Até:</Label>
                       <Input
                         type="time"
                         value={hours[day].close}
                         onChange={(e) => updateDayHours(day, 'close', e.target.value)}
-                        className="w-28"
+                        className="w-full sm:w-28"
                       />
                     </div>
                   </div>
                 )}
                 
                 {hours[day].closed && (
-                  <span className="text-muted-foreground italic">Fechado</span>
+                  <span className="text-sm text-muted-foreground italic">Fechado</span>
                 )}
               </div>
               
               {/* Lunch Break Section */}
               {!hours[day].closed && (
-                <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-4">
+                <div className="mt-3 pt-3 border-t border-border/50 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
                   <div className="flex items-center gap-2">
                     <Coffee className="w-4 h-4 text-muted-foreground" />
                     <Switch
                       checked={hours[day].hasLunchBreak || false}
                       onCheckedChange={(checked) => updateDayHours(day, 'hasLunchBreak', checked)}
                     />
-                    <span className="text-sm text-muted-foreground">
+                    <span className="text-xs sm:text-sm text-muted-foreground">
                       Horário de Almoço
                     </span>
                   </div>
                   
                   {hours[day].hasLunchBreak && (
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-2">
-                        <Label className="text-sm text-muted-foreground">De:</Label>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <Label className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">De:</Label>
                         <Input
                           type="time"
                           value={hours[day].lunchStart || '12:00'}
                           onChange={(e) => updateDayHours(day, 'lunchStart', e.target.value)}
-                          className="w-28"
+                          className="w-full sm:w-28"
                         />
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Label className="text-sm text-muted-foreground">Até:</Label>
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <Label className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">Até:</Label>
                         <Input
                           type="time"
                           value={hours[day].lunchEnd || '13:00'}
                           onChange={(e) => updateDayHours(day, 'lunchEnd', e.target.value)}
-                          className="w-28"
+                          className="w-full sm:w-28"
                         />
                       </div>
                     </div>

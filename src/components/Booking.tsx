@@ -3,13 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Clock, Scissors, Wind, Sparkles, User, Star } from "lucide-react";
+import { Calendar, Clock, Scissors, Wind, Sparkles, User, Star, MapPin, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import * as Icons from "lucide-react";
-import { useOperatingHours } from "@/hooks/useOperatingHours";
+import { useOperatingHours, getDayKey } from "@/hooks/useOperatingHours";
 import haircutImg from "@/assets/service-haircut.jpg";
 import beardImg from "@/assets/service-beard.jpg";
 import stylingImg from "@/assets/service-styling.jpg";
@@ -59,10 +59,12 @@ const Booking = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
-  const [step, setStep] = useState<"service" | "barber" | "time" | "form">("service");
+  const [step, setStep] = useState<"service" | "barber" | "time" | "form" | "success">("service");
   const [services, setServices] = useState<any[]>([]);
   const [barbers, setBarbers] = useState<any[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+  const [barbershopAddress, setBarbershopAddress] = useState<string>("");
+  const [barbershopMapsLink, setBarbershopMapsLink] = useState<string>("");
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
@@ -75,10 +77,26 @@ const Booking = () => {
     time: "",
   });
 
+  // Carregar dados iniciais apenas uma vez (não quando estiver no step success)
   useEffect(() => {
+    if (step === "success") return;
+    
     loadServices();
     loadBarbers();
-    loadUserProfile();
+    loadBarbershopAddress();
+    
+    if (user) {
+      loadUserProfile();
+    }
+  }, [user, step]);
+
+  // Gerenciar serviço pré-selecionado (separado do carregamento de dados)
+  useEffect(() => {
+    // Não fazer nada se estiver na tela de sucesso ou se já estiver em um step avançado
+    if (step === "success" || step === "time" || step === "form") return;
+    
+    // Não fazer nada se já tiver um barbeiro selecionado (já passou da etapa de seleção de barbeiro)
+    if (formData.barber) return;
     
     // Check if service was pre-selected from navigation state
     const checkPreSelectedService = () => {
@@ -113,7 +131,7 @@ const Booking = () => {
     return () => {
       window.removeEventListener('popstate', checkPreSelectedService);
     };
-  }, [user, location]);
+  }, [location, step, formData.barber]);
 
   const loadUserProfile = async () => {
     if (!user) return;
@@ -125,12 +143,54 @@ const Booking = () => {
       .single();
 
     if (data && !error) {
-      setFormData(prev => ({
-        ...prev,
-        name: data.name || '',
-        phone: data.phone || '',
-      }));
+      // Preservar dados do agendamento: só atualizar se os campos estiverem vazios
+      setFormData(prev => {
+        // Se já tiver nome e telefone preenchidos, não sobrescrever (pode ser dados do agendamento)
+        // Isso preserva os dados quando estiver no step success
+        return {
+          ...prev,
+          name: prev.name || data.name || '',
+          phone: prev.phone || data.phone || '',
+        };
+      });
     }
+  };
+
+  const loadBarbershopAddress = async () => {
+    const { data, error } = await supabase
+      .from('site_config')
+      .select('config_value')
+      .eq('config_key', 'footer_info')
+      .maybeSingle();
+
+    if (!error && data) {
+      const footerInfo = data.config_value as any;
+      if (footerInfo?.address) {
+        setBarbershopAddress(footerInfo.address);
+      }
+      // Carregar o link do Google Maps se existir
+      if (footerInfo?.maps_link) {
+        setBarbershopMapsLink(footerInfo.maps_link);
+      }
+    }
+  };
+
+  const getGoogleMapsLink = (): string => {
+    // Priorizar o link salvo do Google Maps
+    if (barbershopMapsLink) {
+      return barbershopMapsLink;
+    }
+    // Se não tiver link, gerar a partir do endereço
+    if (barbershopAddress) {
+      // Se o endereço já for um link, usar diretamente
+      if (barbershopAddress.includes('http://') || barbershopAddress.includes('https://')) {
+        return barbershopAddress;
+      }
+      // Gerar link do Google Maps a partir do endereço
+      const encodedAddress = encodeURIComponent(barbershopAddress);
+      return `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
+    }
+    return '#';
   };
 
   const loadServices = async () => {
@@ -161,6 +221,30 @@ const Booking = () => {
     }
   };
 
+  // Filter barbers based on selected date and their availability
+  const getAvailableBarbers = () => {
+    if (!formData.date) return barbers;
+    
+    const selectedDate = new Date(formData.date + 'T00:00:00');
+    return barbers.filter(barber => {
+      if (!barber.availability) return true; // Backwards compatibility
+      
+      try {
+        const availability = typeof barber.availability === 'string' 
+          ? JSON.parse(barber.availability) 
+          : barber.availability;
+        
+        const dayKey = getDayKey(selectedDate);
+        const dayAvailability = availability[dayKey];
+        
+        return !dayAvailability?.closed;
+      } catch (error) {
+        console.error('Error parsing barber availability:', error);
+        return true; // If error parsing, assume available
+      }
+    });
+  };
+
   const handleServiceSelect = (service: typeof services[0]) => {
     setFormData({
       ...formData,
@@ -171,7 +255,7 @@ const Booking = () => {
     setStep("barber");
   };
 
-  const handleBarberSelect = async (barber: typeof barbers[0]) => {
+  const handleBarberSelect = (barber: typeof barbers[0]) => {
     const newFormData = {
       ...formData,
       barber: barber.id,
@@ -179,9 +263,14 @@ const Booking = () => {
     };
     setFormData(newFormData);
     
-    // Find next available date and time
-    await findNextAvailableDateTime(newFormData);
+    // Ir imediatamente para a etapa de seleção de horário
     setStep("time");
+
+    // Em segundo plano, tentar encontrar automaticamente a próxima data/horário disponível.
+    // Qualquer erro aqui é apenas logado e não bloqueia a navegação.
+    findNextAvailableDateTime(newFormData).catch((error) => {
+      console.error('Error finding next available date/time:', error);
+    });
   };
 
   // Helper function to format date in local timezone (not UTC)
@@ -200,10 +289,6 @@ const Booking = () => {
     const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
     const todayStr = formatLocalDate(today);
     
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:187',message:'FindNextAvailableDateTime start',data:{todayDate:todayStr,currentTime,service:currentFormData.service,barber:currentFormData.barber},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-    // #endregion
-    
     // Check if today has any slots left - if not, start from tomorrow
     let startOffset = 0;
     if (isDateOpen(today)) {
@@ -211,9 +296,6 @@ const Booking = () => {
       const hasSlotsToday = todaySlots.some(slot => slot >= currentTime);
       if (!hasSlotsToday) {
         startOffset = 1; // Start from tomorrow if today has no more slots
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:195',message:'Today has no more slots, starting from tomorrow',data:{todayDate:todayStr,currentTime,lastSlot:todaySlots[todaySlots.length-1]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-        // #endregion
       }
     }
     
@@ -223,26 +305,31 @@ const Booking = () => {
       const dateStr = formatLocalDate(checkDate);
       const dayName = checkDate.toLocaleDateString('pt-BR', { weekday: 'long' });
       
-      // Check if date is open
+      // Check if date is open for the barbershop
       const dateIsOpen = isDateOpen(checkDate);
       
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:199',message:'Checking date',data:{dayOffset:i,dateStr,dayName,dateIsOpen},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-      // #endregion
+      // Check if barber is available on this date
+      const selectedBarber = barbers.find(b => b.id === currentFormData.barber);
+      let barberAvailable = true;
+      if (selectedBarber?.availability) {
+        try {
+          const availability = typeof selectedBarber.availability === 'string' 
+            ? JSON.parse(selectedBarber.availability) 
+            : selectedBarber.availability;
+          const dayKey = getDayKey(checkDate);
+          const dayAvailability = availability[dayKey];
+          barberAvailable = !dayAvailability?.closed;
+        } catch (error) {
+          console.error('Error parsing barber availability:', error);
+        }
+      }
       
-      // Skip closed days
-      if (!dateIsOpen) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:204',message:'Date is closed, skipping',data:{dateStr,dayName},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-        // #endregion
+      // Skip closed days or days when barber is unavailable
+      if (!dateIsOpen || !barberAvailable) {
         continue;
       }
       
       const dayTimeSlots = getTimeSlotsForDate(checkDate);
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:210',message:'Day time slots generated',data:{dateStr,totalSlots:dayTimeSlots.length,slots:dayTimeSlots.slice(0,5)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-      // #endregion
       
       const { data: appointments } = await (supabase as any)
         .from('appointments')
@@ -251,44 +338,66 @@ const Booking = () => {
         .eq('appointment_date', dateStr)
         .neq('status', 'cancelled');
 
+      // Query barber breaks for this date
+      const { data: breaks, error: breaksError } = await (supabase as any)
+        .from('barber_breaks')
+        .select('start_time, end_time')
+        .eq('barber_id', currentFormData.barber)
+        .eq('date', dateStr);
+      
+      // Ignore 404/table not found errors (table might not exist)
+      if (breaksError && breaksError.code !== 'PGRST116' && breaksError.code !== 'PGRST205' && breaksError.code !== '42P01') {
+        console.warn('Error loading barber breaks:', breaksError);
+      }
+
       const serviceDuration = getServiceDuration(currentFormData.service, services);
       
       // Filter out past times if it's today
       const isToday = checkDate.toDateString() === today.toDateString();
       const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
       
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:233',message:'Filtering slots',data:{dateStr,isToday,currentTime,firstSlot:dayTimeSlots[0],lastSlot:dayTimeSlots[dayTimeSlots.length-1]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-      // #endregion
+      // Helper function to check if a slot overlaps with a break
+      const isSlotInBreak = (slotTime: string, slotDuration: number): boolean => {
+        if (!breaks || breaks.length === 0) return false;
+
+        const timeToMinutes = (time: string): number => {
+          const [hours, minutes] = time.split(':').map(Number);
+          return hours * 60 + minutes;
+        };
+
+        const slotStartMinutes = timeToMinutes(slotTime);
+        const slotEndMinutes = slotStartMinutes + slotDuration;
+
+        return breaks.some((breakItem: any) => {
+          const breakStartMinutes = timeToMinutes(breakItem.start_time);
+          const breakEndMinutes = timeToMinutes(breakItem.end_time);
+
+          // Slot overlaps with break if: slot_start < break_end AND slot_end > break_start
+          return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;
+        });
+      };
       
       const availableSlots = dayTimeSlots.filter(slot => {
         // Use < instead of <= to include the current hour if we're still in the first 30 minutes
         // For example, if current time is 09:15, 09:30 should still be available
         if (isToday && slot < currentTime) {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:245',message:'Slot filtered as past',data:{dateStr,slot,currentTime},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-          // #endregion
           return false;
         }
+
+        // Filter out slots that overlap with breaks
+        if (isSlotInBreak(slot, serviceDuration)) {
+          return false;
+        }
+
         const hasConflict = isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === currentFormData.service));
         if (hasConflict) {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:251',message:'Slot filtered due to conflict',data:{dateStr,slot},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-          // #endregion
           return false;
         }
         return true;
       });
 
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:228',message:'Available slots calculated',data:{dateStr,totalSlots:dayTimeSlots.length,availableCount:availableSlots.length,availableSlots:availableSlots.slice(0,5),appointmentsCount:appointments?.length || 0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-      // #endregion
-
       if (availableSlots.length > 0) {
         // Found a date with available slots
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:234',message:'Found first available date',data:{selectedDate:dateStr,selectedTime:availableSlots[0],totalAvailable:availableSlots.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-        // #endregion
         
         setFormData(prev => ({
           ...prev,
@@ -301,10 +410,6 @@ const Booking = () => {
     }
     
     // No available slots found in next 30 days
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:246',message:'No available slots found in 30 days',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-    // #endregion
-    
     setAvailableSlots([]);
   };
 
@@ -337,16 +442,8 @@ const Booking = () => {
   }, [formData.date, formData.barber, formData.service, hoursLoading]);
 
   const loadAvailableSlots = async () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:265',message:'LoadAvailableSlots start',data:{date:formData.date,barber:formData.barber,service:formData.service,currentTime:formData.time},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
-    
     const slots = await getAvailableSlotsForDate();
     setAvailableSlots(slots);
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:272',message:'LoadAvailableSlots result',data:{slotsCount:slots.length,firstSlot:slots[0],currentTime:formData.time},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
     
     // Auto-select first available time (always update to next available)
     if (slots.length > 0) {
@@ -355,10 +452,6 @@ const Booking = () => {
       
       // Only update if current time is not available or no time is selected
       if (!currentTimeStillAvailable) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:280',message:'Auto-selecting first available slot',data:{newTime:slots[0],oldTime:formData.time,reason:!currentTimeStillAvailable?'time_not_available':'no_time_selected'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-        // #endregion
-        
         setFormData(prev => ({
           ...prev,
           time: slots[0],
@@ -390,6 +483,18 @@ const Booking = () => {
       .eq('appointment_date', formData.date)
       .neq('status', 'cancelled');
 
+    // Query barber breaks for the selected date
+    const { data: breaks, error: breaksError } = await (supabase as any)
+      .from('barber_breaks')
+      .select('start_time, end_time')
+      .eq('barber_id', formData.barber)
+      .eq('date', formData.date);
+    
+    // Ignore 404 errors (table might not exist)
+    if (breaksError && breaksError.code !== 'PGRST116') {
+      console.warn('Error loading barber breaks:', breaksError);
+    }
+
     const serviceDuration = getServiceDuration(formData.service, services);
 
     // Check if selected date is today
@@ -399,10 +504,36 @@ const Booking = () => {
     // Get current time in HH:MM format
     const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
 
+    // Helper function to check if a slot overlaps with a break
+    const isSlotInBreak = (slotTime: string, slotDuration: number): boolean => {
+      if (!breaks || breaks.length === 0) return false;
+
+      const timeToMinutes = (time: string): number => {
+        const [hours, minutes] = time.split(':').map(Number);
+        return hours * 60 + minutes;
+      };
+
+      const slotStartMinutes = timeToMinutes(slotTime);
+      const slotEndMinutes = slotStartMinutes + slotDuration;
+
+      return breaks.some((breakItem: any) => {
+        const breakStartMinutes = timeToMinutes(breakItem.start_time);
+        const breakEndMinutes = timeToMinutes(breakItem.end_time);
+
+        // Slot overlaps with break if: slot_start < break_end AND slot_end > break_start
+        return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;
+      });
+    };
+
     return dayTimeSlots.filter(slot => {
       // Filter out past times if it's today
       // Use < instead of <= to include the current hour slot if we're still in the first 30 minutes
       if (isToday && slot < currentTime) {
+        return false;
+      }
+
+      // Filter out slots that overlap with breaks
+      if (isSlotInBreak(slot, serviceDuration)) {
         return false;
       }
       
@@ -445,6 +576,44 @@ const Booking = () => {
         description: "Por favor, escolha outro horário disponível.",
       });
       return;
+    }
+
+    // Verificar se o horário está em uma pausa do barbeiro
+    const serviceDuration = getServiceDuration(formData.service, services);
+    const { data: breaks, error: breaksError } = await (supabase as any)
+      .from('barber_breaks')
+      .select('start_time, end_time')
+      .eq('barber_id', formData.barber)
+      .eq('date', formData.date);
+    
+    // Ignore 404 errors (table might not exist)
+    if (breaksError && breaksError.code !== 'PGRST116') {
+      console.warn('Error loading barber breaks:', breaksError);
+    }
+
+    if (breaks && breaks.length > 0) {
+      const timeToMinutes = (time: string): number => {
+        const [hours, minutes] = time.split(':').map(Number);
+        return hours * 60 + minutes;
+      };
+
+      const slotStartMinutes = timeToMinutes(formData.time);
+      const slotEndMinutes = slotStartMinutes + serviceDuration;
+
+      const isInBreak = breaks.some((breakItem: any) => {
+        const breakStartMinutes = timeToMinutes(breakItem.start_time);
+        const breakEndMinutes = timeToMinutes(breakItem.end_time);
+
+        // Slot overlaps with break if: slot_start < break_end AND slot_end > break_start
+        return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;
+      });
+
+      if (isInBreak) {
+        toast.error("Horário indisponível", {
+          description: "Este horário está em uma pausa do barbeiro. Por favor, escolha outro horário.",
+        });
+        return;
+      }
     }
 
     // Ensure profile exists before creating appointment
@@ -521,21 +690,43 @@ const Booking = () => {
         // Don't block - appointment was already created
       }
 
-      setFormData({ 
-        name: "", 
-        phone: "", 
-        service: "", 
-        serviceTitle: "",
-        servicePrice: "",
-        barber: "",
-        barberName: "",
-        date: "", 
-        time: "" 
-      });
-      setStep("service");
-      
-      // Redirect to client dashboard after 2 seconds
-      setTimeout(() => navigate('/cliente'), 2000);
+      // Disparar processamento da fila de WhatsApp (cliente + barbeiro)
+      try {
+        // Obter o token de autenticação do usuário
+        const { data: { session } } = await supabase.auth.getSession();
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        
+        if (!supabaseUrl) {
+          console.error('VITE_SUPABASE_URL não configurado');
+          return;
+        }
+
+        // Fazer chamada direta via fetch com o token do usuário
+        const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': supabaseAnonKey || '',
+            'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
+          },
+          body: JSON.stringify({}),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          console.error('Error triggering WhatsApp queue:', response.status, errorData);
+        } else {
+          const data = await response.json().catch(() => ({}));
+          console.log('WhatsApp queue processed after online booking', data);
+        }
+      } catch (queueError) {
+        console.error('Error triggering WhatsApp queue after booking:', queueError);
+        // Não bloquear o fluxo do usuário se a fila falhar
+      }
+
+      // Set success step instead of resetting immediately
+      setStep("success");
     }
   };
 
@@ -556,7 +747,7 @@ const Booking = () => {
           <h2 className="text-4xl md:text-5xl font-bold mb-4">
             {step === "service" ? (
               <>
-                Nossos <span className="bg-gradient-gold bg-clip-text text-transparent">Serviços</span>
+                Selecione o <span className="bg-gradient-gold bg-clip-text text-transparent">Serviço</span>
               </>
             ) : step === "barber" ? (
               <>
@@ -566,6 +757,10 @@ const Booking = () => {
               <>
                 Horários <span className="bg-gradient-gold bg-clip-text text-transparent">Disponíveis</span>
               </>
+            ) : step === "success" ? (
+              <>
+                Agendamento <span className="bg-gradient-gold bg-clip-text text-transparent">Confirmado!</span>
+              </>
             ) : (
               <>
                 Agende seu <span className="bg-gradient-gold bg-clip-text text-transparent">Horário</span>
@@ -574,46 +769,49 @@ const Booking = () => {
           </h2>
           <p className="text-muted-foreground text-lg">
             {step === "service" 
-              ? "Experiência premium em cada serviço"
+              ? "Escolha o serviço desejado para iniciar seu agendamento"
               : step === "barber"
               ? "Profissionais qualificados e experientes"
               : step === "time"
               ? "Selecione o melhor horário para você"
+              : step === "success"
+              ? "Reserve seu momento de cuidado pessoal"
               : "Reserve seu momento de cuidado pessoal"
             }
           </p>
         </div>
 
         {step === "service" ? (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
             {services.map((service, index) => (
               <Card 
                 key={index} 
                 className="group bg-card border-border hover:border-primary/50 transition-all duration-300 overflow-hidden hover:shadow-gold cursor-pointer"
                 onClick={() => handleServiceSelect(service)}
               >
-                  <div className="relative h-64 overflow-hidden">
-                    <img 
-                      src={service.image_url || defaultImages[service.title] || haircutImg} 
-                      alt={service.title}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-card to-transparent"></div>
-                  <div className="absolute bottom-4 left-4 right-4">
-                  <div className="flex items-center gap-2 mb-2">
+                <div className="relative h-48 md:h-56 lg:h-64 overflow-hidden">
+                  <img 
+                    src={service.image_url || defaultImages[service.title] || haircutImg} 
+                    alt={service.title}
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-card to-transparent"></div>
+                  <div className="absolute bottom-2 md:bottom-4 left-2 md:left-4 right-2 md:right-4">
+                  <div className="flex items-start gap-1 md:gap-2 mb-1 md:mb-2">
                       {(() => {
                         const IconComponent = (Icons as any)[service.icon] || Scissors;
-                        return <IconComponent className="w-5 h-5 text-primary" />;
+                        return <IconComponent className="w-3 h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 text-primary mt-0.5 flex-shrink-0" />;
                       })()}
-                      <h3 className="text-2xl font-bold text-foreground">{service.title}</h3>
+                      <h3 className="text-xs md:text-base lg:text-2xl font-bold text-foreground break-words">{service.title}</h3>
                     </div>
                   </div>
                 </div>
                 
-                <CardContent className="p-6">
-                  <p className="text-muted-foreground mb-4">{service.description}</p>
+                <CardContent className="p-3 md:p-4 lg:p-6">
+                  <h3 className="text-xs md:text-base lg:text-2xl font-bold mb-1 md:mb-2 break-words">{service.title}</h3>
+                  <p className="text-xs md:text-sm lg:text-base text-muted-foreground mb-2 md:mb-4 line-clamp-2">{service.description}</p>
                   <div className="flex items-center justify-between">
-                    <span className="text-3xl font-bold text-primary">R$ {service.price.toFixed(2)}</span>
+                    <span className="text-sm md:text-xl lg:text-3xl font-bold text-primary">R$ {service.price.toFixed(2)}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -621,14 +819,14 @@ const Booking = () => {
           </div>
         ) : step === "barber" ? (
           <div className="max-w-5xl mx-auto">
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
-              {barbers.map((barber, index) => (
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
+              {getAvailableBarbers().map((barber, index) => (
                 <Card 
                   key={index} 
                   className="group bg-card border-border hover:border-primary/50 transition-all duration-300 overflow-hidden hover:shadow-gold cursor-pointer"
                   onClick={() => handleBarberSelect(barber)}
                 >
-                  <div className="relative h-64 overflow-hidden">
+                  <div className="relative h-32 md:h-48 lg:h-64 overflow-hidden">
                     <img 
                       src={barber.image_url || defaultBarberImages[index] || barber1Img} 
                       alt={barber.name}
@@ -637,14 +835,14 @@ const Booking = () => {
                     <div className="absolute inset-0 bg-gradient-to-t from-card to-transparent"></div>
                   </div>
                   
-                  <CardContent className="p-6">
-                    <h3 className="text-2xl font-bold text-foreground mb-2">{barber.name}</h3>
-                    <p className="text-muted-foreground mb-3">{barber.specialty}</p>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">{barber.experience}</span>
-                      <div className="flex items-center gap-1 text-primary">
-                        <Star className="w-4 h-4 fill-current" />
-                        <span className="font-semibold">{Number(barber.rating).toFixed(1)}</span>
+                  <CardContent className="p-3 md:p-4 lg:p-6">
+                    <h3 className="text-sm md:text-lg lg:text-2xl font-bold text-foreground mb-1 md:mb-2 line-clamp-1">{barber.name}</h3>
+                    <p className="text-xs md:text-sm text-muted-foreground mb-2 md:mb-3 line-clamp-1">{barber.specialty}</p>
+                    <div className="flex items-center justify-between text-xs md:text-sm">
+                      <span className="text-muted-foreground line-clamp-1 hidden md:inline">{barber.experience}</span>
+                      <div className="flex items-center gap-1 text-primary ml-auto">
+                        <Star className="w-3 h-3 md:w-4 md:h-4 fill-current" />
+                        <span className="font-semibold text-xs md:text-sm">{Number(barber.rating).toFixed(1)}</span>
                       </div>
                     </div>
                   </CardContent>
@@ -686,10 +884,6 @@ const Booking = () => {
                       value={formData.date}
                       onChange={async (e) => {
                         const newDate = e.target.value;
-                        // #region agent log
-                        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Booking.tsx:588',message:'Date changed manually',data:{oldDate:formData.date,newDate},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-                        // #endregion
-                        
                         // Update date and clear time so it will be auto-selected
                         setFormData({ ...formData, date: newDate, time: "" });
                       }}
@@ -764,20 +958,88 @@ const Booking = () => {
               </CardContent>
             </Card>
           </div>
+        ) : step === "success" ? (
+          <div className="max-w-2xl mx-auto">
+            <Card className="bg-card border-border shadow-elegant">
+              <CardHeader>
+                <div className="flex flex-col items-center gap-4 mb-4">
+                  <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center">
+                    <CheckCircle2 className="w-12 h-12 text-primary" />
+                  </div>
+                  <CardTitle className="text-2xl text-center">Agendamento Confirmado!</CardTitle>
+                  <CardDescription className="text-center text-base">
+                    Seu agendamento foi realizado com sucesso.
+                  </CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="bg-secondary/50 rounded-lg p-6 border border-border space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-base"><strong>Serviço:</strong> {formData.serviceTitle} (R$ {formData.servicePrice})</p>
+                    <p className="text-base"><strong>Barbeiro:</strong> {formData.barberName}</p>
+                    <p className="text-base"><strong>Data e Horário:</strong> {new Date(formData.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {formData.time}</p>
+                  </div>
+                </div>
+
+                {barbershopAddress && (
+                  <div className="bg-primary/10 rounded-lg p-6 border border-primary/20 space-y-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <MapPin className="w-5 h-5 text-primary" />
+                      <h3 className="font-semibold text-lg">Localização</h3>
+                    </div>
+                    <p className="text-muted-foreground mb-3">
+                      Encontre-nos no endereço abaixo:
+                    </p>
+                    <a
+                      href={getGoogleMapsLink()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors font-medium text-base group"
+                    >
+                      <MapPin className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                      <span className="underline">{barbershopAddress || 'Ver localização'}</span>
+                      <span className="text-xs text-muted-foreground">(Abrir no Maps)</span>
+                    </a>
+                  </div>
+                )}
+
+                <div className="pt-4">
+                  <Button 
+                    onClick={() => {
+                      setFormData({ 
+                        name: "", 
+                        phone: "", 
+                        service: "", 
+                        serviceTitle: "",
+                        servicePrice: "",
+                        barber: "",
+                        barberName: "",
+                        date: "", 
+                        time: "" 
+                      });
+                      setStep("service");
+                      navigate('/cliente');
+                    }}
+                    className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-gold transition-all duration-300 hover:scale-105"
+                  >
+                    Ir para meu Painel
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         ) : (
           <div className="max-w-2xl mx-auto">
             <Card className="bg-card border-border shadow-elegant">
               <CardHeader>
                 <CardTitle className="text-2xl">Confirmar Agendamento</CardTitle>
-                <CardDescription>
-                  <div className="space-y-1 mt-2">
-                    <p className="text-base"><strong>Serviço:</strong> {formData.serviceTitle} (R$ {formData.servicePrice})</p>
-                    <p className="text-base"><strong>Barbeiro:</strong> {formData.barberName}</p>
-                    <p className="text-base"><strong>Data e Horário:</strong> {new Date(formData.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {formData.time}</p>
-                  </div>
-                </CardDescription>
               </CardHeader>
               <CardContent>
+                <div className="space-y-1 mb-6 pb-4 border-b border-border">
+                  <p className="text-base"><strong>Serviço:</strong> {formData.serviceTitle} (R$ {formData.servicePrice})</p>
+                  <p className="text-base"><strong>Barbeiro:</strong> {formData.barberName}</p>
+                  <p className="text-base"><strong>Data e Horário:</strong> {new Date(formData.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {formData.time}</p>
+                </div>
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <div className="space-y-2">
                     <Label htmlFor="name">Nome Completo</Label>

@@ -7,6 +7,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { DollarSign, TrendingUp, Calendar, Users, Filter } from 'lucide-react';
 import { format, subDays, subMonths, subYears, startOfDay, endOfDay, startOfWeek, startOfMonth, startOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useAuth } from '@/contexts/AuthContext';
+import { CommissionManager } from '@/components/CommissionManager';
 
 interface Appointment {
   id: string;
@@ -32,6 +34,7 @@ interface Service {
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', '#22c55e', '#3b82f6', '#f59e0b', '#ef4444'];
 
 const FinancialDashboard = () => {
+  const { role } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -40,6 +43,9 @@ const FinancialDashboard = () => {
   const [filterBarber, setFilterBarber] = useState<string>('all');
   const [filterService, setFilterService] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
+  const [activeTab, setActiveTab] = useState<'overview' | 'commissions'>('overview');
+  
+  const isManager = role === 'admin' || role === 'gestor';
 
   useEffect(() => {
     loadBarbers();
@@ -230,8 +236,8 @@ const FinancialDashboard = () => {
     }
   };
 
-  return (
-    <div className="space-y-6">
+  const renderContent = () => (
+    <>
       {/* Filters */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-3">
@@ -556,6 +562,31 @@ const FinancialDashboard = () => {
           </div>
         </CardContent>
       </Card>
+    </>
+  );
+
+  return (
+    <div className="space-y-6">
+      {isManager ? (
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'overview' | 'commissions')} className="w-full">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="overview">Visão Geral</TabsTrigger>
+            <TabsTrigger value="commissions">Comissões</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="overview" className="space-y-6 mt-6">
+            {renderContent()}
+          </TabsContent>
+          
+          <TabsContent value="commissions" className="space-y-6 mt-6">
+            <CommissionManager />
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <div className="space-y-6">
+          {renderContent()}
+        </div>
+      )}
     </div>
   );
 };

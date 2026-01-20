@@ -27,8 +27,38 @@ if (Test-Path ".cursor\debug.log") {
     Write-Host "🗑️  Log anterior limpo" -ForegroundColor Yellow
 }
 
+# Descobrir IP do computador para acesso via celular
+$ipAddresses = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {
+    ($_.InterfaceAlias -like "*Wi-Fi*" -or 
+     $_.InterfaceAlias -like "*Ethernet*") -and
+    $_.IPAddress -notlike "127.*" -and
+    $_.IPAddress -notlike "169.254.*"
+} | Select-Object -First 1 -ExpandProperty IPAddress
+
+# Verificar regra de firewall
+$firewallRule = Get-NetFirewallRule -DisplayName "Vite Dev Server 8080" -ErrorAction SilentlyContinue
+if (-not $firewallRule) {
+    Write-Host "⚠️  Firewall pode estar bloqueando a porta 8080" -ForegroundColor Yellow
+    Write-Host "   Execute como Administrador: .\scripts\setup-firewall.ps1" -ForegroundColor Cyan
+    Write-Host ""
+}
+
 Write-Host "🌐 Iniciando servidor de desenvolvimento..." -ForegroundColor Green
-Write-Host "📍 O servidor estará disponível em: http://localhost:8080" -ForegroundColor Cyan
+Write-Host "📍 O servidor estará disponível em:" -ForegroundColor Cyan
+Write-Host "   - Local: http://localhost:8080" -ForegroundColor White
+if ($ipAddresses) {
+    Write-Host "   - Rede local: http://$ipAddresses:8080" -ForegroundColor Green
+    Write-Host "   📱 Use este IP no celular (mesma rede Wi-Fi):" -ForegroundColor Yellow
+    Write-Host "      http://$ipAddresses:8080" -ForegroundColor Green -BackgroundColor Black
+    Write-Host ""
+    Write-Host "💡 Se não conseguir acessar do celular:" -ForegroundColor Yellow
+    Write-Host "   1. Execute: .\scripts\setup-firewall.ps1 (como Admin)" -ForegroundColor Cyan
+    Write-Host "   2. Verifique se o celular está na mesma rede Wi-Fi" -ForegroundColor Cyan
+    Write-Host "   3. Teste manualmente digitando a URL no navegador do celular" -ForegroundColor Cyan
+} else {
+    Write-Host "   ⚠️  Execute .\descobrir-ip.ps1 para descobrir o IP da rede local" -ForegroundColor Yellow
+}
+Write-Host ""
 Write-Host "📊 Logs de debug serão salvos em: .cursor\debug.log" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Para parar o servidor, pressione Ctrl+C" -ForegroundColor Yellow
