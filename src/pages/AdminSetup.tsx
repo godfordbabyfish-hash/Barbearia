@@ -92,7 +92,7 @@ const AdminSetup = () => {
           <div className="flex justify-center">
             <img 
               src={logoRaimundos} 
-              alt="Raimundos Barbearia" 
+              alt="Barbearia Raimundos" 
               className="h-24 w-24 object-contain"
             />
           </div>

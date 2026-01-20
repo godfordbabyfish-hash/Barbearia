@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  evolution-api:
+    image: atendai/evolution-api:latest
+    container_name: evolution-api
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_URL=http://localhost:8080
+      - PORT=8080
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-sua-api-key-segura}
+      - DATABASE_ENABLED=false
+      - REDIS_ENABLED=false
+      - QRCODE_LIMIT=30
+      - QRCODE_COLOR=#198754
+      - AUTO_START=false
+      - CONFIG_SESSION_PHONE_CLIENT=Chrome
+      - WEBHOOK_GLOBAL_ENABLED=false
+    volumes:
+      - evolution_instances:/evolution/instances
+      - evolution_store:/evolution/store
+    networks:
+      - evolution-network
+
+volumes:
+  evolution_instances:
+  evolution_store:
+
+networks:
+  evolution-network:
+    driver: bridge

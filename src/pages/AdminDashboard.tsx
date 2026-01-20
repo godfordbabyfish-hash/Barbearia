@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -28,10 +27,12 @@ import OperatingHoursEditor from '@/components/admin/OperatingHoursEditor';
 import { BarbeiroManager } from '@/components/admin/BarbeiroManager';
 import { UserManager } from '@/components/admin/UserManager';
 import { useAuth } from '@/contexts/AuthContext';
+import { AdminSidebar } from '@/components/admin/AdminSidebar';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, role, loading } = useAuth();
+  const [activeTab, setActiveTab] = useState<string>('services');
   const [services, setServices] = useState<any[]>([]);
   const [barbers, setBarbers] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -64,16 +65,9 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AdminDashboard.tsx:66',message:'AdminDashboard access check',data:{hasUser:!!user,userId:user?.id,role,loading,willAllow:!loading && user && (role === 'admin' || role === 'gestor')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
-    // #endregion
-    
     if (!loading) {
       // Allow access for admin and gestor roles
       if (!user || (role !== 'admin' && role !== 'gestor')) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/c4d959c1-8b88-44cd-ac6f-581bf2782e74',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AdminDashboard.tsx:70',message:'AdminDashboard - access denied',data:{hasUser:!!user,role,reason:!user?'no_user':role !== 'admin' && role !== 'gestor'?'wrong_role':'unknown'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         navigate('/auth');
         toast.error('Acesso negado', {
           description: 'Você precisa ser um administrador ou gestor para acessar esta página.',
@@ -220,6 +214,7 @@ const AdminDashboard = () => {
             rating: editingBarber.rating,
             visible: editingBarber.visible,
             image_url: editingBarber.image_url,
+            whatsapp_phone: editingBarber.whatsapp_phone || null,
           })
           .eq('id', editingBarber.id)
       : await (supabase as any)
@@ -231,6 +226,7 @@ const AdminDashboard = () => {
             rating: editingBarber.rating,
             visible: editingBarber.visible,
             image_url: editingBarber.image_url,
+            whatsapp_phone: editingBarber.whatsapp_phone || null,
             order_index: barbers.length,
           }]);
 
@@ -332,31 +328,26 @@ const AdminDashboard = () => {
     return null;
   }
 
+  if (!role || (role !== 'admin' && role !== 'gestor')) {
+    return null;
+  }
+
   return (
-    <div className="min-h-screen bg-background py-8 px-4">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold">
-            Painel <span className="bg-gradient-gold bg-clip-text text-transparent">Admin</span>
-          </h1>
-          <Button onClick={() => navigate('/')} variant="outline">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar ao Site
-          </Button>
-        </div>
+    <div className="min-h-screen bg-background flex">
+      {/* Sidebar */}
+      <AdminSidebar 
+        activeTab={activeTab} 
+        onTabChange={setActiveTab}
+        role={role as 'admin' | 'gestor'}
+      />
 
-        <Tabs defaultValue="services" className="w-full">
-          <TabsList className="grid w-full grid-cols-7">
-            <TabsTrigger value="services">Serviços</TabsTrigger>
-            <TabsTrigger value="barbeiros">Barbeiros</TabsTrigger>
-            <TabsTrigger value="users">Usuários</TabsTrigger>
-            <TabsTrigger value="products">Produtos</TabsTrigger>
-            <TabsTrigger value="financial">Financeiro</TabsTrigger>
-            <TabsTrigger value="config">Configurações</TabsTrigger>
-            <TabsTrigger value="images">Imagens</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="services" className="space-y-4">
+      {/* Main Content */}
+      <main className="flex-1 lg:pl-64">
+        <div className="py-4 md:py-8 px-4">
+          <div className="max-w-7xl mx-auto">
+            {/* Content based on active tab */}
+            {activeTab === 'services' && (
+              <div className="space-y-4">
             <Button onClick={() => setEditingService({ title: '', description: '', price: 0, icon: 'Scissors', visible: true, image_url: '', duration: 30 })}>
               <Plus className="mr-2 h-4 w-4" />
               Novo Serviço
@@ -410,15 +401,16 @@ const AdminDashboard = () => {
                   </div>
                   <div>
                     <Label>Imagem do Serviço</Label>
-                    <div className="flex gap-2 items-center">
+                    <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                       <Input
                         type="file"
                         accept="image/*"
                         onChange={handleServiceImageUpload}
                         disabled={uploading}
+                        className="flex-1"
                       />
                       {editingService.image_url && (
-                        <img src={editingService.image_url} alt="Preview" className="h-16 w-16 object-cover rounded" />
+                        <img src={editingService.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
                       )}
                     </div>
                   </div>
@@ -441,19 +433,21 @@ const AdminDashboard = () => {
               {services.map((service) => (
                 <Card key={service.id} className="bg-card border-border">
                   <CardContent className="p-4">
-                    <div className="flex justify-between items-start gap-4">
-                      {service.image_url && (
-                        <img src={service.image_url} alt={service.title} className="h-24 w-24 object-cover rounded" />
-                      )}
-                      <div className="flex-1">
-                        <h3 className="text-xl font-bold">{service.title}</h3>
-                        <p className="text-muted-foreground">{service.description}</p>
-                        <p className="text-primary font-bold mt-2">R$ {service.price}</p>
-                        <p className="text-sm text-muted-foreground">
-                          Ícone: {service.icon} | {service.visible ? 'Visível' : 'Oculto'}
-                        </p>
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+                      <div className="flex gap-4 flex-1">
+                        {service.image_url && (
+                          <img src={service.image_url} alt={service.title} className="h-20 w-20 sm:h-24 sm:w-24 object-cover rounded flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg sm:text-xl font-bold">{service.title}</h3>
+                          <p className="text-sm sm:text-base text-muted-foreground line-clamp-2">{service.description}</p>
+                          <p className="text-primary font-bold mt-2">R$ {service.price}</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground">
+                            Ícone: {service.icon} | {service.visible ? 'Visível' : 'Oculto'}
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 self-start sm:self-auto">
                         <Button size="sm" variant="outline" onClick={() => setEditingService(service)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -465,10 +459,12 @@ const AdminDashboard = () => {
                   </CardContent>
                 </Card>
               ))}
-            </div>
-          </TabsContent>
+              </div>
+              </div>
+            )}
 
-          <TabsContent value="barbeiros" className="space-y-4">
+            {activeTab === 'barbeiros' && (
+              <div className="space-y-4">
             <Card className="bg-card border-border">
               <CardHeader>
                 <CardTitle>Gestão de Barbeiros</CardTitle>
@@ -479,9 +475,9 @@ const AdminDashboard = () => {
             </Card>
             
             <div className="space-y-4 mt-8">
-              <div className="flex justify-between items-center">
-                <h3 className="text-2xl font-bold">Perfil dos Barbeiros</h3>
-                <Button onClick={() => setEditingBarber({ name: '', specialty: '', experience: '', rating: 5.0, visible: true, image_url: '' })}>
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+                <h3 className="text-xl sm:text-2xl font-bold">Perfil dos Barbeiros</h3>
+                <Button onClick={() => setEditingBarber({ name: '', specialty: '', experience: '', rating: 5.0, visible: true, image_url: '' })} className="w-full sm:w-auto">
                   <Plus className="mr-2 h-4 w-4" />
                   Novo Perfil de Barbeiro
                 </Button>
@@ -516,6 +512,18 @@ const AdminDashboard = () => {
                       />
                     </div>
                     <div>
+                      <Label>WhatsApp do Barbeiro (opcional)</Label>
+                      <Input
+                        type="tel"
+                        value={editingBarber.whatsapp_phone || ''}
+                        onChange={(e) => setEditingBarber({ ...editingBarber, whatsapp_phone: e.target.value })}
+                        placeholder="Ex: 5582999999999"
+                      />
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Use apenas números. Exemplo: 5582982212126 (55 + DDD + número).
+                      </p>
+                    </div>
+                    <div>
                       <Label>Avaliação (0-5)</Label>
                       <Input
                         type="number"
@@ -528,15 +536,16 @@ const AdminDashboard = () => {
                     </div>
                     <div>
                       <Label>Foto do Barbeiro</Label>
-                      <div className="flex gap-2 items-center">
+                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                         <Input
                           type="file"
                           accept="image/*"
                           onChange={handleBarberImageUpload}
                           disabled={uploading}
+                          className="flex-1"
                         />
                         {editingBarber.image_url && (
-                          <img src={editingBarber.image_url} alt="Preview" className="h-16 w-16 object-cover rounded-full" />
+                          <img src={editingBarber.image_url} alt="Preview" className="h-16 w-16 object-cover rounded-full flex-shrink-0" />
                         )}
                       </div>
                     </div>
@@ -559,21 +568,23 @@ const AdminDashboard = () => {
                 {barbers.map((barber) => (
                   <Card key={barber.id} className="bg-card border-border">
                     <CardContent className="p-4">
-                      <div className="flex justify-between items-start gap-4">
-                        {barber.image_url && (
-                          <img src={barber.image_url} alt={barber.name} className="h-24 w-24 object-cover rounded-full" />
-                        )}
-                        <div className="flex-1">
-                          <h3 className="text-xl font-bold">{barber.name}</h3>
-                          <p className="text-muted-foreground">{barber.specialty}</p>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {barber.experience} de experiência | ⭐ {barber.rating}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {barber.visible ? 'Visível' : 'Oculto'}
-                          </p>
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+                        <div className="flex gap-4 flex-1">
+                          {barber.image_url && (
+                            <img src={barber.image_url} alt={barber.name} className="h-20 w-20 sm:h-24 sm:w-24 object-cover rounded-full flex-shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-lg sm:text-xl font-bold">{barber.name}</h3>
+                            <p className="text-sm sm:text-base text-muted-foreground">{barber.specialty}</p>
+                            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                              {barber.experience} de experiência | ⭐ {barber.rating}
+                            </p>
+                            <p className="text-xs sm:text-sm text-muted-foreground">
+                              {barber.visible ? 'Visível' : 'Oculto'}
+                            </p>
+                          </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 self-start sm:self-auto">
                           <Button size="sm" variant="outline" onClick={() => setEditingBarber(barber)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -586,10 +597,12 @@ const AdminDashboard = () => {
                   </Card>
                 ))}
               </div>
-            </div>
-          </TabsContent>
+              </div>
+              </div>
+            )}
 
-          <TabsContent value="products" className="space-y-4">
+            {activeTab === 'products' && (
+              <div className="space-y-4">
             <Button onClick={() => setEditingProduct({ name: '', description: '', price: 0, category: 'Styling', stock: 0, visible: true, image_url: '' })}>
               <Plus className="mr-2 h-4 w-4" />
               Novo Produto
@@ -615,7 +628,7 @@ const AdminDashboard = () => {
                       onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })}
                     />
                   </div>
-                  <div className="grid md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label>Preço (R$)</Label>
                       <Input
@@ -644,15 +657,16 @@ const AdminDashboard = () => {
                   </div>
                   <div>
                     <Label>Imagem do Produto</Label>
-                    <div className="flex gap-2 items-center">
+                    <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                       <Input
                         type="file"
                         accept="image/*"
                         onChange={handleProductImageUpload}
                         disabled={uploading}
+                        className="flex-1"
                       />
                       {editingProduct.image_url && (
-                        <img src={editingProduct.image_url} alt="Preview" className="h-16 w-16 object-cover rounded" />
+                        <img src={editingProduct.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
                       )}
                     </div>
                   </div>
@@ -675,19 +689,21 @@ const AdminDashboard = () => {
               {products.map((product) => (
                 <Card key={product.id} className="bg-card border-border">
                   <CardContent className="p-4">
-                    <div className="flex justify-between items-start gap-4">
-                      {product.image_url && (
-                        <img src={product.image_url} alt={product.name} className="h-24 w-24 object-cover rounded" />
-                      )}
-                      <div className="flex-1">
-                        <h3 className="text-xl font-bold">{product.name}</h3>
-                        <p className="text-muted-foreground">{product.description}</p>
-                        <p className="text-primary font-bold mt-2">R$ {product.price}</p>
-                        <p className="text-sm text-muted-foreground">
-                          Categoria: {product.category} | Estoque: {product.stock} | {product.visible ? 'Visível' : 'Oculto'}
-                        </p>
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+                      <div className="flex gap-4 flex-1">
+                        {product.image_url && (
+                          <img src={product.image_url} alt={product.name} className="h-20 w-20 sm:h-24 sm:w-24 object-cover rounded flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg sm:text-xl font-bold">{product.name}</h3>
+                          <p className="text-sm sm:text-base text-muted-foreground line-clamp-2">{product.description}</p>
+                          <p className="text-primary font-bold mt-2">R$ {product.price}</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground">
+                            Categoria: {product.category} | Estoque: {product.stock} | {product.visible ? 'Visível' : 'Oculto'}
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 self-start sm:self-auto">
                         <Button size="sm" variant="outline" onClick={() => setEditingProduct(product)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -699,14 +715,18 @@ const AdminDashboard = () => {
                   </CardContent>
                 </Card>
               ))}
-            </div>
-          </TabsContent>
+              </div>
+              </div>
+            )}
 
-          <TabsContent value="financial" className="space-y-4">
-            <FinancialDashboard />
-          </TabsContent>
+            {activeTab === 'financial' && (
+              <div className="space-y-4">
+                <FinancialDashboard />
+              </div>
+            )}
 
-          <TabsContent value="config" className="space-y-4">
+            {activeTab === 'config' && (
+              <div className="space-y-4">
             <OperatingHoursEditor />
             <SiteConfigEditor />
             
@@ -768,17 +788,23 @@ const AdminDashboard = () => {
                 </AlertDialog>
               </CardContent>
             </Card>
-          </TabsContent>
+              </div>
+            )}
 
-          <TabsContent value="images" className="space-y-4">
-            <ImageManager />
-          </TabsContent>
+            {activeTab === 'images' && (
+              <div className="space-y-4">
+                <ImageManager />
+              </div>
+            )}
 
-          <TabsContent value="users" className="space-y-4">
-            <UserManager />
-          </TabsContent>
-        </Tabs>
-      </div>
+            {activeTab === 'users' && (
+              <div className="space-y-4">
+                <UserManager />
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
     </div>
   );
 };

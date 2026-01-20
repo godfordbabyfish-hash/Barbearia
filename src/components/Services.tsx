@@ -49,27 +49,24 @@ const Services = () => {
   };
 
   const handleServiceClick = (service: Service) => {
-    // Navigate to booking section with pre-selected service
-    const bookingSection = document.getElementById('agendamento');
-    if (bookingSection) {
-      // Use state to pass service data and trigger the booking flow
-      window.history.pushState(
-        { 
-          preSelectedService: {
-            id: service.id,
-            title: service.title,
-            price: service.price.toFixed(2)
-          }
-        }, 
-        '', 
-        '/#agendamento'
-      );
-      
-      // Dispatch a custom event to notify Booking component
-      window.dispatchEvent(new PopStateEvent('popstate'));
-      
-      bookingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    // Navigate to home page with pre-selected service, then scroll to booking section
+    navigate('/', { 
+      state: { 
+        preSelectedService: {
+          id: service.id,
+          title: service.title,
+          price: service.price.toFixed(2)
+        }
+      }
+    });
+    
+    // Wait for navigation to complete, then scroll to booking section
+    setTimeout(() => {
+      const bookingSection = document.getElementById('agendamento');
+      if (bookingSection) {
+        bookingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
   };
 
   if (services.length === 0) {
@@ -88,7 +85,7 @@ const Services = () => {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
           {services.map((service) => {
             const Icon = iconMap[service.icon] || Scissors;
             const imageUrl = service.image_url || defaultImages[service.title] || haircutImg;
@@ -99,25 +96,25 @@ const Services = () => {
                 className="group overflow-hidden border-border hover:border-primary transition-all duration-300 hover:shadow-gold cursor-pointer"
                 onClick={() => handleServiceClick(service)}
               >
-                <div className="relative h-64 overflow-hidden">
+                <div className="relative h-48 md:h-56 lg:h-64 overflow-hidden">
                   <img
                     src={imageUrl}
                     alt={service.title}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-background/90 to-transparent"></div>
-                  <div className="absolute bottom-4 left-4">
-                    <Icon className="w-8 h-8 text-primary" />
+                  <div className="absolute bottom-2 md:bottom-4 left-2 md:left-4">
+                    <Icon className="w-4 h-4 md:w-6 md:h-6 lg:w-8 lg:h-8 text-primary" />
                   </div>
                 </div>
-                <CardContent className="p-6">
-                  <h3 className="text-2xl font-bold mb-2 group-hover:text-primary transition-colors">
+                <CardContent className="p-3 md:p-6 lg:p-6">
+                  <h3 className="text-sm md:text-lg lg:text-2xl font-bold mb-1 md:mb-2 group-hover:text-primary transition-colors break-words">
                     {service.title}
                   </h3>
-                  <p className="text-muted-foreground mb-4">
+                  <p className="text-xs md:text-sm lg:text-base text-muted-foreground mb-2 md:mb-4 line-clamp-2">
                     {service.description}
                   </p>
-                  <p className="text-3xl font-bold text-primary">
+                  <p className="text-lg md:text-2xl lg:text-3xl font-bold text-primary">
                     R$ {service.price.toFixed(2)}
                   </p>
                 </CardContent>

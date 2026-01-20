@@ -27,6 +27,7 @@ const SiteConfigEditor = () => {
 
   const [footerInfo, setFooterInfo] = useState({
     address: '',
+    maps_link: '',
     phone: '',
     email: '',
     hours: '',
@@ -140,12 +141,6 @@ const SiteConfigEditor = () => {
     }
   };
 
-  const handleAddressClick = () => {
-    if (footerInfo.address) {
-      const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(footerInfo.address)}`;
-      window.open(mapsUrl, '_blank');
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -158,7 +153,7 @@ const SiteConfigEditor = () => {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label>Cor Primária (HSL)</Label>
               <Input
@@ -280,29 +275,54 @@ const SiteConfigEditor = () => {
           <CardTitle>Informações do Footer</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div>
-            <Label>Endereço</Label>
-            <div className="flex gap-2">
+          <div className="space-y-4">
+            <div>
+              <Label>Endereço Físico (Para Exibição)</Label>
               <Input
                 value={footerInfo.address}
                 onChange={(e) => setFooterInfo({ ...footerInfo, address: e.target.value })}
-                placeholder="Rua das Barbearias, 123"
-                className="flex-1"
+                placeholder="Ex: Av. Ver. Dário Marsiglia, 267 - Tabuleiro do Martins, Maceió - AL"
+                className="mt-1"
               />
-              <Button 
-                variant="outline" 
-                onClick={handleAddressClick}
-                disabled={!footerInfo.address}
-              >
-                <MapPin className="w-4 h-4 mr-2" />
-                Ver no Maps
-              </Button>
+              <p className="text-xs text-muted-foreground mt-1">
+                Este endereço será exibido para os clientes no checkout e no footer do site.
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Clique em "Ver no Maps" para testar o link do Google Maps
-            </p>
+            
+            <div>
+              <Label>Link do Google Maps</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={footerInfo.maps_link || ''}
+                  onChange={(e) => setFooterInfo({ ...footerInfo, maps_link: e.target.value })}
+                  placeholder="https://maps.app.goo.gl/99FAhyYC18ey9xTF9"
+                  className="flex-1 mt-1"
+                />
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    const linkToOpen = footerInfo.maps_link || footerInfo.address;
+                    if (!linkToOpen) return;
+                    
+                    if (linkToOpen.includes('http://') || linkToOpen.includes('https://')) {
+                      window.open(linkToOpen, '_blank');
+                    } else {
+                      const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(linkToOpen)}`;
+                      window.open(mapsUrl, '_blank');
+                    }
+                  }}
+                  disabled={!footerInfo.maps_link && !footerInfo.address}
+                >
+                  <MapPin className="w-4 h-4 mr-2" />
+                  Testar
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Cole aqui o link do Google Maps. Quando o cliente clicar no endereço, este link será aberto.
+              </p>
+            </div>
           </div>
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label>Telefone</Label>
               <Input
@@ -322,7 +342,7 @@ const SiteConfigEditor = () => {
           </div>
           <div className="space-y-3">
             <Label className="text-base font-semibold">Horário de Funcionamento</Label>
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label className="text-sm text-muted-foreground">Segunda a Sexta</Label>
                 <Input

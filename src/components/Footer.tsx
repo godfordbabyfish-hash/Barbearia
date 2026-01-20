@@ -7,6 +7,7 @@ interface FooterConfig {
   phone: string;
   email: string;
   address: string;
+  maps_link?: string;
   hours?: string;
   hoursWeekday?: string;
   hoursSaturday?: string;
@@ -27,6 +28,7 @@ const Footer = () => {
     phone: "(11) 98765-4321",
     email: "contato@barbearia.com",
     address: "Av. Paulista, 1000 - São Paulo",
+    maps_link: "",
     hours: "Seg-Sex: 9h-20h | Sáb: 9h-18h",
     social: {
       instagram: "https://instagram.com/barbearia",
@@ -34,6 +36,23 @@ const Footer = () => {
       whatsapp: "5511999999999"
     }
   });
+
+  const getMapsLink = (): string => {
+    // Priorizar o link salvo do Google Maps
+    if (config.maps_link) {
+      return config.maps_link;
+    }
+    // Se não tiver link, gerar a partir do endereço
+    if (config.address) {
+      // Se o endereço já for um link, usar diretamente
+      if (config.address.includes('http://') || config.address.includes('https://')) {
+        return config.address;
+      }
+      // Gerar link do Google Maps a partir do endereço
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(config.address)}`;
+    }
+    return '#';
+  };
 
   useEffect(() => {
     loadFooterConfig();
@@ -93,8 +112,8 @@ const Footer = () => {
                 <Mail className="w-5 h-5" />
                 <span>{config.email}</span>
               </a>
-              <a 
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(config.address)}`}
+              <a
+                href={getMapsLink()}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-3 text-muted-foreground hover:text-primary transition-colors"
@@ -143,7 +162,7 @@ const Footer = () => {
         </div>
 
         <div className="mt-12 pt-8 border-t border-border text-center text-muted-foreground">
-          <p>&copy; 2025 Raimundos Barbearia. Todos os direitos reservados.</p>
+          <p>&copy; 2025 Barbearia Raimundos. Todos os direitos reservados.</p>
         </div>
       </div>
     </footer>

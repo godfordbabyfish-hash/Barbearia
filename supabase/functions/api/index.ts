@@ -139,7 +139,8 @@ const getAvailableSlots = async (
   from: Date, 
   to: Date, 
   durationMinutes: number, 
-  intervalMinutes: number = 0
+  intervalMinutes: number = 0,
+  barberId?: string
 ) => {
   const slots: { startISO: string; startLocal: string; endISO: string; endLocal: string }[] = [];
   const operatingHours = await getOperatingHours();
@@ -155,12 +156,31 @@ const getAvailableSlots = async (
   const fromDateStr = from.toISOString().split('T')[0];
   const toDateStr = to.toISOString().split('T')[0];
   
-  const { data: appointments } = await supabase
+  let appointmentsQuery = supabase
     .from('appointments')
     .select('appointment_date, appointment_time, service:services(duration)')
     .gte('appointment_date', fromDateStr)
     .lte('appointment_date', toDateStr)
     .neq('status', 'cancelled');
+
+  if (barberId) {
+    appointmentsQuery = appointmentsQuery.eq('barber_id', barberId);
+  }
+
+  const { data: appointments } = await appointmentsQuery;
+
+  // Get barber breaks for the date range if barberId is provided
+  let breaks: any[] = [];
+  if (barberId) {
+    const { data: breaksData } = await supabase
+      .from('barber_breaks')
+      .select('date, start_time, end_time')
+      .eq('barber_id', barberId)
+      .gte('date', fromDateStr)
+      .lte('date', toDateStr);
+    
+    breaks = breaksData || [];
+  }
 
   // Process each day in the range
   const currentDate = new Date(from);
@@ -181,6 +201,9 @@ const getAvailableSlots = async (
         (apt: any) => apt.appointment_date === dateStr
       );
 
+      // Get breaks for this specific day
+      const dayBreaks = breaks.filter((br: any) => br.date === dateStr);
+
       // Generate slots
       for (let slotStart = openMinutes; slotStart + durationMinutes <= closeMinutes; slotStart += 30) {
         const slotEnd = slotStart + durationMinutes;
@@ -195,6 +218,18 @@ const getAvailableSlots = async (
           if (slotStart < lunchEndMinutes && slotEnd > lunchStartMinutes) {
             continue;
           }
+        }
+
+        // Check if slot overlaps with a break
+        const isInBreak = dayBreaks.some((br: any) => {
+          const breakStart = timeToMinutes(br.start_time);
+          const breakEnd = timeToMinutes(br.end_time);
+          // Slot overlaps with break if: slot_start < break_end AND slot_end > break_start
+          return slotStart < breakEnd && slotEnd > breakStart;
+        });
+
+        if (isInBreak) {
+          continue;
         }
 
         // Check if slot conflicts with existing appointments
@@ -229,7 +264,8 @@ const getAvailableSlots = async (
 const checkSlotAvailability = async (
   startTime: Date,
   durationMinutes: number,
-  intervalMinutes: number = 0
+  intervalMinutes: number = 0,
+  barberId?: string
 ) => {
   const dateStr = startTime.toISOString().split('T')[0];
   const timeStr = `${String(startTime.getUTCHours()).padStart(2, '0')}:${String(startTime.getUTCMinutes()).padStart(2, '0')}`;
@@ -268,12 +304,43 @@ const checkSlotAvailability = async (
     }
   }
 
+  // Check for breaks if barberId is provided
+  if (barberId) {
+    const { data: breaks } = await supabase
+      .from('barber_breaks')
+      .select('start_time, end_time')
+      .eq('barber_id', barberId)
+      .eq('date', dateStr);
+
+    if (breaks && breaks.length > 0) {
+      const slotStart = timeToMinutes(timeStr);
+      const slotEnd = slotStart + durationMinutes;
+
+      const isInBreak = breaks.some((br: any) => {
+        const breakStart = timeToMinutes(br.start_time);
+        const breakEnd = timeToMinutes(br.end_time);
+        // Slot overlaps with break if: slot_start < break_end AND slot_end > break_start
+        return slotStart < breakEnd && slotEnd > breakStart;
+      });
+
+      if (isInBreak) {
+        return { available: false, message: 'Horário em pausa do barbeiro' };
+      }
+    }
+  }
+
   // Check for conflicting appointments
-  const { data: conflicts } = await supabase
+  let conflictsQuery = supabase
     .from('appointments')
     .select('id, appointment_time, service:services(duration), profiles:client_id(name)')
     .eq('appointment_date', dateStr)
     .neq('status', 'cancelled');
+
+  if (barberId) {
+    conflictsQuery = conflictsQuery.eq('barber_id', barberId);
+  }
+
+  const { data: conflicts } = await conflictsQuery;
 
   const conflictingAppointment = (conflicts || []).find((apt: any) => {
     const aptStart = timeToMinutes(apt.appointment_time);
@@ -382,10 +449,12 @@ const createAppointment = async (data: {
     throw new Error('Nenhum barbeiro disponível');
   }
 
-  // Check availability
+  // Check availability (pass barber_id to check for breaks)
   const availability = await checkSlotAvailability(
     startDate,
-    service.duration || 30
+    service.duration || 30,
+    0,
+    barber.id
   );
 
   if (!availability.available) {
@@ -520,6 +589,11 @@ const listAllUsers = async () => {
     .from('user_roles')
     .select('user_id, role');
 
+  // Get all barbers (to get their photos)
+  const { data: barbers } = await supabase
+    .from('barbers')
+    .select('user_id, image_url');
+
   // Combine data
   const combinedUsers = users.map((user: any) => {
     const profile = profiles?.find((p: any) => p.id === user.id) || {};
@@ -531,6 +605,10 @@ const listAllUsers = async () => {
     else if (roles.includes('gestor')) primaryRole = 'gestor';
     else if (roles.includes('barbeiro')) primaryRole = 'barbeiro';
 
+    // Get barber photo if user is a barber
+    const barber = barbers?.find((b: any) => b.user_id === user.id);
+    const imageUrl = barber?.image_url || null;
+
     return {
       id: user.id,
       email: user.email,
@@ -538,6 +616,7 @@ const listAllUsers = async () => {
       phone: profile.phone || '',
       role: primaryRole,
       roles: roles,
+      image_url: imageUrl,
       createdAt: user.created_at,
       lastSignIn: user.last_sign_in_at,
     };
@@ -966,8 +1045,12 @@ serve(async (req) => {
     // ==========================================
 
     // GET or POST /admin/users - List all users (admin and gestor only)
-    if ((req.method === 'GET' || req.method === 'POST') && path === 'admin/users') {
-      console.log('Processing admin/users request');
+    // Skip if this is a create request (has email, password, name, role in body)
+    if ((req.method === 'GET' || req.method === 'POST') && path === 'admin/users' && !(body?.email && body?.password && body?.name && body?.role)) {
+      console.log('Processing admin/users list request');
+      // #region agent log
+      console.log(JSON.stringify({location:'api/index.ts:969',message:'ListUsers request',data:{hasBody:!!body,hasEmail:!!body?.email,hasPassword:!!body?.password,hasName:!!body?.name,hasRole:!!body?.role,isCreateRequest:!!(body?.email && body?.password && body?.name && body?.role)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
+      // #endregion
       const authHeader = req.headers.get('authorization');
       console.log('Getting caller role, authHeader exists:', !!authHeader);
       const { userId: callerId, role: callerRole } = await getCallerRole(authHeader);
@@ -986,6 +1069,9 @@ serve(async (req) => {
 
       try {
         const users = await listAllUsers();
+        // #region agent log
+        console.log(JSON.stringify({location:'api/index.ts:990',message:'ListUsers result',data:{usersCount:users?.length,userIds:users?.slice(0,5).map((u:any)=>u.id),userEmails:users?.slice(0,5).map((u:any)=>u.email)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
+        // #endregion
         return new Response(JSON.stringify({
           success: true,
           users,
@@ -1007,6 +1093,10 @@ serve(async (req) => {
 
     // POST /admin/users - Create new user (admin and gestor only)
     if (req.method === 'POST' && path === 'admin/users') {
+      console.log('Processing admin/users create request');
+      // #region agent log
+      console.log(JSON.stringify({location:'api/index.ts:1009',message:'CreateUser request',data:{hasBody:!!body,email:body?.email,name:body?.name,role:body?.role,hasPassword:!!body?.password},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
+      // #endregion
       const authHeader = req.headers.get('authorization');
       const { userId: callerId, role: callerRole } = await getCallerRole(authHeader);
 
@@ -1034,6 +1124,9 @@ serve(async (req) => {
       }
 
       if (!body.email || !body.password || !body.name || !body.role) {
+        // #region agent log
+        console.log(JSON.stringify({location:'api/index.ts:1036',message:'CreateUser missing fields',data:{hasEmail:!!body?.email,hasPassword:!!body?.password,hasName:!!body?.name,hasRole:!!body?.role},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
+        // #endregion
         return new Response(JSON.stringify({
           success: false,
           error: 'MISSING_FIELDS',
@@ -1047,6 +1140,9 @@ serve(async (req) => {
       try {
         const user = await createUser(body);
         console.log(`User created: ${user.email} with role ${user.role} by ${callerRole}`);
+        // #region agent log
+        console.log(JSON.stringify({location:'api/index.ts:1048',message:'CreateUser success',data:{userId:user?.id,email:user?.email,role:user?.role},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
+        // #endregion
         return new Response(JSON.stringify({
           success: true,
           user,
@@ -1055,6 +1151,9 @@ serve(async (req) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         });
       } catch (error: any) {
+        // #region agent log
+        console.log(JSON.stringify({location:'api/index.ts:1057',message:'CreateUser error',data:{errorMessage:error?.message,errorName:error?.name},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
+        // #endregion
         return new Response(JSON.stringify({
           success: false,
           error: 'CREATE_ERROR',
@@ -1066,8 +1165,8 @@ serve(async (req) => {
       }
     }
 
-    // PUT /admin/users/:id/password - Update user password
-    if (req.method === 'PUT' && path.startsWith('admin/users/') && path.endsWith('/password')) {
+    // PUT/POST /admin/users/:id/password - Update user password
+    if ((req.method === 'PUT' || req.method === 'POST') && path.startsWith('admin/users/') && path.endsWith('/password')) {
       const userId = path.replace('admin/users/', '').replace('/password', '');
       const authHeader = req.headers.get('authorization');
       const { userId: callerId, role: callerRole } = await getCallerRole(authHeader);

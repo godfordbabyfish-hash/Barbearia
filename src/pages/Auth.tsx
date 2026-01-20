@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
-import { Loader2, Shield, Scissors } from 'lucide-react';
+import { Loader2, Scissors } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import logoRaimundos from '@/assets/logo-raimundos.png';
 
@@ -46,7 +46,7 @@ const Auth = () => {
   // Redirecionar após autenticação
   useEffect(() => {
     if (user && role) {
-      const path = role === 'admin' ? '/admin' : role === 'barbeiro' ? '/barbeiro' : '/cliente';
+      const path = (role === 'admin' || role === 'gestor') ? '/admin' : role === 'barbeiro' ? '/barbeiro' : '/cliente';
       navigate(path, { replace: true });
     }
   }, [user, role, navigate]);
@@ -197,33 +197,10 @@ const Auth = () => {
                   )}
                 </Button>
               </form>
-
-              <div className="pt-4 border-t border-border text-center space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  Primeiro acesso ao sistema?
-                </p>
-                <Button 
-                  variant="link" 
-                  onClick={() => navigate('/admin-setup')}
-                  className="text-primary"
-                >
-                  <Shield className="mr-2 h-4 w-4" />
-                  Configurar Usuário Admin
-                </Button>
-              </div>
             </TabsContent>
           </Tabs>
         </CardContent>
       </Card>
-
-      <Button 
-        variant="outline"
-        onClick={() => navigate('/fila')}
-        className="w-full max-w-lg h-12 text-base font-medium border-primary text-primary hover:bg-primary hover:text-primary-foreground"
-      >
-        <Scissors className="mr-2 h-5 w-5" />
-        Ver Fila da Barbearia
-      </Button>
     </div>
   );
 };
