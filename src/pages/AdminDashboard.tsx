@@ -26,6 +26,7 @@ import ImageManager from '@/components/admin/ImageManager';
 import OperatingHoursEditor from '@/components/admin/OperatingHoursEditor';
 import { BarbeiroManager } from '@/components/admin/BarbeiroManager';
 import { UserManager } from '@/components/admin/UserManager';
+import { WhatsAppManager } from '@/components/admin/WhatsAppManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 
@@ -800,6 +801,12 @@ const AdminDashboard = () => {
             {activeTab === 'users' && (
               <div className="space-y-4">
                 <UserManager />
+              </div>
+            )}
+
+            {activeTab === 'whatsapp' && (
+              <div className="space-y-4">
+                <WhatsAppManager />
               </div>
             )}
           </div>
