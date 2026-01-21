@@ -43,6 +43,13 @@ const BarbeiroDashboard = () => {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
+  // Troca de senha do próprio barbeiro
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    newPassword: '',
+    confirmPassword: '',
+  });
+
   useEffect(() => {
     if (userRole !== null) {
       loadData();
@@ -525,6 +532,36 @@ const BarbeiroDashboard = () => {
     }
   };
 
+  const handleChangeOwnPassword = async () => {
+    if (!passwordForm.newPassword || !passwordForm.confirmPassword) {
+      toast.error('Preencha a nova senha e a confirmação.');
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast.error('As senhas não conferem.');
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: passwordForm.newPassword,
+      });
+
+      if (error) throw error;
+
+      toast.success('Senha atualizada com sucesso!');
+      setPasswordForm({ newPassword: '', confirmPassword: '' });
+    } catch (error: any) {
+      toast.error('Erro ao atualizar senha', {
+        description: error.message,
+      });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   const handleCompleteWithoutPhoto = async () => {
     if (!appointmentToComplete) return;
 
@@ -607,8 +644,8 @@ const BarbeiroDashboard = () => {
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <div>
+        <div className="flex flex-col gap-4 md:flex-row md:justify-between md:items-center mb-8">
+          <div className="space-y-3">
             <div className="flex items-center gap-3">
               <h1 className="text-4xl font-bold">
                 Painel do <span className="bg-gradient-gold bg-clip-text text-transparent">Barbeiro</span>
@@ -650,10 +687,12 @@ const BarbeiroDashboard = () => {
               </div>
             )}
           </div>
-          <Button onClick={() => navigate('/')} variant="outline">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Voltar ao Site
-          </Button>
+          <div className="flex md:block">
+            <Button onClick={() => navigate('/')} variant="outline" className="w-full md:w-auto">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Voltar ao Site
+            </Button>
+          </div>
         </div>
 
         {(currentUserBarber || selectedBarber) && (
@@ -1009,6 +1048,52 @@ const BarbeiroDashboard = () => {
             </Tabs>
           </>
         )}
+
+        {/* Card: Minha Conta / alterar senha do barbeiro */}
+        <div className="mt-10">
+          <Card className="bg-card border-border max-w-xl">
+            <CardHeader>
+              <CardTitle>Minha Conta</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Nova senha</Label>
+                  <Input
+                    type="password"
+                    value={passwordForm.newPassword}
+                    onChange={(e) =>
+                      setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))
+                    }
+                    placeholder="Digite a nova senha"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Confirmar nova senha</Label>
+                  <Input
+                    type="password"
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) =>
+                      setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))
+                    }
+                    placeholder="Repita a nova senha"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-start">
+                <Button
+                  onClick={handleChangeOwnPassword}
+                  disabled={changingPassword}
+                >
+                  {changingPassword && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Atualizar minha senha
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Dialog para adicionar foto ao concluir */}
         <Dialog open={completeDialogOpen} onOpenChange={setCompleteDialogOpen}>

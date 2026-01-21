@@ -221,7 +221,7 @@ const FilaDaBarbearia = () => {
       {/* Header */}
       <header className="bg-card border-b border-border p-6">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
             <h1 className="text-3xl md:text-4xl font-bold">
               <span className="text-primary">Barbearia</span>{" "}
               <span className="text-foreground">Raimundos</span>
@@ -235,7 +235,7 @@ const FilaDaBarbearia = () => {
               <ArrowLeft className="h-6 w-6" />
             </Button>
           </div>
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
             <span className="bg-primary text-primary-foreground px-4 py-1.5 rounded-full font-semibold text-sm inline-flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-primary-foreground animate-pulse" />
               AO VIVO
@@ -297,7 +297,7 @@ const FilaDaBarbearia = () => {
         </button>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-3 gap-3 md:gap-4 lg:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 lg:gap-6">
           <div className="bg-card border border-border p-4 md:p-5 lg:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:border-primary/50 text-center flex flex-col justify-between min-h-[180px] md:min-h-[200px] lg:min-h-[220px]">
             <div className="flex items-center justify-center gap-1.5 md:gap-2 text-muted-foreground text-xs md:text-sm font-semibold uppercase tracking-wide mb-2 md:mb-3">
               <Users className="w-3 h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 text-primary" />
@@ -327,7 +327,7 @@ const FilaDaBarbearia = () => {
         </div>
 
         {/* Queues Side by Side */}
-        <div className="grid grid-cols-2 gap-4 md:gap-5 lg:gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 lg:gap-6">
         {/* Local Queue */}
         <section className="bg-card border border-border p-2.5 md:p-4 lg:p-6 rounded-xl shadow-lg flex flex-col min-h-[600px] md:min-h-[650px] lg:min-h-[700px]">
           <div className="flex items-center gap-2 md:gap-3 mb-2.5 md:mb-4 pb-2 md:pb-3 border-b border-border">

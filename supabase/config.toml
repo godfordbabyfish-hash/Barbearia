@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.create-test-appointment]
 verify_jwt = false
+
+[functions.cleanup-whatsapp-queue]
+verify_jwt = false

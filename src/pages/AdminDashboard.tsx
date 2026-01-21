@@ -43,6 +43,13 @@ const AdminDashboard = () => {
   const [uploading, setUploading] = useState(false);
   const [clearingAppointments, setClearingAppointments] = useState(false);
 
+  // Troca de senha do próprio admin/gestor
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    newPassword: '',
+    confirmPassword: '',
+  });
+
   const handleClearAllAppointments = async () => {
     setClearingAppointments(true);
     try {
@@ -62,6 +69,36 @@ const AdminDashboard = () => {
       });
     } finally {
       setClearingAppointments(false);
+    }
+  };
+
+  const handleChangeOwnPassword = async () => {
+    if (!passwordForm.newPassword || !passwordForm.confirmPassword) {
+      toast.error('Preencha a nova senha e a confirmação.');
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast.error('As senhas não conferem.');
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: passwordForm.newPassword,
+      });
+
+      if (error) throw error;
+
+      toast.success('Senha atualizada com sucesso!');
+      setPasswordForm({ newPassword: '', confirmPassword: '' });
+    } catch (error: any) {
+      toast.error('Erro ao atualizar senha', {
+        description: error.message,
+      });
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -728,6 +765,50 @@ const AdminDashboard = () => {
 
             {activeTab === 'config' && (
               <div className="space-y-4">
+            {/* Minha conta - troca de senha do próprio admin/gestor */}
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle>Minha Conta</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Nova senha</Label>
+                    <Input
+                      type="password"
+                      value={passwordForm.newPassword}
+                      onChange={(e) =>
+                        setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))
+                      }
+                      placeholder="Digite a nova senha"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Confirmar nova senha</Label>
+                    <Input
+                      type="password"
+                      value={passwordForm.confirmPassword}
+                      onChange={(e) =>
+                        setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))
+                      }
+                      placeholder="Repita a nova senha"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-start">
+                  <Button
+                    onClick={handleChangeOwnPassword}
+                    disabled={changingPassword}
+                  >
+                    {changingPassword && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    Atualizar minha senha
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             <OperatingHoursEditor />
             <SiteConfigEditor />
             

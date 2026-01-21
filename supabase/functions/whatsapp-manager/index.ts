@@ -516,6 +516,38 @@ serve(async (req) => {
     let result;
 
     switch (action) {
+      case 'health':
+        // Endpoint simples para testar se a função está respondendo
+        result = { success: true, message: 'whatsapp-manager ok' };
+        break;
+
+      case 'debug-fetch':
+        // Diagnóstico bruto da Evolution API: não usar em produção final
+        try {
+          const debugResponse = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
+            method: 'GET',
+            headers: {
+              'apikey': evolutionApiKey,
+              'Accept': 'application/json',
+            },
+          });
+
+          const text = await debugResponse.text();
+
+          result = {
+            success: debugResponse.ok,
+            status: debugResponse.status,
+            statusText: debugResponse.statusText,
+            rawBody: text,
+          };
+        } catch (err: any) {
+          result = {
+            success: false,
+            error: err?.message || 'Erro ao chamar Evolution API em debug-fetch',
+          };
+        }
+        break;
+
       case 'list':
         result = await listInstances();
         // Se não houver instâncias, tentar criar instance-1 automaticamente
