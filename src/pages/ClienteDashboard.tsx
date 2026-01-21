@@ -177,11 +177,11 @@ const ClienteDashboard = () => {
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-8">
           <h1 className="text-4xl font-bold">
             Meus <span className="bg-gradient-gold bg-clip-text text-transparent">Agendamentos</span>
           </h1>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 justify-start md:justify-end">
             <Button onClick={() => navigate('/')} variant="outline">
               <Home className="mr-2 h-4 w-4" />
               Início

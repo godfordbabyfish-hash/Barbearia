@@ -43,11 +43,20 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
     { id: 'products', label: 'Produtos', icon: <ShoppingBag className="h-4 w-4" /> },
     { id: 'financial', label: 'Financeiro', icon: <DollarSign className="h-4 w-4" /> },
     { id: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
+    // Gestor também pode acessar as Configurações do Site
     { id: 'config', label: 'Configurações', icon: <Settings className="h-4 w-4" />, adminOnly: true },
     { id: 'images', label: 'Imagens', icon: <ImageIcon className="h-4 w-4" />, adminOnly: true },
   ];
 
-  const filteredMenuItems = menuItems.filter(item => !item.adminOnly || role === 'admin');
+  // Itens marcados como adminOnly só aparecem para admin,
+  // com exceção de "config" e "users", que também são liberados para gestor.
+  const filteredMenuItems = menuItems.filter(item => {
+    if (!item.adminOnly) return true;
+    if ((item.id === 'config' || item.id === 'users') && (role === 'admin' || role === 'gestor')) {
+      return true;
+    }
+    return role === 'admin';
+  });
 
   const handleTabChange = (tab: string) => {
     onTabChange(tab);
