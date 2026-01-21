@@ -11,3 +11,12 @@ verify_jwt = false
 
 [functions.whatsapp-manager]
 verify_jwt = false
+
+[functions.whatsapp-reminder]
+verify_jwt = false
+
+[functions.setup-reminder-cron]
+verify_jwt = false
+
+[functions.create-test-appointment]
+verify_jwt = false
