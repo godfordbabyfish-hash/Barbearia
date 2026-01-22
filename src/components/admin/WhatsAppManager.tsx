@@ -55,14 +55,14 @@ export const WhatsAppManager = () => {
     loadInstances();
     loadActiveInstance();
     
-    // Polling para atualizar status a cada 5 segundos (reduzido para evitar spam)
+    // Polling para atualizar status a cada 10 segundos (aumentado para evitar spam)
     // Mas só se não houver erro persistente
     const interval = setInterval(() => {
       // Só fazer polling se não estiver carregando e não houver erro persistente
-      if (!loading && !hasError && errorCount < 10) {
+      if (!loading && !hasError && errorCount < 5) {
         loadInstances();
       }
-    }, 5000);
+    }, 10000); // Aumentado para 10 segundos
     
     return () => clearInterval(interval);
   }, [loading, hasError, errorCount]);
@@ -235,7 +235,7 @@ export const WhatsAppManager = () => {
           const newErrorCount = errorCount + 1;
           setErrorCount(newErrorCount);
           
-          if (newErrorCount >= 10) {
+          if (newErrorCount >= 5) {
             setHasError(true);
             console.log('[WhatsApp Manager] Muitos erros 502 - parando polling. API ainda está inicializando.');
             toast.error('Evolution API ainda está inicializando', {
@@ -243,7 +243,7 @@ export const WhatsAppManager = () => {
               duration: 10000
             });
           } else {
-            console.log('[WhatsApp Manager] API ainda inicializando, aguardando... (tentativa ' + newErrorCount + '/10)');
+            console.log('[WhatsApp Manager] API ainda inicializando, aguardando... (tentativa ' + newErrorCount + '/5)');
           }
         } else if (data.error.includes('Acesso negado') && instances.length === 0) {
           // Mostrar toast apenas uma vez para erros de autenticação
@@ -255,27 +255,47 @@ export const WhatsAppManager = () => {
     } catch (error: any) {
       console.error('Erro ao carregar instâncias:', error);
       
-      // Se for timeout ou erro de conexão, incrementar contador
-      if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('Failed to fetch')) {
+      // Detectar FunctionsFetchError (Edge Function não responde)
+      const isFunctionsFetchError = error?.name === 'FunctionsFetchError' || 
+                                    error?.message?.includes('Failed to send a request to the Edge Function') ||
+                                    error?.message?.includes('FunctionsFetchError');
+      
+      // Se for timeout, erro de conexão ou FunctionsFetchError, incrementar contador
+      if (error.name === 'AbortError' || 
+          error.message?.includes('timeout') || 
+          error.message?.includes('Failed to fetch') ||
+          isFunctionsFetchError) {
         const newErrorCount = errorCount + 1;
         setErrorCount(newErrorCount);
         
-        if (newErrorCount >= 10) {
+        if (newErrorCount >= 5) { // Reduzido para 5 tentativas
           setHasError(true);
-          console.log('[WhatsApp Manager] Muitos timeouts - parando polling. API ainda está inicializando.');
-          toast.error('Evolution API ainda está inicializando', {
-            description: 'Aguarde alguns minutos e recarregue a página. A instância será criada automaticamente quando a API estiver pronta.',
-            duration: 10000
-          });
+          console.log('[WhatsApp Manager] Muitos erros - parando polling. Edge Function não está respondendo.');
+          
+          if (isFunctionsFetchError) {
+            toast.error('Edge Function não está respondendo', {
+              description: 'A Edge Function whatsapp-manager não está disponível. Verifique se está deployada no Supabase ou se há problemas de conexão.',
+              duration: 10000
+            });
+          } else {
+            toast.error('Evolution API ainda está inicializando', {
+              description: 'Aguarde alguns minutos e recarregue a página. A instância será criada automaticamente quando a API estiver pronta.',
+              duration: 10000
+            });
+          }
         } else {
-          console.log('[WhatsApp Manager] Timeout ou erro de conexão - API ainda inicializando (tentativa ' + newErrorCount + '/10)');
+          if (isFunctionsFetchError) {
+            console.log('[WhatsApp Manager] Edge Function não responde - aguardando... (tentativa ' + newErrorCount + '/5)');
+          } else {
+            console.log('[WhatsApp Manager] Timeout ou erro de conexão - API ainda inicializando (tentativa ' + newErrorCount + '/5)');
+          }
         }
       } else {
         // Para outros erros, apenas logar
         console.error('[WhatsApp Manager] Erro desconhecido:', error);
         const newErrorCount = errorCount + 1;
         setErrorCount(newErrorCount);
-        if (newErrorCount >= 10) {
+        if (newErrorCount >= 5) {
           setHasError(true);
         }
       }
