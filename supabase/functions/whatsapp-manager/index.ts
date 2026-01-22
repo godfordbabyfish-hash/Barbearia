@@ -99,6 +99,22 @@ const listInstances = async (): Promise<{ success: boolean; instances?: any[]; e
     return { success: true, instances };
   } catch (error: any) {
     console.error('[WhatsApp Manager] Error listing instances:', error);
+    
+    // Detectar timeout ou erro de conexão
+    if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('tempo limite')) {
+      return {
+        success: false,
+        error: 'Evolution API não está respondendo (timeout). A API pode estar inicializando. Aguarde alguns minutos e tente novamente.'
+      };
+    }
+    
+    if (error.message?.includes('ECONNREFUSED') || error.message?.includes('Failed to fetch')) {
+      return {
+        success: false,
+        error: 'Não foi possível conectar à Evolution API. Verifique se a API está rodando e se EVOLUTION_API_URL está correto.'
+      };
+    }
+    
     return { 
       success: false, 
       error: error.message || 'Erro ao listar instâncias. Verifique se a Evolution API está acessível.' 
