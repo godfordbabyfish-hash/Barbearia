@@ -9,7 +9,6 @@ import {
   QrCode, 
   Trash2, 
   RefreshCw, 
-  Plus, 
   CheckCircle2, 
   XCircle, 
   Loader2,
@@ -43,25 +42,87 @@ interface WhatsAppInstance {
 export const WhatsAppManager = () => {
   const [instances, setInstances] = useState<WhatsAppInstance[]>([]);
   const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [newInstanceName, setNewInstanceName] = useState('instance-1');
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
   const [activeInstance, setActiveInstance] = useState<string | null>(null);
+  const [autoCreated, setAutoCreated] = useState(false);
+  const [errorCount, setErrorCount] = useState(0);
+  const [hasError, setHasError] = useState(false);
 
   // Carregar instâncias e instância ativa ao montar
   useEffect(() => {
     loadInstances();
     loadActiveInstance();
     
-    // Polling para atualizar status a cada 3 segundos (mais frequente para detectar conexão rapidamente)
+    // Polling para atualizar status a cada 5 segundos (reduzido para evitar spam)
+    // Mas só se não houver erro persistente
     const interval = setInterval(() => {
-      loadInstances();
-    }, 3000);
+      // Só fazer polling se não estiver carregando e não houver erro persistente
+      if (!loading && !hasError && errorCount < 10) {
+        loadInstances();
+      }
+    }, 5000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [loading, hasError, errorCount]);
+
+  // Criar instância única automaticamente se não existir nenhuma (apenas uma vez)
+  useEffect(() => {
+    const autoCreateInstance = async () => {
+      // Se já tentou criar automaticamente, não tentar novamente
+      if (autoCreated) return;
+      
+      // Aguardar um pouco para carregar as instâncias primeiro
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+      // Se não há instâncias e não está carregando, criar automaticamente
+      // Mas só se não houver erro 502 (API não está respondendo)
+      if (instances.length === 0 && !loading) {
+        const defaultInstanceName = 'evolution-4';
+        console.log('[WhatsApp Manager] Nenhuma instância encontrada. Tentando criar automaticamente:', defaultInstanceName);
+        
+        setAutoCreated(true); // Marcar que já tentou criar
+        
+        try {
+          const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
+            body: { 
+              action: 'create',
+              instanceName: defaultInstanceName
+            }
+          });
+
+          // Se a API não está respondendo (502), não tentar criar ainda
+          if (error || (data?.error && (data.error.includes('502') || data.error.includes('Bad Gateway') || data.error.includes('não está respondendo')))) {
+            console.log('[WhatsApp Manager] API ainda não está pronta, aguardando...');
+            setAutoCreated(false); // Permitir tentar novamente quando API estiver pronta
+            return;
+          }
+
+          if (!error && data?.success) {
+            console.log('[WhatsApp Manager] Instância criada automaticamente:', defaultInstanceName);
+            await loadInstances();
+            
+            // Após criar, gerar QR code automaticamente após um delay
+            setTimeout(async () => {
+              await getQRCode(defaultInstanceName);
+            }, 2000);
+          } else {
+            // Se falhou por outro motivo, permitir tentar novamente depois
+            setAutoCreated(false);
+          }
+        } catch (error: any) {
+          console.error('[WhatsApp Manager] Erro ao criar instância automaticamente:', error);
+          // Se for erro de conexão/timeout, permitir tentar novamente
+          if (error.message?.includes('502') || error.message?.includes('timeout') || error.message?.includes('Failed to fetch')) {
+            setAutoCreated(false);
+          }
+        }
+      }
+    };
+
+    autoCreateInstance();
+  }, [instances.length, loading, autoCreated]);
 
   const loadActiveInstance = async () => {
     try {
@@ -93,13 +154,24 @@ export const WhatsAppManager = () => {
   const loadInstances = async () => {
     setLoading(true);
     try {
+      // Criar AbortController para timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 segundos timeout
+
       const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
-        body: { action: 'list' }
+        body: { action: 'list' },
+        signal: controller.signal as any
       });
+
+      clearTimeout(timeoutId);
 
       if (error) throw error;
 
       if (data?.success && data?.instances) {
+        // Resetar contador de erros se conseguir carregar
+        setErrorCount(0);
+        setHasError(false);
+        
         // Verificar se alguma instância mudou de status para 'open'
         const previousInstances = instances;
         const newInstances = data.instances;
@@ -157,8 +229,24 @@ export const WhatsAppManager = () => {
       } else if (data?.error) {
         // Se houver erro mas não for crítico, apenas logar
         console.warn('Aviso ao carregar instâncias:', data.error);
-        // Se for erro de autenticação, mostrar toast apenas uma vez
-        if (data.error.includes('Acesso negado') && instances.length === 0) {
+        
+        // Se for erro 502 (API não está respondendo), incrementar contador
+        if (data.error.includes('502') || data.error.includes('Bad Gateway') || data.error.includes('não está respondendo')) {
+          const newErrorCount = errorCount + 1;
+          setErrorCount(newErrorCount);
+          
+          if (newErrorCount >= 10) {
+            setHasError(true);
+            console.log('[WhatsApp Manager] Muitos erros 502 - parando polling. API ainda está inicializando.');
+            toast.error('Evolution API ainda está inicializando', {
+              description: 'Aguarde alguns minutos e recarregue a página. A instância será criada automaticamente quando a API estiver pronta.',
+              duration: 10000
+            });
+          } else {
+            console.log('[WhatsApp Manager] API ainda inicializando, aguardando... (tentativa ' + newErrorCount + '/10)');
+          }
+        } else if (data.error.includes('Acesso negado') && instances.length === 0) {
+          // Mostrar toast apenas uma vez para erros de autenticação
           toast.error('Erro de autenticação', {
             description: 'Verifique se EVOLUTION_API_URL e EVOLUTION_API_KEY estão corretos no Supabase',
           });
@@ -166,54 +254,36 @@ export const WhatsAppManager = () => {
       }
     } catch (error: any) {
       console.error('Erro ao carregar instâncias:', error);
-      // Não mostrar toast para evitar spam durante polling
+      
+      // Se for timeout ou erro de conexão, incrementar contador
+      if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('Failed to fetch')) {
+        const newErrorCount = errorCount + 1;
+        setErrorCount(newErrorCount);
+        
+        if (newErrorCount >= 10) {
+          setHasError(true);
+          console.log('[WhatsApp Manager] Muitos timeouts - parando polling. API ainda está inicializando.');
+          toast.error('Evolution API ainda está inicializando', {
+            description: 'Aguarde alguns minutos e recarregue a página. A instância será criada automaticamente quando a API estiver pronta.',
+            duration: 10000
+          });
+        } else {
+          console.log('[WhatsApp Manager] Timeout ou erro de conexão - API ainda inicializando (tentativa ' + newErrorCount + '/10)');
+        }
+      } else {
+        // Para outros erros, apenas logar
+        console.error('[WhatsApp Manager] Erro desconhecido:', error);
+        const newErrorCount = errorCount + 1;
+        setErrorCount(newErrorCount);
+        if (newErrorCount >= 10) {
+          setHasError(true);
+        }
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const createInstance = async () => {
-    if (!newInstanceName.trim()) {
-      toast.error('Nome da instância é obrigatório');
-      return;
-    }
-
-    setCreating(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
-        body: { 
-          action: 'create',
-          instanceName: newInstanceName.trim()
-        }
-      });
-
-      if (error) throw error;
-
-      if (data?.success) {
-        toast.success('Instância criada ou já existe!');
-        setNewInstanceName('instance-1');
-        await loadInstances();
-      } else {
-        // Se o erro for 403 mas a instância já existe na lista, considerar sucesso
-        if (data?.error?.includes('Forbidden')) {
-          // Verificar se a instância já existe na lista
-          const currentInstances = instances.filter(i => i.instanceName === newInstanceName.trim());
-          if (currentInstances.length > 0) {
-            toast.success('Instância já existe!');
-            await loadInstances();
-            return;
-          }
-        }
-        throw new Error(data?.error || 'Erro ao criar instância');
-      }
-    } catch (error: any) {
-      toast.error('Erro ao criar instância', {
-        description: error.message || 'Erro desconhecido',
-      });
-    } finally {
-      setCreating(false);
-    }
-  };
 
   const getQRCode = async (instanceName: string) => {
     setLoading(true);
@@ -471,35 +541,6 @@ export const WhatsAppManager = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Criar Nova Instância - Opcional */}
-          <div className="flex gap-2 items-end">
-            <div className="flex-1">
-              <Label htmlFor="instance-name">Nome da Instância (Opcional)</Label>
-              <Input
-                id="instance-name"
-                value={newInstanceName}
-                onChange={(e) => setNewInstanceName(e.target.value)}
-                placeholder="instance-1"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                A instância será criada automaticamente ao conectar. Use este campo apenas para criar instâncias adicionais.
-              </p>
-            </div>
-            <Button onClick={createInstance} disabled={creating} variant="outline">
-              {creating ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Criando...
-                </>
-              ) : (
-                <>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Criar Nova
-                </>
-              )}
-            </Button>
-          </div>
-
           {/* Lista de Instâncias */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -518,14 +559,33 @@ export const WhatsAppManager = () => {
               </Button>
             </div>
             {loading && instances.length === 0 ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <div className="flex flex-col items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground">Carregando instâncias...</p>
+                <p className="text-xs text-muted-foreground mt-1">Aguarde alguns segundos</p>
               </div>
             ) : instances.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <MessageSquare className="h-12 w-12 mx-auto mb-2 opacity-50" />
                 <p>Nenhuma instância encontrada</p>
-                <p className="text-sm">A instância será criada automaticamente ao tentar conectar</p>
+                {hasError ? (
+                  <>
+                    <p className="text-sm mt-2 text-yellow-600 dark:text-yellow-400">
+                      Evolution API ainda está inicializando
+                    </p>
+                    <p className="text-xs mt-1">
+                      Aguarde alguns minutos e clique em "Atualizar" ou recarregue a página.
+                    </p>
+                    <p className="text-xs mt-1">
+                      A instância será criada automaticamente quando a API estiver pronta.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm mt-2">A instância será criada automaticamente quando a API estiver pronta.</p>
+                    <p className="text-xs mt-1">Aguarde alguns segundos...</p>
+                  </>
+                )}
               </div>
             ) : (
               instances.map((instance) => (
@@ -704,23 +764,24 @@ export const WhatsAppManager = () => {
             </Card>
           )}
 
-          {/* Aviso sobre variáveis de ambiente */}
-          <Card className="bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800">
-            <CardContent className="p-4">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                    Configuração Necessária
-                  </p>
-                  <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
-                    Certifique-se de que as variáveis de ambiente estão configuradas no Supabase:
-                    EVOLUTION_API_URL, EVOLUTION_API_KEY
-                  </p>
+          {/* Aviso apenas se houver erro de autenticação */}
+          {instances.length === 0 && !loading && (
+            <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                      Aguardando Evolution API
+                    </p>
+                    <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                      A Evolution API está inicializando. A instância será criada automaticamente quando a API estiver pronta.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </CardContent>
       </Card>
     </div>
