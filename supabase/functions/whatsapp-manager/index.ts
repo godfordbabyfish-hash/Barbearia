@@ -13,12 +13,19 @@ const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY')!;
 // List all instances
 const listInstances = async (): Promise<{ success: boolean; instances?: any[]; error?: string }> => {
   try {
+    // Criar AbortController para timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos timeout
+    
     const response = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
       method: 'GET',
       headers: {
         'apikey': evolutionApiKey,
       },
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       let errorData;
@@ -26,6 +33,14 @@ const listInstances = async (): Promise<{ success: boolean; instances?: any[]; e
         errorData = await response.json();
       } catch {
         errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
+      }
+      
+      // Se for Bad Gateway (502), API não está respondendo
+      if (response.status === 502) {
+        return { 
+          success: false, 
+          error: `Evolution API não está respondendo (502 Bad Gateway). A API pode estar inicializando ou indisponível.` 
+        };
       }
       
       // Se for Forbidden (403), pode ser API key inválida
@@ -104,14 +119,14 @@ const listInstances = async (): Promise<{ success: boolean; instances?: any[]; e
     if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('tempo limite')) {
       return {
         success: false,
-        error: 'Evolution API não está respondendo (timeout). A API pode estar inicializando. Aguarde alguns minutos e tente novamente.'
+        error: 'Evolution API não está respondendo (timeout). A API pode estar inicializando ou indisponível. Considere migrar para Baileys + Railway para uma solução mais confiável.'
       };
     }
     
     if (error.message?.includes('ECONNREFUSED') || error.message?.includes('Failed to fetch')) {
       return {
         success: false,
-        error: 'Não foi possível conectar à Evolution API. Verifique se a API está rodando e se EVOLUTION_API_URL está correto.'
+        error: 'Não foi possível conectar à Evolution API. Verifique se a API está rodando e se EVOLUTION_API_URL está correto. Considere migrar para Baileys + Railway.'
       };
     }
     
@@ -129,6 +144,10 @@ const createInstance = async (instanceName: string): Promise<{ success: boolean;
     console.log(`[WhatsApp Manager] API URL: ${evolutionApiUrl}`);
     console.log(`[WhatsApp Manager] Has API Key: ${!!evolutionApiKey}`);
     
+    // Criar AbortController para timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos timeout
+    
     const response = await fetch(`${evolutionApiUrl}/instance/create`, {
       method: 'POST',
       headers: {
@@ -141,8 +160,10 @@ const createInstance = async (instanceName: string): Promise<{ success: boolean;
         token: `token-${instanceName}-${Date.now()}`,
         qrcode: true,
       }),
+      signal: controller.signal,
     });
     
+    clearTimeout(timeoutId);
     console.log(`[WhatsApp Manager] Create response status: ${response.status}`);
 
     if (!response.ok) {
@@ -159,8 +180,16 @@ const createInstance = async (instanceName: string): Promise<{ success: boolean;
         return { success: true };
       }
       
+      // Se for Bad Gateway (502), API não está respondendo
+      if (response.status === 502) {
+        console.error(`[WhatsApp Manager] 502 Bad Gateway - Evolution API não está respondendo`);
+        return { 
+          success: false, 
+          error: `Evolution API não está respondendo (502 Bad Gateway). A API pode estar inicializando ou indisponível. Aguarde alguns minutos e tente novamente.` 
+        };
+      }
+      
       // Se for Forbidden (403), pode ser API key inválida ou URL errada
-      // Mas também pode ser que a instância já existe de outra forma
       if (response.status === 403) {
         // Tentar verificar se a instância já existe na lista
         const checkResult = await listInstances();
@@ -189,6 +218,22 @@ const createInstance = async (instanceName: string): Promise<{ success: boolean;
     return { success: true };
   } catch (error: any) {
     console.error('[WhatsApp Manager] Error creating instance:', error);
+    
+    // Detectar timeout ou erro de conexão
+    if (error.name === 'AbortError' || error.message?.includes('timeout')) {
+      return { 
+        success: false, 
+        error: `Timeout ao criar instância. Evolution API não respondeu a tempo. A API pode estar indisponível.` 
+      };
+    }
+    
+    if (error.message?.includes('ECONNREFUSED') || error.message?.includes('Failed to fetch')) {
+      return { 
+        success: false, 
+        error: `Não foi possível conectar à Evolution API. Verifique se a API está rodando e se EVOLUTION_API_URL está correto.` 
+      };
+    }
+    
     return { 
       success: false, 
       error: error.message || 'Erro ao criar instância. Verifique se a Evolution API está acessível.' 
@@ -566,8 +611,8 @@ serve(async (req) => {
 
       case 'list':
         result = await listInstances();
-        // Se não houver instâncias, tentar criar instance-1 automaticamente
-        if (result.success && (!result.instances || result.instances.length === 0)) {
+        // Se não houver instâncias E não houver erro (API está funcionando), tentar criar instance-1 automaticamente
+        if (result.success && (!result.instances || result.instances.length === 0) && !result.error) {
           console.log('[WhatsApp Manager] No instances found, attempting to create instance-1 automatically');
           const createResult = await createInstance('instance-1');
           if (createResult.success) {
@@ -577,6 +622,10 @@ serve(async (req) => {
           } else {
             // Se falhar ao criar, ainda retornar lista vazia (não é erro crítico)
             console.warn('[WhatsApp Manager] Failed to auto-create instance-1:', createResult.error);
+            // Se o erro for 502 ou timeout, não tentar criar novamente
+            if (createResult.error?.includes('502') || createResult.error?.includes('timeout')) {
+              result.error = createResult.error;
+            }
           }
         }
         break;
