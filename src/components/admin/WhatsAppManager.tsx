@@ -170,14 +170,26 @@ export const WhatsAppManager = () => {
   // Criar instância única automaticamente se não existir nenhuma (apenas uma vez)
   useEffect(() => {
     const autoCreateInstance = async () => {
-      // Se já tentou criar automaticamente, não tentar novamente
-      if (autoCreated) return;
+      // Se já tentou criar automaticamente E não há erro persistente, não tentar novamente
+      if (autoCreated && !hasError) return;
       
-      // Aguardar um pouco para carregar as instâncias primeiro
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      // Se há erro persistente, aguardar um pouco mais mas ainda tentar
+      if (hasError && errorCount >= 5) {
+        console.log('[WhatsApp Manager] Muitos erros detectados, aguardando 10 segundos antes de tentar criar instância');
+        await new Promise(resolve => setTimeout(resolve, 10000)); // 10 segundos
+      } else {
+        // Aguardar um pouco para carregar as instâncias primeiro
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+
+      // Verificar cooldown - mas não bloquear completamente, apenas reduzir frequência
+      if (cooldownUntil && Date.now() < cooldownUntil) {
+        const remaining = Math.ceil((cooldownUntil - Date.now()) / 1000);
+        console.log(`[WhatsApp Manager] Cooldown curto ativo (${remaining}s), aguardando...`);
+        await new Promise(resolve => setTimeout(resolve, Math.min(remaining * 1000, 15000)));
+      }
       
       // Se não há instâncias e não está carregando, criar automaticamente
-      // Mas só se não houver erro 502 (API não está respondendo)
       if (instances.length === 0 && !loading) {
         const defaultInstanceName = 'evolution-4';
         console.log('[WhatsApp Manager] Nenhuma instância encontrada. Tentando criar automaticamente:', defaultInstanceName);
@@ -192,15 +204,20 @@ export const WhatsAppManager = () => {
             }
           });
 
-          // Se a API não está respondendo (502), não tentar criar ainda
+          // Se a API não está respondendo (502), cooldown curto mas não bloquear
           if (error || (data?.error && (data.error.includes('502') || data.error.includes('Bad Gateway') || data.error.includes('não está respondendo')))) {
-            console.log('[WhatsApp Manager] API ainda não está pronta, aguardando...');
-            setAutoCreated(false); // Permitir tentar novamente quando API estiver pronta
+            console.log('[WhatsApp Manager] API ainda não está pronta, cooldown de 15 segundos...');
+            setCooldownUntil(Date.now() + 15 * 1000);
+            setAutoCreated(false); // Permitir tentar novamente após cooldown curto
             return;
           }
 
           if (!error && data?.success) {
             console.log('[WhatsApp Manager] Instância criada automaticamente:', defaultInstanceName);
+            // Resetar cooldown e erros em caso de sucesso
+            setCooldownUntil(null);
+            setErrorCount(0);
+            setHasError(false);
             await loadInstances();
             
             // Após criar, gerar QR code automaticamente após um delay
@@ -208,13 +225,21 @@ export const WhatsAppManager = () => {
               await getQRCode(defaultInstanceName);
             }, 2000);
           } else {
-            // Se falhou por outro motivo, permitir tentar novamente depois
+            // Se falhou por outro motivo, cooldown muito curto (10 segundos)
+            console.log('[WhatsApp Manager] Falha ao criar instância, cooldown de 10 segundos');
+            setCooldownUntil(Date.now() + 10 * 1000);
             setAutoCreated(false);
           }
         } catch (error: any) {
           console.error('[WhatsApp Manager] Erro ao criar instância automaticamente:', error);
-          // Se for erro de conexão/timeout, permitir tentar novamente
+          // Se for erro de conexão/timeout, cooldown curto (15 segundos)
           if (error.message?.includes('502') || error.message?.includes('timeout') || error.message?.includes('Failed to fetch')) {
+            console.log('[WhatsApp Manager] Erro de conexão, cooldown de 15 segundos');
+            setCooldownUntil(Date.now() + 15 * 1000);
+            setAutoCreated(false);
+          } else {
+            // Para outros erros, cooldown muito curto (10 segundos)
+            setCooldownUntil(Date.now() + 10 * 1000);
             setAutoCreated(false);
           }
         }
@@ -222,7 +247,7 @@ export const WhatsAppManager = () => {
     };
 
     autoCreateInstance();
-  }, [instances.length, loading, autoCreated]);
+  }, [instances.length, loading, autoCreated, hasError, errorCount, cooldownUntil]);
 
   const loadActiveInstance = async () => {
     try {
@@ -357,9 +382,9 @@ export const WhatsAppManager = () => {
           if (newErrorCount >= 5) {
             setHasError(true);
             setLastErrorTime(Date.now());
-            // Cooldown de 5 minutos após muitos erros
-            setCooldownUntil(Date.now() + 5 * 60 * 1000);
-            console.log('[WhatsApp Manager] Muitos erros 502 - parando polling e entrando em cooldown de 5 minutos.');
+            // Cooldown reduzido para 30 segundos (não 5 minutos) - usuário pode forçar tentativa
+            setCooldownUntil(Date.now() + 30 * 1000);
+            console.log('[WhatsApp Manager] Muitos erros 502 - parando polling automático. Cooldown de 30 segundos (pode forçar tentativa).');
             
             // Só mostrar "inicializando" se nunca funcionou ou se passou muito tempo
             if (!wasWorking && !isConfirmed) {
@@ -402,16 +427,19 @@ export const WhatsAppManager = () => {
         
         if (newErrorCount >= 5) { // Reduzido para 5 tentativas
           setHasError(true);
-          console.log('[WhatsApp Manager] Muitos erros - parando polling. Edge Function não está respondendo.');
+          setLastErrorTime(Date.now());
+          // Cooldown reduzido para 30 segundos - usuário pode forçar tentativa
+          setCooldownUntil(Date.now() + 30 * 1000);
+          console.log('[WhatsApp Manager] Muitos erros - parando polling automático. Cooldown de 30 segundos (pode forçar tentativa). Edge Function não está respondendo.');
           
           if (isFunctionsFetchError) {
             toast.error('Edge Function não está respondendo', {
-              description: 'A Edge Function whatsapp-manager não está disponível. Verifique se está deployada no Supabase ou se há problemas de conexão.',
+              description: 'A Edge Function whatsapp-manager não está disponível. Clique em "Tentar Agora" para forçar nova tentativa.',
               duration: 10000
             });
           } else {
             toast.error('Evolution API ainda está inicializando', {
-              description: 'Aguarde alguns minutos e recarregue a página. A instância será criada automaticamente quando a API estiver pronta.',
+              description: 'Clique em "Tentar Agora" para forçar nova tentativa imediata.',
               duration: 10000
             });
           }
@@ -701,18 +729,21 @@ export const WhatsAppManager = () => {
                 size="sm"
                 variant="ghost"
                 onClick={() => {
-                  console.log('[WhatsApp Manager] Manual refresh triggered');
-                  // Resetar cooldown e erros ao clicar manualmente
+                  console.log('[WhatsApp Manager] Manual refresh triggered - forçando tentativa imediata');
+                  // Resetar cooldown e erros ao clicar manualmente - SEMPRE permite tentativa
                   setCooldownUntil(null);
                   setErrorCount(0);
                   setHasError(false);
                   setAutoCreated(false);
                   loadInstances();
                 }}
-                disabled={loading || (cooldownUntil && Date.now() < cooldownUntil)}
+                disabled={loading}
+                title="Forçar tentativa imediata (ignora cooldown)"
               >
                 <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
-                Atualizar
+                {cooldownUntil && Date.now() < cooldownUntil 
+                  ? `Tentar Agora (${Math.ceil((cooldownUntil - Date.now()) / 1000)}s)` 
+                  : 'Atualizar'}
               </Button>
             </div>
             {loading && instances.length === 0 ? (
@@ -744,7 +775,7 @@ export const WhatsAppManager = () => {
                             </p>
                             {cooldownRemaining > 0 ? (
                               <p className="text-xs mt-1 text-muted-foreground">
-                                Aguarde {Math.ceil(cooldownRemaining / 60)} minuto(s) antes de tentar novamente.
+                                Cooldown automático: {Math.ceil(cooldownRemaining)} segundos. Ou clique em "Tentar Agora" para forçar tentativa imediata.
                               </p>
                             ) : (
                               <p className="text-xs mt-1">
@@ -782,10 +813,10 @@ export const WhatsAppManager = () => {
                 ) : cooldownUntil && Date.now() < cooldownUntil ? (
                   <>
                     <p className="text-sm mt-2 text-blue-600 dark:text-blue-400">
-                      Aguardando cooldown...
+                      Cooldown automático ativo
                     </p>
                     <p className="text-xs mt-1 text-muted-foreground">
-                      O sistema aguardará {Math.ceil((cooldownUntil - Date.now()) / 1000 / 60)} minuto(s) antes de tentar novamente.
+                      Aguardando {Math.ceil((cooldownUntil - Date.now()) / 1000)} segundos antes de tentar automaticamente. Clique em "Tentar Agora" para forçar tentativa imediata.
                     </p>
                   </>
                 ) : (
@@ -835,7 +866,10 @@ export const WhatsAppManager = () => {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => getQRCode(instance.instanceName)}
+                          onClick={() => {
+                            console.log('[WhatsApp Manager] Botão Conectar/Reconectar clicado para:', instance.instanceName);
+                            getQRCode(instance.instanceName);
+                          }}
                           disabled={loading || (selectedInstance === instance.instanceName && !!qrCode)}
                         >
                           <QrCode className="h-4 w-4 mr-1" />
