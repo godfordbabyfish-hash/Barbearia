@@ -33,3 +33,6 @@ dist-ssr
 # Supabase
 .branches
 .temp
+
+# WhatsApp Bot Railway (repo separado)
+whatsapp-bot-railway/
