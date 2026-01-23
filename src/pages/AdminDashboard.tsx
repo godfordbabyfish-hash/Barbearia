@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { Pencil, Trash2, Plus, ArrowLeft, Upload, Image as ImageIcon, Loader2, AlertTriangle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -310,21 +311,24 @@ const AdminDashboard = () => {
       />
 
       {/* Main Content */}
-      <main className="flex-1 lg:pl-64">
-        <div className="py-4 md:py-8 px-4">
-          <div className="max-w-7xl mx-auto">
+      <main className="flex-1 lg:pl-64 bg-background">
+        <div className="min-h-screen py-6 px-4 md:px-6 lg:px-8 pt-20 lg:pt-6">
+          <div className="max-w-7xl mx-auto space-y-6">
             {/* Content based on active tab */}
             {activeTab === 'services' && (
-              <div className="space-y-4">
-            <Button onClick={() => setEditingService({ title: '', description: '', price: 0, icon: 'Scissors', visible: true, image_url: '', duration: 30 })}>
-              <Plus className="mr-2 h-4 w-4" />
-              Novo Serviço
-            </Button>
+              <div className="space-y-6">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-2xl font-bold pl-12 lg:pl-0">Serviços</h2>
+                  <Button onClick={() => setEditingService({ title: '', description: '', price: 0, icon: 'Scissors', visible: true, image_url: '', duration: 30 })}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Novo Serviço
+                  </Button>
+                </div>
 
             {editingService && (
-              <Card className="bg-card border-primary/50">
+              <Card className="bg-card border-border shadow-lg">
                 <CardHeader>
-                  <CardTitle>{editingService.id ? 'Editar' : 'Novo'} Serviço</CardTitle>
+                  <CardTitle className="text-xl">{editingService.id ? 'Editar' : 'Novo'} Serviço</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
@@ -397,27 +401,31 @@ const AdminDashboard = () => {
               </Card>
             )}
 
-            <div className="grid gap-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {services.map((service) => (
-                <Card key={service.id} className="bg-card border-border">
+                <Card key={service.id} className="bg-card border-border hover:border-primary/50 transition-all">
                   <CardContent className="p-4">
-                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
-                      <div className="flex gap-4 flex-1">
-                        {service.image_url && (
-                          <img src={service.image_url} alt={service.title} className="h-20 w-20 sm:h-24 sm:w-24 object-cover rounded flex-shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-lg sm:text-xl font-bold">{service.title}</h3>
-                          <p className="text-sm sm:text-base text-muted-foreground line-clamp-2">{service.description}</p>
-                          <p className="text-primary font-bold mt-2">R$ {service.price}</p>
-                          <p className="text-xs sm:text-sm text-muted-foreground">
-                            Ícone: {service.icon} | {service.visible ? 'Visível' : 'Oculto'}
-                          </p>
+                    <div className="space-y-3">
+                      {service.image_url && (
+                        <img src={service.image_url} alt={service.title} className="w-full h-32 object-cover rounded-lg" />
+                      )}
+                      <div>
+                        <h3 className="text-lg font-bold mb-1">{service.title}</h3>
+                        <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{service.description}</p>
+                        <div className="flex items-center justify-between">
+                          <p className="text-lg font-bold text-primary">R$ {service.price.toFixed(2)}</p>
+                          <Badge variant={service.visible ? 'default' : 'secondary'}>
+                            {service.visible ? 'Visível' : 'Oculto'}
+                          </Badge>
                         </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Duração: {service.duration || 30}min
+                        </p>
                       </div>
-                      <div className="flex gap-2 self-start sm:self-auto">
-                        <Button size="sm" variant="outline" onClick={() => setEditingService(service)}>
-                          <Pencil className="h-4 w-4" />
+                      <div className="flex gap-2 pt-2 border-t border-border">
+                        <Button size="sm" variant="outline" className="flex-1" onClick={() => setEditingService(service)}>
+                          <Pencil className="h-4 w-4 mr-2" />
+                          Editar
                         </Button>
                         <Button size="sm" variant="destructive" onClick={() => handleDeleteService(service.id)}>
                           <Trash2 className="h-4 w-4" />
@@ -427,22 +435,25 @@ const AdminDashboard = () => {
                   </CardContent>
                 </Card>
               ))}
-              </div>
+            </div>
               </div>
             )}
 
 
             {activeTab === 'products' && (
-              <div className="space-y-4">
-            <Button onClick={() => setEditingProduct({ name: '', description: '', price: 0, category: 'Styling', stock: 0, visible: true, image_url: '' })}>
-              <Plus className="mr-2 h-4 w-4" />
-              Novo Produto
-            </Button>
+              <div className="space-y-6">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="text-2xl font-bold pl-12 lg:pl-0">Produtos</h2>
+                  <Button onClick={() => setEditingProduct({ name: '', description: '', price: 0, category: 'Styling', stock: 0, visible: true, image_url: '' })}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Novo Produto
+                  </Button>
+                </div>
 
             {editingProduct && (
-              <Card className="bg-card border-primary/50">
+              <Card className="bg-card border-border shadow-lg">
                 <CardHeader>
-                  <CardTitle>{editingProduct.id ? 'Editar' : 'Novo'} Produto</CardTitle>
+                  <CardTitle className="text-xl">{editingProduct.id ? 'Editar' : 'Novo'} Produto</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
@@ -516,27 +527,33 @@ const AdminDashboard = () => {
               </Card>
             )}
 
-            <div className="grid gap-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {products.map((product) => (
-                <Card key={product.id} className="bg-card border-border">
+                <Card key={product.id} className="bg-card border-border hover:border-primary/50 transition-all">
                   <CardContent className="p-4">
-                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
-                      <div className="flex gap-4 flex-1">
-                        {product.image_url && (
-                          <img src={product.image_url} alt={product.name} className="h-20 w-20 sm:h-24 sm:w-24 object-cover rounded flex-shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-lg sm:text-xl font-bold">{product.name}</h3>
-                          <p className="text-sm sm:text-base text-muted-foreground line-clamp-2">{product.description}</p>
-                          <p className="text-primary font-bold mt-2">R$ {product.price}</p>
-                          <p className="text-xs sm:text-sm text-muted-foreground">
-                            Categoria: {product.category} | Estoque: {product.stock} | {product.visible ? 'Visível' : 'Oculto'}
-                          </p>
+                    <div className="space-y-3">
+                      {product.image_url && (
+                        <img src={product.image_url} alt={product.name} className="w-full h-32 object-cover rounded-lg" />
+                      )}
+                      <div>
+                        <h3 className="text-lg font-bold mb-1">{product.name}</h3>
+                        <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{product.description}</p>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-lg font-bold text-primary">R$ {Number(product.price).toFixed(2)}</p>
+                          <Badge variant={product.visible ? 'default' : 'secondary'}>
+                            {product.visible ? 'Visível' : 'Oculto'}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{product.category}</span>
+                          <span>•</span>
+                          <span>Estoque: {product.stock}</span>
                         </div>
                       </div>
-                      <div className="flex gap-2 self-start sm:self-auto">
-                        <Button size="sm" variant="outline" onClick={() => setEditingProduct(product)}>
-                          <Pencil className="h-4 w-4" />
+                      <div className="flex gap-2 pt-2 border-t border-border">
+                        <Button size="sm" variant="outline" className="flex-1" onClick={() => setEditingProduct(product)}>
+                          <Pencil className="h-4 w-4 mr-2" />
+                          Editar
                         </Button>
                         <Button size="sm" variant="destructive" onClick={() => handleDeleteProduct(product.id)}>
                           <Trash2 className="h-4 w-4" />
@@ -546,18 +563,20 @@ const AdminDashboard = () => {
                   </CardContent>
                 </Card>
               ))}
-              </div>
+            </div>
               </div>
             )}
 
             {activeTab === 'financial' && (
-              <div className="space-y-4">
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold pl-12 lg:pl-0">Financeiro</h2>
                 <FinancialDashboard />
               </div>
             )}
 
             {activeTab === 'config' && (
-              <div className="space-y-4">
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold pl-12 lg:pl-0">Configurações</h2>
             {/* Minha conta - troca de senha do próprio admin/gestor */}
             <Card className="bg-card border-border">
               <CardHeader>
@@ -667,19 +686,21 @@ const AdminDashboard = () => {
             )}
 
             {activeTab === 'images' && (
-              <div className="space-y-4">
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold pl-12 lg:pl-0">Gerenciar Imagens</h2>
                 <ImageManager />
               </div>
             )}
 
             {activeTab === 'users' && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <UserManager />
               </div>
             )}
 
             {activeTab === 'whatsapp' && (
-              <div className="space-y-4">
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold pl-12 lg:pl-0">WhatsApp</h2>
                 <WhatsAppManager />
               </div>
             )}
