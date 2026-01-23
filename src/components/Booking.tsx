@@ -65,6 +65,8 @@ const Booking = () => {
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [barbershopAddress, setBarbershopAddress] = useState<string>("");
   const [barbershopMapsLink, setBarbershopMapsLink] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
@@ -418,82 +420,110 @@ const Booking = () => {
       loadAvailableSlots();
     }
 
-    // Realtime subscription for appointments changes
-    const channel = supabase
-      .channel('booking-appointments')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'appointments',
-        },
-        () => {
-          if (formData.date && formData.barber && formData.service) {
-            loadAvailableSlots();
+    // Realtime subscription for appointments changes (apenas quando necessário)
+    let channel: any = null;
+    if (formData.date && formData.barber && formData.service && !hoursLoading) {
+      channel = supabase
+        .channel('booking-appointments')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'appointments',
+            filter: `barber_id=eq.${formData.barber}`,
+          },
+          () => {
+            // Debounce para evitar muitas atualizações
+            const timeoutId = setTimeout(() => {
+              if (formData.date && formData.barber && formData.service) {
+                loadAvailableSlots();
+              }
+            }, 500);
+            return () => clearTimeout(timeoutId);
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
     };
   }, [formData.date, formData.barber, formData.service, hoursLoading]);
 
   const loadAvailableSlots = async () => {
-    const slots = await getAvailableSlotsForDate();
-    setAvailableSlots(slots);
-    
-    // Auto-select first available time (always update to next available)
-    if (slots.length > 0) {
-      // Check if current selected time is still available in new slots
-      const currentTimeStillAvailable = formData.time && slots.includes(formData.time);
+    if (loadingSlots) return; // Prevenir múltiplas chamadas simultâneas
+    setLoadingSlots(true);
+    try {
+      const slots = await getAvailableSlotsForDate();
+      setAvailableSlots(slots);
       
-      // Only update if current time is not available or no time is selected
-      if (!currentTimeStillAvailable) {
+      // Auto-select first available time (always update to next available)
+      if (slots.length > 0) {
+        // Check if current selected time is still available in new slots
+        const currentTimeStillAvailable = formData.time && slots.includes(formData.time);
+        
+        // Only update if current time is not available or no time is selected
+        if (!currentTimeStillAvailable) {
+          setFormData(prev => ({
+            ...prev,
+            time: slots[0],
+          }));
+        }
+      } else {
+        // No slots available, clear time selection
         setFormData(prev => ({
           ...prev,
-          time: slots[0],
+          time: "",
         }));
       }
-    } else {
-      // No slots available, clear time selection
-      setFormData(prev => ({
-        ...prev,
-        time: "",
-      }));
+    } catch (error) {
+      console.error('Error loading available slots:', error);
+      toast.error('Erro ao carregar horários disponíveis', {
+        description: 'Tente recarregar a página.',
+      });
+      setAvailableSlots([]);
+    } finally {
+      setLoadingSlots(false);
     }
   };
 
   const getAvailableSlotsForDate = async () => {
     if (!formData.date || !formData.barber || !formData.service || hoursLoading) return [];
 
-    const selectedDate = new Date(formData.date + 'T00:00:00');
-    
-    // Check if barbershop is open on this day
-    if (!isDateOpen(selectedDate)) return [];
-    
-    const dayTimeSlots = getTimeSlotsForDate(selectedDate);
+    try {
+      const selectedDate = new Date(formData.date + 'T00:00:00');
+      
+      // Check if barbershop is open on this day
+      if (!isDateOpen(selectedDate)) return [];
+      
+      const dayTimeSlots = getTimeSlotsForDate(selectedDate);
 
-    const { data: appointments } = await (supabase as any)
-      .from('appointments')
-      .select('appointment_time, service:services(duration)')
-      .eq('barber_id', formData.barber)
-      .eq('appointment_date', formData.date)
-      .neq('status', 'cancelled');
+      const { data: appointments, error: appointmentsError } = await (supabase as any)
+        .from('appointments')
+        .select('appointment_time, service:services(duration)')
+        .eq('barber_id', formData.barber)
+        .eq('appointment_date', formData.date)
+        .neq('status', 'cancelled');
 
-    // Query barber breaks for the selected date
-    const { data: breaks, error: breaksError } = await (supabase as any)
-      .from('barber_breaks')
-      .select('start_time, end_time')
-      .eq('barber_id', formData.barber)
-      .eq('date', formData.date);
+      if (appointmentsError) {
+        console.error('Error loading appointments:', appointmentsError);
+        return [];
+      }
+
+      // Query barber breaks for the selected date
+      const { data: breaks, error: breaksError } = await (supabase as any)
+        .from('barber_breaks')
+        .select('start_time, end_time')
+        .eq('barber_id', formData.barber)
+        .eq('date', formData.date);
     
-    // Ignore 404 errors (table might not exist)
-    if (breaksError && breaksError.code !== 'PGRST116') {
-      console.warn('Error loading barber breaks:', breaksError);
-    }
+      // Ignore 404/table not found errors (table might not exist)
+      if (breaksError && breaksError.code !== 'PGRST116' && breaksError.code !== 'PGRST205' && breaksError.code !== '42P01') {
+        console.warn('Error loading barber breaks:', breaksError);
+      }
 
     const serviceDuration = getServiceDuration(formData.service, services);
 
@@ -552,6 +582,9 @@ const Booking = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+
+    if (isSubmitting) return; // Prevenir múltiplos submits
 
     if (!user) {
       toast.error("Você precisa fazer login para agendar", {
@@ -560,6 +593,8 @@ const Booking = () => {
       setTimeout(() => navigate('/auth'), 1500);
       return;
     }
+
+    setIsSubmitting(true);
 
     // Verificar se já existe agendamento no mesmo horário
     const { data: existingAppointment } = await (supabase as any)
@@ -653,10 +688,14 @@ const Booking = () => {
       .single();
 
     if (error) {
+      setIsSubmitting(false);
       toast.error("Erro ao criar agendamento", {
         description: error.message,
       });
-    } else {
+      return;
+    }
+    
+    try {
       toast.success("Agendamento realizado com sucesso!", {
         description: "Você pode acompanhar no seu painel.",
       });
@@ -730,6 +769,13 @@ const Booking = () => {
 
       // Set success step immediately - não esperar pelo processamento da fila
       setStep("success");
+      setIsSubmitting(false);
+    } catch (error: any) {
+      console.error('Error in handleSubmit:', error);
+      setIsSubmitting(false);
+      toast.error("Erro ao processar agendamento", {
+        description: error.message || "Tente novamente mais tarde.",
+      });
     }
   };
 
@@ -919,7 +965,11 @@ const Booking = () => {
                           </>
                         )}
                       </div>
-                      {availableSlots.length === 0 ? (
+                      {hoursLoading ? (
+                        <div className="text-center py-8">
+                          <p className="text-muted-foreground">Carregando horários disponíveis...</p>
+                        </div>
+                      ) : availableSlots.length === 0 ? (
                         <p className="text-center text-muted-foreground py-8">
                           Nenhum horário disponível para esta data. Tente outra data.
                         </p>
@@ -934,7 +984,12 @@ const Booking = () => {
                                 ? "bg-primary text-primary-foreground hover:bg-primary/90 transition-all border-2 border-primary" 
                                 : "hover:bg-primary hover:text-primary-foreground transition-all"
                               }
-                              onClick={() => handleTimeSelect(time)}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleTimeSelect(time);
+                              }}
+                              disabled={hoursLoading}
                             >
                               {time}
                             </Button>
@@ -943,9 +998,9 @@ const Booking = () => {
                       )}
                     </div>
                   ) : (
-                    <p className="text-center text-muted-foreground py-8">
-                      Carregando próxima data disponível...
-                    </p>
+                    <div className="text-center py-8">
+                      <p className="text-muted-foreground">Carregando próxima data disponível...</p>
+                    </div>
                   )}
 
                   <div className="flex justify-center mt-6">
@@ -1078,9 +1133,10 @@ const Booking = () => {
                     </Button>
                     <Button 
                       type="submit" 
-                      className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-gold transition-all duration-300 hover:scale-105"
+                      disabled={isSubmitting || !formData.time}
+                      className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-gold transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Confirmar Agendamento
+                      {isSubmitting ? "Processando..." : "Confirmar Agendamento"}
                     </Button>
                   </div>
                 </form>
