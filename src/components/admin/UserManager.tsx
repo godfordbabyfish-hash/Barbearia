@@ -96,6 +96,9 @@ export const UserManager = () => {
   // Delete confirmation
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  
+  // User details dialog
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -446,11 +449,10 @@ export const UserManager = () => {
   });
 
   return (
-    <Card className="bg-card border-border">
-      <CardHeader>
-        <div className="flex justify-between items-center">
-          <CardTitle>Gerenciamento de Usuários</CardTitle>
-          <div className="flex gap-2">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-2xl font-bold pl-12 lg:pl-0">Gerenciamento de Usuários</h2>
+        <div className="flex gap-2 flex-shrink-0">
             <Select value={filterRole} onValueChange={setFilterRole}>
               <SelectTrigger className="w-[150px]">
                 <SelectValue placeholder="Filtrar por role" />
@@ -474,97 +476,113 @@ export const UserManager = () => {
               <Plus className="h-4 w-4 mr-2" />
               Novo Usuário
             </Button>
-          </div>
         </div>
-      </CardHeader>
-      <CardContent>
+      </div>
+    <Card className="bg-card border-border shadow-lg">
+      <CardContent className="p-6">
         {loading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Foto</TableHead>
-                <TableHead>Nome</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Telefone</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredUsers.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell>
-                    {user.image_url ? (
-                      <img
-                        src={user.image_url}
-                        alt={user.name || 'User'}
-                        className="w-10 h-10 rounded-full object-cover border-2 border-primary/50 shadow-md"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-secondary border-2 border-primary/30 flex items-center justify-center">
-                        <span className="text-xs font-semibold text-primary">
-                          {(user.name || user.email || '?').charAt(0).toUpperCase()}
-                        </span>
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell className="font-medium">{user.name || '-'}</TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>{user.phone || '-'}</TableCell>
-                  <TableCell>
-                    <Badge variant={getRoleBadgeVariant(user.role)}>
-                      {getRoleLabel(user.role)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => openPasswordDialog(user)}
-                        disabled={!canModifyUser(user)}
-                        title="Redefinir Senha"
-                      >
-                        <Key className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => openRoleDialog(user)}
-                        disabled={!canModifyUser(user)}
-                        title="Editar Usuário"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="icon"
-                        onClick={() => openDeleteDialog(user)}
-                        disabled={!canDeleteUser(user)}
-                        title="Excluir Usuário"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {filteredUsers.length === 0 && (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                    Nenhum usuário encontrado
-                  </TableCell>
+                  <TableHead className="w-20">Foto</TableHead>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead className="text-right w-40">Ações</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredUsers.map((user) => (
+                  <TableRow key={user.id} className="hover:bg-secondary/50">
+                    <TableCell>
+                      <button
+                        onClick={() => {
+                          setSelectedUser(user);
+                          setDetailsDialogOpen(true);
+                        }}
+                        className="hover:opacity-80 transition-opacity cursor-pointer"
+                      >
+                        {user.image_url ? (
+                          <img
+                            src={user.image_url}
+                            alt={user.name || 'User'}
+                            className="w-10 h-10 rounded-full object-cover border-2 border-primary/50 shadow-md"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-secondary border-2 border-primary/30 flex items-center justify-center">
+                            <span className="text-xs font-semibold text-primary">
+                              {(user.name || user.email || '?').charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                        )}
+                      </button>
+                    </TableCell>
+                    <TableCell>
+                      <button
+                        onClick={() => {
+                          setSelectedUser(user);
+                          setDetailsDialogOpen(true);
+                        }}
+                        className="text-left hover:text-primary transition-colors font-medium cursor-pointer"
+                      >
+                        {user.name || '-'}
+                      </button>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getRoleBadgeVariant(user.role)}>
+                        {getRoleLabel(user.role)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => openPasswordDialog(user)}
+                          disabled={!canModifyUser(user)}
+                          title="Redefinir Senha"
+                        >
+                          <Key className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => openRoleDialog(user)}
+                          disabled={!canModifyUser(user)}
+                          title="Editar Usuário"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          onClick={() => openDeleteDialog(user)}
+                          disabled={!canDeleteUser(user)}
+                          title="Excluir Usuário"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {filteredUsers.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                      Nenhum usuário encontrado
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
 
@@ -849,6 +867,119 @@ export const UserManager = () => {
         </DialogContent>
       </Dialog>
 
+      {/* User Details Dialog */}
+      <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Detalhes do Usuário</DialogTitle>
+            <DialogDescription>
+              Informações completas do usuário
+            </DialogDescription>
+          </DialogHeader>
+          {selectedUser && (
+            <div className="space-y-4 py-4">
+              <div className="flex items-center gap-4">
+                {selectedUser.image_url ? (
+                  <img
+                    src={selectedUser.image_url}
+                    alt={selectedUser.name || 'User'}
+                    className="w-16 h-16 rounded-full object-cover border-2 border-primary/50 shadow-md"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <div className="w-16 h-16 rounded-full bg-secondary border-2 border-primary/30 flex items-center justify-center">
+                    <span className="text-lg font-semibold text-primary">
+                      {(selectedUser.name || selectedUser.email || '?').charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                )}
+                <div>
+                  <h3 className="text-lg font-bold">{selectedUser.name || '-'}</h3>
+                  <Badge variant={getRoleBadgeVariant(selectedUser.role)}>
+                    {getRoleLabel(selectedUser.role)}
+                  </Badge>
+                </div>
+              </div>
+              <div className="space-y-3 pt-4 border-t border-border">
+                <div>
+                  <Label className="text-sm text-muted-foreground">Email</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-sm font-medium">{selectedUser.email || '-'}</p>
+                    {selectedUser.email && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => {
+                          navigator.clipboard.writeText(selectedUser.email);
+                          toast.success('Email copiado!');
+                        }}
+                        title="Copiar email"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-sm text-muted-foreground">Telefone</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-sm font-medium">{selectedUser.phone || '-'}</p>
+                    {selectedUser.phone && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => {
+                          navigator.clipboard.writeText(selectedUser.phone);
+                          toast.success('Telefone copiado!');
+                        }}
+                        title="Copiar telefone"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-sm text-muted-foreground">ID</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-xs font-mono text-muted-foreground break-all">{selectedUser.id}</p>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedUser.id);
+                        toast.success('ID copiado!');
+                      }}
+                      title="Copiar ID"
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetailsDialogOpen(false)}>
+              Fechar
+            </Button>
+            {selectedUser && (
+              <Button onClick={() => {
+                setDetailsDialogOpen(false);
+                openRoleDialog(selectedUser);
+              }}>
+                Editar Usuário
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
@@ -873,6 +1004,7 @@ export const UserManager = () => {
         </AlertDialogContent>
       </AlertDialog>
     </Card>
+    </div>
   );
 };
 
