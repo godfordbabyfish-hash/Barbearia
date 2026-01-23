@@ -39,8 +39,76 @@ interface WhatsAppInstance {
   };
 }
 
+// Cache keys para localStorage
+const CACHE_KEYS = {
+  API_STATUS: 'whatsapp_api_status',
+  LAST_SUCCESS: 'whatsapp_last_success',
+  INSTANCES_CACHE: 'whatsapp_instances_cache',
+  API_READY: 'whatsapp_api_ready',
+};
+
+// Helper para verificar se API estava funcionando recentemente (últimos 5 minutos)
+const wasApiWorkingRecently = (): boolean => {
+  try {
+    const lastSuccess = localStorage.getItem(CACHE_KEYS.LAST_SUCCESS);
+    if (!lastSuccess) return false;
+    
+    const lastSuccessTime = parseInt(lastSuccess, 10);
+    const now = Date.now();
+    const fiveMinutes = 5 * 60 * 1000; // 5 minutos em ms
+    
+    return (now - lastSuccessTime) < fiveMinutes;
+  } catch {
+    return false;
+  }
+};
+
+// Helper para verificar se API já foi confirmada como pronta
+const isApiConfirmedReady = (): boolean => {
+  try {
+    return localStorage.getItem(CACHE_KEYS.API_READY) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+// Helper para marcar API como pronta
+const markApiAsReady = () => {
+  try {
+    localStorage.setItem(CACHE_KEYS.API_READY, 'true');
+    localStorage.setItem(CACHE_KEYS.LAST_SUCCESS, Date.now().toString());
+  } catch {
+    // Ignorar erros de localStorage
+  }
+};
+
+// Helper para marcar sucesso na verificação
+const markApiSuccess = () => {
+  try {
+    localStorage.setItem(CACHE_KEYS.LAST_SUCCESS, Date.now().toString());
+    localStorage.setItem(CACHE_KEYS.API_READY, 'true');
+  } catch {
+    // Ignorar erros de localStorage
+  }
+};
+
 export const WhatsAppManager = () => {
-  const [instances, setInstances] = useState<WhatsAppInstance[]>([]);
+  const [instances, setInstances] = useState<WhatsAppInstance[]>(() => {
+    // Tentar carregar do cache ao inicializar
+    try {
+      const cached = localStorage.getItem(CACHE_KEYS.INSTANCES_CACHE);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // Verificar se cache não está muito antigo (mais de 2 minutos)
+        if (parsed.timestamp && (Date.now() - parsed.timestamp) < 2 * 60 * 1000) {
+          return parsed.instances || [];
+        }
+      }
+    } catch {
+      // Ignorar erros de cache
+    }
+    return [];
+  });
   const [loading, setLoading] = useState(false);
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
@@ -188,6 +256,19 @@ export const WhatsAppManager = () => {
         setErrorCount(0);
         setHasError(false);
         
+        // Marcar API como funcionando
+        markApiSuccess();
+        
+        // Cachear instâncias
+        try {
+          localStorage.setItem(CACHE_KEYS.INSTANCES_CACHE, JSON.stringify({
+            instances: data.instances,
+            timestamp: Date.now(),
+          }));
+        } catch {
+          // Ignorar erros de cache
+        }
+        
         // Verificar se alguma instância mudou de status para 'open'
         const previousInstances = instances;
         const newInstances = data.instances;
@@ -251,15 +332,29 @@ export const WhatsAppManager = () => {
           const newErrorCount = errorCount + 1;
           setErrorCount(newErrorCount);
           
+          // Se API já estava funcionando recentemente, não mostrar "inicializando"
+          const wasWorking = wasApiWorkingRecently();
+          const isConfirmed = isApiConfirmedReady();
+          
           if (newErrorCount >= 5) {
             setHasError(true);
-            console.log('[WhatsApp Manager] Muitos erros 502 - parando polling. API ainda está inicializando.');
-            toast.error('Evolution API ainda está inicializando', {
-              description: 'Aguarde alguns minutos e recarregue a página. A instância será criada automaticamente quando a API estiver pronta.',
-              duration: 10000
-            });
+            console.log('[WhatsApp Manager] Muitos erros 502 - parando polling.');
+            
+            // Só mostrar "inicializando" se nunca funcionou ou se passou muito tempo
+            if (!wasWorking && !isConfirmed) {
+              toast.error('Evolution API ainda está inicializando', {
+                description: 'Aguarde alguns minutos e recarregue a página. A instância será criada automaticamente quando a API estiver pronta.',
+                duration: 10000
+              });
+            } else {
+              // API estava funcionando, pode ser problema temporário
+              toast.warning('Evolution API temporariamente indisponível', {
+                description: 'A API estava funcionando recentemente. Pode ser um problema temporário. Tente novamente em alguns segundos.',
+                duration: 8000
+              });
+            }
           } else {
-            console.log('[WhatsApp Manager] API ainda inicializando, aguardando... (tentativa ' + newErrorCount + '/5)');
+            console.log('[WhatsApp Manager] API com erro 502, aguardando... (tentativa ' + newErrorCount + '/5)');
           }
         } else if (data.error.includes('Acesso negado') && instances.length === 0) {
           // Mostrar toast apenas uma vez para erros de autenticação
@@ -606,15 +701,41 @@ export const WhatsAppManager = () => {
                 <p>Nenhuma instância encontrada</p>
                 {hasError ? (
                   <>
-                    <p className="text-sm mt-2 text-yellow-600 dark:text-yellow-400">
-                      Evolution API ainda está inicializando
-                    </p>
-                    <p className="text-xs mt-1">
-                      Aguarde alguns minutos e clique em "Atualizar" ou recarregue a página.
-                    </p>
-                    <p className="text-xs mt-1">
-                      A instância será criada automaticamente quando a API estiver pronta.
-                    </p>
+                    {(() => {
+                      const wasWorking = wasApiWorkingRecently();
+                      const isConfirmed = isApiConfirmedReady();
+                      
+                      // Se API já funcionou antes, mostrar mensagem diferente
+                      if (wasWorking || isConfirmed) {
+                        return (
+                          <>
+                            <p className="text-sm mt-2 text-orange-600 dark:text-orange-400">
+                              Evolution API temporariamente indisponível
+                            </p>
+                            <p className="text-xs mt-1">
+                              A API estava funcionando recentemente. Pode ser um problema temporário.
+                            </p>
+                            <p className="text-xs mt-1">
+                              Clique em "Atualizar" para tentar novamente.
+                            </p>
+                          </>
+                        );
+                      } else {
+                        return (
+                          <>
+                            <p className="text-sm mt-2 text-yellow-600 dark:text-yellow-400">
+                              Evolution API ainda está inicializando
+                            </p>
+                            <p className="text-xs mt-1">
+                              Aguarde alguns minutos e clique em "Atualizar" ou recarregue a página.
+                            </p>
+                            <p className="text-xs mt-1">
+                              A instância será criada automaticamente quando a API estiver pronta.
+                            </p>
+                          </>
+                        );
+                      }
+                    })()}
                   </>
                 ) : (
                   <>
