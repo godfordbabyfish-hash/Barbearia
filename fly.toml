@@ -1,0 +1,49 @@
+# Fly.io configuration for Evolution API
+# Skip migrations by using custom command
+
+app = "evolution-api-barbearia"
+primary_region = "gru"  # São Paulo - Brazil (ou escolha: ord, iad, lax, etc)
+
+[build]
+  dockerfile = "Dockerfile"
+  # Usa Dockerfile wrapper que sobrescreve ENTRYPOINT para pular migrations
+
+[processes]
+  web = ""
+
+[env]
+  SERVER_HOST = "0.0.0.0"
+  SERVER_PORT = "8080"
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["web"]
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+  processes = ["web"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 100
+    soft_limit = 80
+
+[[vm]]
+  memory_mb = 256
+  cpu_kind = "shared"
+  cpus = 1
