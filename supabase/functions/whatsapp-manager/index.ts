@@ -271,7 +271,8 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
     }
 
     // Agora tentar conectar e obter QR code
-    const response = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}`, {
+    // Adicionar ?qrcode=true para garantir que a API retorne o QR code
+    const response = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}?qrcode=true`, {
       method: 'GET',
       headers: {
         'apikey': evolutionApiKey,
