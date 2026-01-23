@@ -569,15 +569,26 @@ const Booking = () => {
       
       return !isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === formData.service));
     });
+    } catch (error) {
+      console.error('Error in getAvailableSlotsForDate:', error);
+      return [];
+    }
   };
 
 
   const handleTimeSelect = (time: string) => {
-    setFormData({
-      ...formData,
-      time: time,
-    });
-    setStep("form");
+    try {
+      setFormData({
+        ...formData,
+        time: time,
+      });
+      setStep("form");
+    } catch (error) {
+      console.error('Error in handleTimeSelect:', error);
+      toast.error('Erro ao selecionar horário', {
+        description: 'Tente novamente.',
+      });
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -927,14 +938,18 @@ const Booking = () => {
                       <Calendar className="w-4 h-4 text-primary" />
                       Data
                     </Label>
-                    <Input
+                      <Input
                       id="date"
                       type="date"
                       value={formData.date}
-                      onChange={async (e) => {
-                        const newDate = e.target.value;
-                        // Update date and clear time so it will be auto-selected
-                        setFormData({ ...formData, date: newDate, time: "" });
+                      onChange={(e) => {
+                        try {
+                          const newDate = e.target.value;
+                          // Update date and clear time so it will be auto-selected
+                          setFormData({ ...formData, date: newDate, time: "" });
+                        } catch (error) {
+                          console.error('Error changing date:', error);
+                        }
                       }}
                       required
                       min={formatLocalDate(new Date())}
