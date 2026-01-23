@@ -68,18 +68,58 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
   };
 
   const loadServices = async () => {
-    const { data, error } = await supabase
+    // Load services
+    const { data: servicesData, error: servicesError } = await supabase
       .from("services")
       .select("id, title, description, duration, price, image_url, icon")
-      .eq("visible", true)
-      .order("order_index");
+      .eq("visible", true);
 
-    if (error) {
-      console.error("Error loading services:", error);
+    if (servicesError) {
+      console.error("Error loading services:", servicesError);
       return;
     }
 
-    setServices(data || []);
+    if (!servicesData || servicesData.length === 0) {
+      setServices([]);
+      return;
+    }
+
+    // Count appointments per service
+    const { data: appointmentsData, error: appointmentsError } = await supabase
+      .from("appointments")
+      .select("service_id")
+      .neq("status", "cancelled");
+
+    if (appointmentsError) {
+      console.error("Error loading appointments count:", appointmentsError);
+      // If error, just use services with default order
+      setServices(servicesData);
+      return;
+    }
+
+    // Count occurrences of each service
+    const serviceCounts = new Map<string, number>();
+    appointmentsData?.forEach((apt: any) => {
+      if (apt.service_id) {
+        serviceCounts.set(apt.service_id, (serviceCounts.get(apt.service_id) || 0) + 1);
+      }
+    });
+
+    // Sort services by usage count (most used first), then by order_index
+    const sortedServices = servicesData.sort((a: any, b: any) => {
+      const countA = serviceCounts.get(a.id) || 0;
+      const countB = serviceCounts.get(b.id) || 0;
+      
+      // First sort by usage count (descending)
+      if (countB !== countA) {
+        return countB - countA;
+      }
+      
+      // If same count, sort by order_index
+      return (a.order_index || 0) - (b.order_index || 0);
+    });
+
+    setServices(sortedServices);
   };
 
   const handleBarberSelect = (barberId: string) => {
@@ -366,7 +406,9 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
                     <h4 className="text-xs md:text-base lg:text-lg font-bold text-white line-clamp-1">{barber.name}</h4>
                     <p className="text-gray-400 text-xs md:text-sm line-clamp-1">{barber.specialty}</p>
                     <div className="flex items-center justify-between mt-1 md:mt-2">
-                      <span className="text-gray-500 text-xs hidden md:inline">{barber.experience}</span>
+                      {barber.experience && barber.experience.trim() && (
+                        <span className="text-gray-500 text-xs hidden md:inline">{barber.experience}</span>
+                      )}
                       <div className="flex items-center gap-1 ml-auto">
                         <Star className="h-3 w-3 md:h-4 md:w-4 fill-yellow-500 text-yellow-500" />
                         <span style={{ color: "#FFD700" }} className="font-semibold text-xs md:text-sm">

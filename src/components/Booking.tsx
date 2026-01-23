@@ -196,17 +196,58 @@ const Booking = () => {
   };
 
   const loadServices = async () => {
-    const { data, error } = await (supabase as any)
+    // Load services
+    const { data: servicesData, error: servicesError } = await (supabase as any)
       .from('services')
       .select('*')
-      .eq('visible', true)
-      .order('order_index');
+      .eq('visible', true);
 
-    if (error) {
-      console.error('Error loading services:', error);
-    } else {
-      setServices(data || []);
+    if (servicesError) {
+      console.error('Error loading services:', servicesError);
+      return;
     }
+
+    if (!servicesData || servicesData.length === 0) {
+      setServices([]);
+      return;
+    }
+
+    // Count appointments per service
+    const { data: appointmentsData, error: appointmentsError } = await (supabase as any)
+      .from('appointments')
+      .select('service_id')
+      .neq('status', 'cancelled');
+
+    if (appointmentsError) {
+      console.error('Error loading appointments count:', appointmentsError);
+      // If error, just use services with default order
+      setServices(servicesData);
+      return;
+    }
+
+    // Count occurrences of each service
+    const serviceCounts = new Map<string, number>();
+    appointmentsData?.forEach((apt: any) => {
+      if (apt.service_id) {
+        serviceCounts.set(apt.service_id, (serviceCounts.get(apt.service_id) || 0) + 1);
+      }
+    });
+
+    // Sort services by usage count (most used first), then by order_index
+    const sortedServices = servicesData.sort((a: any, b: any) => {
+      const countA = serviceCounts.get(a.id) || 0;
+      const countB = serviceCounts.get(b.id) || 0;
+      
+      // First sort by usage count (descending)
+      if (countB !== countA) {
+        return countB - countA;
+      }
+      
+      // If same count, sort by order_index
+      return (a.order_index || 0) - (b.order_index || 0);
+    });
+
+    setServices(sortedServices);
   };
 
   const loadBarbers = async () => {
@@ -767,10 +808,33 @@ const Booking = () => {
 
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            console.error('Error triggering WhatsApp queue:', response.status, errorData);
+            console.error('❌ Error triggering WhatsApp queue:', response.status, errorData);
+            console.error('   URL:', `${supabaseUrl}/functions/v1/whatsapp-process-queue`);
+            // Tentar novamente após 2 segundos
+            setTimeout(async () => {
+              try {
+                const retryResponse = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': supabaseAnonKey || '',
+                    'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
+                  },
+                  body: JSON.stringify({}),
+                });
+                if (retryResponse.ok) {
+                  console.log('✅ WhatsApp queue processed on retry');
+                }
+              } catch (retryError) {
+                console.error('❌ Retry failed:', retryError);
+              }
+            }, 2000);
           } else {
             const data = await response.json().catch(() => ({}));
-            console.log('WhatsApp queue processed after online booking', data);
+            console.log('✅ WhatsApp queue processed after online booking', data);
+            if (data.processed > 0) {
+              console.log(`   📨 ${data.processed} mensagem(ns) processada(s)`);
+            }
           }
         } catch (queueError) {
           console.error('Error triggering WhatsApp queue after booking:', queueError);
@@ -878,15 +942,15 @@ const Booking = () => {
             ))}
           </div>
         ) : step === "barber" ? (
-          <div className="max-w-5xl mx-auto">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
+          <div className="max-w-7xl mx-auto">
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
               {getAvailableBarbers().map((barber, index) => (
                 <Card 
                   key={index} 
                   className="group bg-card border-border hover:border-primary/50 transition-all duration-300 overflow-hidden hover:shadow-gold cursor-pointer"
                   onClick={() => handleBarberSelect(barber)}
                 >
-                  <div className="relative h-32 md:h-48 lg:h-64 overflow-hidden">
+                  <div className="relative h-48 md:h-56 lg:h-64 overflow-hidden">
                     <img 
                       src={barber.image_url || defaultBarberImages[index] || barber1Img} 
                       alt={barber.name}
@@ -895,15 +959,17 @@ const Booking = () => {
                     <div className="absolute inset-0 bg-gradient-to-t from-card to-transparent"></div>
                   </div>
                   
-                  <CardContent className="p-3 md:p-4 lg:p-6">
-                    <h3 className="text-sm md:text-lg lg:text-2xl font-bold text-foreground mb-1 md:mb-2 line-clamp-1">{barber.name}</h3>
-                    <p className="text-xs md:text-sm text-muted-foreground mb-2 md:mb-3 line-clamp-1">{barber.specialty}</p>
-                    <div className="flex items-center justify-between text-xs md:text-sm">
-                      <span className="text-muted-foreground line-clamp-1 hidden md:inline">{barber.experience}</span>
-                      <div className="flex items-center gap-1 text-primary ml-auto">
-                        <Star className="w-3 h-3 md:w-4 md:h-4 fill-current" />
-                        <span className="font-semibold text-xs md:text-sm">{Number(barber.rating).toFixed(1)}</span>
-                      </div>
+                  <CardContent className="p-3 md:p-6 lg:p-8 text-center">
+                    <h3 className="text-sm md:text-lg lg:text-2xl font-bold mb-1 md:mb-2 line-clamp-1">{barber.name}</h3>
+                    <p className="text-xs md:text-sm lg:text-base text-primary font-semibold mb-1 md:mb-2 line-clamp-1">{barber.specialty}</p>
+                    {barber.experience && barber.experience.trim() && (
+                      <p className="text-xs md:text-sm text-muted-foreground mb-2 md:mb-4 line-clamp-1">{barber.experience}</p>
+                    )}
+                    
+                    <div className="flex items-center justify-center gap-0.5 md:gap-1">
+                      {[...Array(Math.floor(Number(barber.rating)))].map((_, i) => (
+                        <Star key={i} className="w-3 h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 fill-primary text-primary" />
+                      ))}
                     </div>
                   </CardContent>
                 </Card>
@@ -923,13 +989,35 @@ const Booking = () => {
           <div className="max-w-4xl mx-auto">
             <Card className="bg-card border-border shadow-elegant">
               <CardHeader>
-                <CardTitle className="text-2xl flex items-center gap-2">
-                  <Clock className="w-6 h-6 text-primary" />
-                  Selecione o Horário
-                </CardTitle>
-                <CardDescription>
-                  {formData.serviceTitle} com {formData.barberName}
-                </CardDescription>
+                <div className="flex items-start gap-4">
+                  {(() => {
+                    const selectedBarber = barbers.find(b => b.id === formData.barber);
+                    const barberIndex = barbers.findIndex(b => b.id === formData.barber);
+                    const barberImage = selectedBarber?.image_url || defaultBarberImages[barberIndex] || barber1Img;
+                    
+                    return (
+                      <div className="flex-shrink-0">
+                        <img
+                          src={barberImage}
+                          alt={formData.barberName}
+                          className="w-16 h-16 rounded-full object-cover border-2 border-primary/50 shadow-lg"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = barber1Img;
+                          }}
+                        />
+                      </div>
+                    );
+                  })()}
+                  <div className="flex-1">
+                    <CardTitle className="text-2xl flex items-center gap-2">
+                      <Clock className="w-6 h-6 text-primary" />
+                      Selecione o Horário
+                    </CardTitle>
+                    <CardDescription className="mt-2">
+                      {formData.serviceTitle} com {formData.barberName}
+                    </CardDescription>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-6">
@@ -1108,10 +1196,32 @@ const Booking = () => {
                 <CardTitle className="text-2xl">Confirmar Agendamento</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-1 mb-6 pb-4 border-b border-border">
-                  <p className="text-base"><strong>Serviço:</strong> {formData.serviceTitle} (R$ {formData.servicePrice})</p>
-                  <p className="text-base"><strong>Barbeiro:</strong> {formData.barberName}</p>
-                  <p className="text-base"><strong>Data e Horário:</strong> {new Date(formData.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {formData.time}</p>
+                <div className="space-y-4 mb-6 pb-4 border-b border-border">
+                  <div className="flex items-center gap-4">
+                    {(() => {
+                      const selectedBarber = barbers.find(b => b.id === formData.barber);
+                      const barberIndex = barbers.findIndex(b => b.id === formData.barber);
+                      const barberImage = selectedBarber?.image_url || defaultBarberImages[barberIndex] || barber1Img;
+                      
+                      return (
+                        <div className="flex-shrink-0">
+                          <img
+                            src={barberImage}
+                            alt={formData.barberName}
+                            className="w-20 h-20 rounded-full object-cover border-2 border-primary/50 shadow-lg"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = barber1Img;
+                            }}
+                          />
+                        </div>
+                      );
+                    })()}
+                    <div className="flex-1 space-y-1">
+                      <p className="text-base"><strong>Serviço:</strong> {formData.serviceTitle} (R$ {formData.servicePrice})</p>
+                      <p className="text-base"><strong>Barbeiro:</strong> {formData.barberName}</p>
+                      <p className="text-base"><strong>Data e Horário:</strong> {new Date(formData.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {formData.time}</p>
+                    </div>
+                  </div>
                 </div>
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <div className="space-y-2">

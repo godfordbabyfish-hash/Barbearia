@@ -12,11 +12,13 @@ import {
   ArrowLeft,
   Menu,
   X,
-  MessageSquare
+  MessageSquare,
+  LogOut
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface MenuItem {
   id: string;
@@ -35,10 +37,10 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { user, signOut } = useAuth();
 
   const menuItems: MenuItem[] = [
     { id: 'services', label: 'Serviços', icon: <Scissors className="h-4 w-4" /> },
-    { id: 'barbeiros', label: 'Barbeiros', icon: <Users className="h-4 w-4" /> },
     { id: 'users', label: 'Usuários', icon: <User className="h-4 w-4" />, adminOnly: true },
     { id: 'products', label: 'Produtos', icon: <ShoppingBag className="h-4 w-4" /> },
     { id: 'financial', label: 'Financeiro', icon: <DollarSign className="h-4 w-4" /> },
@@ -109,6 +111,37 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
           );
         })}
       </nav>
+
+      {/* User Info and Logout */}
+      <div className="p-4 border-t border-border space-y-2">
+        {user && (
+          <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-secondary/30">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary text-sm font-bold">
+              {user.email?.charAt(0).toUpperCase() || 'U'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-foreground truncate">
+                {user.email || 'Usuário'}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {role === 'admin' ? 'Administrador' : 'Gestor'}
+              </div>
+            </div>
+          </div>
+        )}
+        <Button 
+          onClick={async () => {
+            await signOut();
+            navigate('/');
+          }} 
+          variant="outline" 
+          size="sm"
+          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+        >
+          <LogOut className="mr-2 h-4 w-4" />
+          Sair
+        </Button>
+      </div>
     </div>
   );
 

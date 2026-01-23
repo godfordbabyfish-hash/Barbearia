@@ -39,7 +39,7 @@ const FinancialDashboard = () => {
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('week');
-  const [filterType, setFilterType] = useState<'all' | 'local' | 'online'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
   const [filterBarber, setFilterBarber] = useState<string>('all');
   const [filterService, setFilterService] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
@@ -160,6 +160,7 @@ const FinancialDashboard = () => {
   const cancelledCount = appointments.filter(apt => apt.status === 'cancelled').length;
   const localCount = appointments.filter(apt => apt.booking_type === 'local').length;
   const onlineCount = appointments.filter(apt => apt.booking_type === 'online').length;
+  const manualCount = appointments.filter(apt => apt.booking_type === 'manual').length;
 
   // Chart data by date
   const chartDataByDate = () => {
@@ -272,6 +273,7 @@ const FinancialDashboard = () => {
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="local">Local</SelectItem>
                   <SelectItem value="online">Online</SelectItem>
+                  <SelectItem value="manual">📝 Manual (Retroativo)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -346,7 +348,7 @@ const FinancialDashboard = () => {
           <CardContent>
             <div className="text-2xl font-bold text-primary">{totalAppointments}</div>
             <p className="text-xs text-muted-foreground">
-              {localCount} local • {onlineCount} online
+              {localCount} local • {onlineCount} online{manualCount > 0 && ` • ${manualCount} manual`}
             </p>
           </CardContent>
         </Card>
@@ -535,9 +537,11 @@ const FinancialDashboard = () => {
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
                         apt.booking_type === 'local' 
                           ? 'bg-primary/20 text-primary' 
+                          : apt.booking_type === 'manual'
+                          ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
                           : 'bg-blue-500/20 text-blue-400'
-                      }`}>
-                        {apt.booking_type === 'local' ? 'Local' : 'Online'}
+                      }`} title={apt.booking_type === 'manual' ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' : ''}>
+                        {apt.booking_type === 'local' ? 'Local' : apt.booking_type === 'manual' ? '📝 Manual' : 'Online'}
                       </span>
                     </td>
                     <td className="py-3 px-2">
