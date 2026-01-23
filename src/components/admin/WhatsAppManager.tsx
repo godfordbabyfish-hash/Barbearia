@@ -55,17 +55,33 @@ export const WhatsAppManager = () => {
     loadInstances();
     loadActiveInstance();
     
-    // Polling para atualizar status a cada 10 segundos (aumentado para evitar spam)
-    // Mas só se não houver erro persistente
-    const interval = setInterval(() => {
-      // Só fazer polling se não estiver carregando e não houver erro persistente
-      if (!loading && !hasError && errorCount < 5) {
-        loadInstances();
-      }
-    }, 10000); // Aumentado para 10 segundos
+    // Polling MUITO menos frequente para evitar ERR_INSUFFICIENT_RESOURCES
+    // Apenas se não houver erro persistente
+    let intervalId: NodeJS.Timeout | null = null;
     
-    return () => clearInterval(interval);
-  }, [loading, hasError, errorCount]);
+    const startPolling = () => {
+      // Limpar qualquer intervalo anterior
+      if (intervalId) clearInterval(intervalId);
+      
+      // Só fazer polling se não houver erro persistente
+      if (!hasError && errorCount < 3) {
+        intervalId = setInterval(() => {
+          // Só fazer polling se não estiver carregando e não houver erro
+          if (!loading && !hasError && errorCount < 3) {
+            loadInstances();
+          }
+        }, 30000); // 30 segundos - muito menos frequente
+      }
+    };
+    
+    // Iniciar polling após 5 segundos
+    const timeoutId = setTimeout(startPolling, 5000);
+    
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+      clearTimeout(timeoutId);
+    };
+  }, [hasError, errorCount]); // Dependências mínimas
 
   // Criar instância única automaticamente se não existir nenhuma (apenas uma vez)
   useEffect(() => {
@@ -397,14 +413,14 @@ export const WhatsAppManager = () => {
 
         toast.success('QR code gerado! Escaneie com seu WhatsApp.');
         
-        // Iniciar polling mais frequente para verificar conexão (a cada 2 segundos)
+        // Iniciar polling MENOS frequente para verificar conexão (a cada 10 segundos)
         if (pollingInterval) {
           clearInterval(pollingInterval);
         }
         const interval = setInterval(async () => {
           console.log('[WhatsApp Manager] Polling for connection status...');
           await loadInstances();
-        }, 2000);
+        }, 10000); // Aumentado para 10 segundos
         setPollingInterval(interval);
         
         // Também configurar timeout para parar polling após 5 minutos (caso não conecte)
