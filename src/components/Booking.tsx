@@ -780,13 +780,13 @@ const Booking = () => {
 
       // Set success step immediately - não esperar pelo processamento da fila
       setStep("success");
-      setIsSubmitting(false);
     } catch (error: any) {
       console.error('Error in handleSubmit:', error);
-      setIsSubmitting(false);
       toast.error("Erro ao processar agendamento", {
         description: error.message || "Tente novamente mais tarde.",
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
