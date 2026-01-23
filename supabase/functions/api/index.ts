@@ -1214,8 +1214,8 @@ serve(async (req) => {
       }
     }
 
-    // PUT /admin/users/:id/role - Update user role
-    if (req.method === 'PUT' && path.startsWith('admin/users/') && path.endsWith('/role')) {
+    // PUT/POST /admin/users/:id/role - Update user role
+    if ((req.method === 'PUT' || req.method === 'POST') && path.startsWith('admin/users/') && path.endsWith('/role')) {
       const userId = path.replace('admin/users/', '').replace('/role', '');
       const authHeader = req.headers.get('authorization');
       const { userId: callerId, role: callerRole } = await getCallerRole(authHeader);

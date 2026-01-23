@@ -5,7 +5,7 @@
 **Git Configurado:**
 - ✅ Usuário: `thiagopinheeir-tech`
 - ✅ Email: `godfordbabyfish@gmail.com`
-- ✅ Remote: `https://github.com/godfordbabyfish-hash/Barbearia.git`
+- ✅ Remote: `://github.com/godfordbabyfish-hash/Barbearia.git`https
 - ✅ Credential Helper: `manager` (Windows Credential Manager)
 
 **Problema Identificado:**
