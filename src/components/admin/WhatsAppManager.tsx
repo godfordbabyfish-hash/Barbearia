@@ -117,9 +117,17 @@ export const WhatsAppManager = () => {
   const [autoCreated, setAutoCreated] = useState(false);
   const [errorCount, setErrorCount] = useState(0);
   const [hasError, setHasError] = useState(false);
+  const [lastErrorTime, setLastErrorTime] = useState<number | null>(null);
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
 
   // Carregar instâncias e instância ativa ao montar
   useEffect(() => {
+    // Verificar se estamos em cooldown
+    if (cooldownUntil && Date.now() < cooldownUntil) {
+      console.log('[WhatsApp Manager] Em cooldown, aguardando...');
+      return;
+    }
+
     loadInstances();
     loadActiveInstance();
     
@@ -131,25 +139,33 @@ export const WhatsAppManager = () => {
       // Limpar qualquer intervalo anterior
       if (intervalId) clearInterval(intervalId);
       
-      // Só fazer polling se não houver erro persistente
-      if (!hasError && errorCount < 3) {
+      // Só fazer polling se não houver erro persistente E não estiver em cooldown
+      const isInCooldown = cooldownUntil && Date.now() < cooldownUntil;
+      if (!hasError && errorCount < 3 && !isInCooldown) {
         intervalId = setInterval(() => {
-          // Só fazer polling se não estiver carregando e não houver erro
-          if (!loading && !hasError && errorCount < 3) {
+          // Verificar cooldown novamente antes de cada polling
+          const stillInCooldown = cooldownUntil && Date.now() < cooldownUntil;
+          if (!loading && !hasError && errorCount < 3 && !stillInCooldown) {
             loadInstances();
           }
         }, 30000); // 30 segundos - muito menos frequente
       }
     };
     
-    // Iniciar polling após 5 segundos
-    const timeoutId = setTimeout(startPolling, 5000);
+    // Iniciar polling após 5 segundos (apenas se não estiver em cooldown)
+    const isInCooldown = cooldownUntil && Date.now() < cooldownUntil;
+    if (!isInCooldown) {
+      const timeoutId = setTimeout(startPolling, 5000);
+      return () => {
+        if (intervalId) clearInterval(intervalId);
+        clearTimeout(timeoutId);
+      };
+    }
     
     return () => {
       if (intervalId) clearInterval(intervalId);
-      clearTimeout(timeoutId);
     };
-  }, [hasError, errorCount]); // Dependências mínimas
+  }, [hasError, errorCount, cooldownUntil]); // Adicionar cooldownUntil às dependências
 
   // Criar instância única automaticamente se não existir nenhuma (apenas uma vez)
   useEffect(() => {
@@ -255,6 +271,8 @@ export const WhatsAppManager = () => {
         // Resetar contador de erros se conseguir carregar
         setErrorCount(0);
         setHasError(false);
+        setCooldownUntil(null); // Limpar cooldown em caso de sucesso
+        setLastErrorTime(null);
         
         // Marcar API como funcionando
         markApiSuccess();
@@ -338,7 +356,10 @@ export const WhatsAppManager = () => {
           
           if (newErrorCount >= 5) {
             setHasError(true);
-            console.log('[WhatsApp Manager] Muitos erros 502 - parando polling.');
+            setLastErrorTime(Date.now());
+            // Cooldown de 5 minutos após muitos erros
+            setCooldownUntil(Date.now() + 5 * 60 * 1000);
+            console.log('[WhatsApp Manager] Muitos erros 502 - parando polling e entrando em cooldown de 5 minutos.');
             
             // Só mostrar "inicializando" se nunca funcionou ou se passou muito tempo
             if (!wasWorking && !isConfirmed) {
@@ -681,9 +702,14 @@ export const WhatsAppManager = () => {
                 variant="ghost"
                 onClick={() => {
                   console.log('[WhatsApp Manager] Manual refresh triggered');
+                  // Resetar cooldown e erros ao clicar manualmente
+                  setCooldownUntil(null);
+                  setErrorCount(0);
+                  setHasError(false);
+                  setAutoCreated(false);
                   loadInstances();
                 }}
-                disabled={loading}
+                disabled={loading || (cooldownUntil && Date.now() < cooldownUntil)}
               >
                 <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
                 Atualizar
@@ -704,38 +730,63 @@ export const WhatsAppManager = () => {
                     {(() => {
                       const wasWorking = wasApiWorkingRecently();
                       const isConfirmed = isApiConfirmedReady();
+                      const cooldownRemaining = cooldownUntil ? Math.ceil((cooldownUntil - Date.now()) / 1000) : 0;
                       
                       // Se API já funcionou antes, mostrar mensagem diferente
                       if (wasWorking || isConfirmed) {
                         return (
                           <>
-                            <p className="text-sm mt-2 text-orange-600 dark:text-orange-400">
+                            <p className="text-sm mt-2 text-orange-600 dark:text-orange-400 font-semibold">
                               Evolution API temporariamente indisponível
                             </p>
                             <p className="text-xs mt-1">
                               A API estava funcionando recentemente. Pode ser um problema temporário.
                             </p>
-                            <p className="text-xs mt-1">
-                              Clique em "Atualizar" para tentar novamente.
-                            </p>
+                            {cooldownRemaining > 0 ? (
+                              <p className="text-xs mt-1 text-muted-foreground">
+                                Aguarde {Math.ceil(cooldownRemaining / 60)} minuto(s) antes de tentar novamente.
+                              </p>
+                            ) : (
+                              <p className="text-xs mt-1">
+                                Clique em "Atualizar" para tentar novamente.
+                              </p>
+                            )}
                           </>
                         );
                       } else {
                         return (
                           <>
-                            <p className="text-sm mt-2 text-yellow-600 dark:text-yellow-400">
+                            <p className="text-sm mt-2 text-yellow-600 dark:text-yellow-400 font-semibold">
                               Evolution API ainda está inicializando
                             </p>
                             <p className="text-xs mt-1">
-                              Aguarde alguns minutos e clique em "Atualizar" ou recarregue a página.
+                              Múltiplas tentativas falharam. O sistema entrará em modo de espera.
                             </p>
-                            <p className="text-xs mt-1">
+                            {cooldownRemaining > 0 ? (
+                              <p className="text-xs mt-1 text-muted-foreground">
+                                Aguarde {Math.ceil(cooldownRemaining / 60)} minuto(s) antes de tentar novamente automaticamente.
+                              </p>
+                            ) : (
+                              <p className="text-xs mt-1">
+                                Clique em "Atualizar" para tentar novamente ou recarregue a página.
+                              </p>
+                            )}
+                            <p className="text-xs mt-1 text-muted-foreground">
                               A instância será criada automaticamente quando a API estiver pronta.
                             </p>
                           </>
                         );
                       }
                     })()}
+                  </>
+                ) : cooldownUntil && Date.now() < cooldownUntil ? (
+                  <>
+                    <p className="text-sm mt-2 text-blue-600 dark:text-blue-400">
+                      Aguardando cooldown...
+                    </p>
+                    <p className="text-xs mt-1 text-muted-foreground">
+                      O sistema aguardará {Math.ceil((cooldownUntil - Date.now()) / 1000 / 60)} minuto(s) antes de tentar novamente.
+                    </p>
                   </>
                 ) : (
                   <>
