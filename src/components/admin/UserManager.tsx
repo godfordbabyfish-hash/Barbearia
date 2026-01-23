@@ -283,7 +283,7 @@ export const UserManager = () => {
             .update({
               name: editUserData.name,
               specialty: editUserData.specialty || 'Cortes em geral',
-              experience: editUserData.experience?.trim() || '', // Permite vazio (opcional)
+              experience: editUserData.experience?.trim() || null, // Permite vazio/null (opcional)
               whatsapp_phone: editUserData.whatsapp_phone || null,
             })
             .eq('user_id', selectedUser.id);
@@ -295,7 +295,7 @@ export const UserManager = () => {
               name: editUserData.name || selectedUser.name,
               user_id: selectedUser.id,
               specialty: editUserData.specialty || 'Cortes em geral',
-              experience: editUserData.experience?.trim() || '', // Permite vazio (opcional)
+              experience: editUserData.experience?.trim() || null, // Permite vazio/null (opcional)
               whatsapp_phone: editUserData.whatsapp_phone || null,
               rating: 5.0,
               visible: true,
