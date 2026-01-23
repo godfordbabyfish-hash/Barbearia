@@ -40,6 +40,8 @@ serve(async (req) => {
     const url = `${supabaseUrl}/functions/v1/whatsapp-notify/process-queue`;
     console.log('[WhatsApp Queue] Chamando whatsapp-notify/process-queue em', url);
 
+    console.log('[WhatsApp Queue] Iniciando processamento da fila...');
+    
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -50,21 +52,28 @@ serve(async (req) => {
       body: JSON.stringify({}), // corpo vazio, apenas para disparar o processamento
     });
 
-    const data = await response.json().catch(() => ({}));
+    const data = await response.json().catch((err) => {
+      console.error('[WhatsApp Queue] Erro ao parsear resposta JSON:', err);
+      return { error: 'Erro ao processar resposta' };
+    });
 
     if (!response.ok) {
       console.error('[WhatsApp Queue] whatsapp-notify retornou erro', response.status, data);
+      console.error('[WhatsApp Queue] URL chamada:', url);
+      console.error('[WhatsApp Queue] Resposta completa:', JSON.stringify(data, null, 2));
       return new Response(
         JSON.stringify({
           success: false,
           status: response.status,
           error: data?.error || data?.message || 'Erro ao processar fila de WhatsApp',
+          details: data,
         }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
     console.log('[WhatsApp Queue] Fila processada com sucesso', data);
+    console.log('[WhatsApp Queue] Resultado:', JSON.stringify(data, null, 2));
 
     return new Response(
       JSON.stringify({

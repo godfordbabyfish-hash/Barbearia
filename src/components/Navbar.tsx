@@ -1,14 +1,11 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Scissors, Menu, X, LogOut, Home, ShoppingBag, Users, Calendar, Wifi, Star, Instagram, Facebook, Copy, Check } from "lucide-react";
+import { Scissors, Menu, X, LogOut, Home, ShoppingBag, Users, Calendar, Wifi, Star, Instagram, Facebook } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -16,9 +13,7 @@ const Navbar = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [socialMenuOpen, setSocialMenuOpen] = useState(false);
-  const [wifiDialogOpen, setWifiDialogOpen] = useState(false);
   const [wifiCredentials, setWifiCredentials] = useState({ username: '', password: '' });
-  const [copiedField, setCopiedField] = useState<string | null>(null);
   const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -51,21 +46,64 @@ const Navbar = () => {
     }
   };
 
-  const handleWifiClick = () => {
+  const handleWifiClick = async () => {
     setSocialMenuOpen(false);
-    setWifiDialogOpen(true);
-  };
+    
+    // Verificar se tem credenciais configuradas
+    if (!wifiCredentials.username || !wifiCredentials.password) {
+      toast.error('Credenciais WiFi não configuradas pelo gestor');
+      return;
+    }
 
-  const copyToClipboard = async (text: string, field: string) => {
     try {
-      await navigator.clipboard.writeText(text);
-      setCopiedField(field);
-      toast.success('Copiado!');
-      setTimeout(() => setCopiedField(null), 2000);
-    } catch (err) {
-      toast.error('Erro ao copiar');
+      // Formato WPA WiFi connection string (padrão para QR codes e conexão automática)
+      const wifiString = `WIFI:T:WPA;S:${wifiCredentials.username};P:${wifiCredentials.password};;`;
+      
+      // Tentar usar Web Share API (funciona melhor em mobile)
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: 'Conectar ao WiFi',
+            text: wifiString, // String formatada que alguns sistemas reconhecem
+          });
+          toast.success('✅ Conectando ao WiFi...');
+          return;
+        } catch (shareError: any) {
+          // Se o usuário cancelar o share, não é um erro
+          if (shareError.name === 'AbortError') {
+            return; // Usuário cancelou
+          }
+        }
+      }
+
+      // Alternativa: Copiar string WiFi formatada para clipboard
+      // Alguns sistemas reconhecem este formato automaticamente
+      await navigator.clipboard.writeText(wifiString);
+      
+      // Mostrar mensagem de sucesso sem exibir credenciais
+      toast.success('✅ Conectando ao WiFi...', {
+        description: 'As credenciais foram processadas. Verifique as configurações de WiFi do seu dispositivo.',
+        duration: 4000,
+      });
+      
+      // Em mobile, tentar abrir configurações de WiFi
+      if (navigator.userAgent.match(/Android/i)) {
+        // Android pode abrir configurações via intent (não funciona via web, mas tentamos)
+        setTimeout(() => {
+          toast.info('Abra as configurações de WiFi do seu dispositivo para concluir a conexão');
+        }, 2000);
+      } else if (navigator.userAgent.match(/iPhone|iPad|iPod/i)) {
+        // iOS - mostrar instrução
+        setTimeout(() => {
+          toast.info('Vá em Configurações > WiFi e selecione a rede');
+        }, 2000);
+      }
+    } catch (error) {
+      console.error('Erro ao conectar WiFi:', error);
+      toast.error('Erro ao processar conexão WiFi');
     }
   };
+
 
   const handleSocialClick = async (type: 'google' | 'instagram' | 'facebook') => {
     const { data, error } = await supabase
@@ -392,70 +430,6 @@ const Navbar = () => {
         </Sheet>
       </div>
 
-      {/* WiFi Credentials Dialog */}
-      <Dialog open={wifiDialogOpen} onOpenChange={setWifiDialogOpen}>
-        <DialogContent className="bg-card border-border">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Wifi className="w-5 h-5 text-primary" />
-              Credenciais WiFi
-            </DialogTitle>
-            <DialogDescription>
-              Use essas credenciais para conectar-se à rede WiFi da barbearia
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Nome da Rede (SSID)</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={wifiCredentials.username}
-                  readOnly
-                  className="bg-secondary/50"
-                />
-                <Button
-                  size="icon"
-                  variant="outline"
-                  onClick={() => copyToClipboard(wifiCredentials.username, 'username')}
-                >
-                  {copiedField === 'username' ? (
-                    <Check className="w-4 h-4 text-success" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Senha</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="password"
-                  value={wifiCredentials.password}
-                  readOnly
-                  className="bg-secondary/50"
-                />
-                <Button
-                  size="icon"
-                  variant="outline"
-                  onClick={() => copyToClipboard(wifiCredentials.password, 'password')}
-                >
-                  {copiedField === 'password' ? (
-                    <Check className="w-4 h-4 text-success" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </Button>
-              </div>
-            </div>
-            {(!wifiCredentials.username || !wifiCredentials.password) && (
-              <p className="text-xs text-muted-foreground">
-                ⚠️ As credenciais WiFi ainda não foram configuradas pelo gestor.
-              </p>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </nav>
   );
 };
