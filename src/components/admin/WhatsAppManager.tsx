@@ -413,14 +413,14 @@ export const WhatsAppManager = () => {
 
         toast.success('QR code gerado! Escaneie com seu WhatsApp.');
         
-        // Iniciar polling MENOS frequente para verificar conexão (a cada 10 segundos)
+        // Iniciar polling mais frequente para verificar conexão (a cada 3 segundos quando esperando QR code)
         if (pollingInterval) {
           clearInterval(pollingInterval);
         }
         const interval = setInterval(async () => {
           console.log('[WhatsApp Manager] Polling for connection status...');
           await loadInstances();
-        }, 10000); // Aumentado para 10 segundos
+        }, 3000); // 3 segundos quando esperando conexão após QR code
         setPollingInterval(interval);
         
         // Também configurar timeout para parar polling após 5 minutos (caso não conecte)
