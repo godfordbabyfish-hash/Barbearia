@@ -47,14 +47,21 @@ const getActiveInstanceName = async (supabase: any): Promise<string> => {
 };
 
 // Format phone number (remove non-digits, add country code if needed)
+// IMPORTANTE: O bot Railway adiciona @s.whatsapp.net automaticamente,
+// então só precisamos enviar o número limpo (sem @s.whatsapp.net)
 const formatPhoneNumber = (phone: string): string => {
   // Remove todos os caracteres não numéricos
   let cleaned = phone.replace(/\D/g, '');
+  
+  // Remove @s.whatsapp.net se estiver presente (o bot Railway adiciona isso)
+  cleaned = cleaned.replace(/@s\.whatsapp\.net/gi, '');
   
   // Se não começar com 55 (Brasil), adiciona
   if (!cleaned.startsWith('55')) {
     cleaned = '55' + cleaned;
   }
+  
+  console.log(`[WhatsApp] Phone formatado: ${cleaned} (original: ${phone})`);
   
   return cleaned;
 };
@@ -226,7 +233,16 @@ const sendWhatsAppMessage = async (phone: string, message: string, instanceName:
       }
 
       const data = await response.json();
-      console.log(`[WhatsApp] Message sent successfully on attempt ${attempt}:`, data);
+      console.log(`[WhatsApp] Message sent successfully on attempt ${attempt}:`, JSON.stringify(data, null, 2));
+      console.log(`[WhatsApp] Response status: ${response.status}`);
+      console.log(`[WhatsApp] Response headers:`, Object.fromEntries(response.headers.entries()));
+      
+      // Verificar se a resposta indica sucesso
+      if (data.success === false || data.error) {
+        console.error(`[WhatsApp] API retornou erro na resposta:`, data);
+        return { success: false, error: data.error || data.message || 'Erro ao enviar mensagem' };
+      }
+      
       return { success: true };
       
     } catch (error: any) {
@@ -264,8 +280,18 @@ const sendWhatsAppMessage = async (phone: string, message: string, instanceName:
 
 // Process queue from database
 const processQueue = async (supabase: any) => {
+  console.log('[Queue] Iniciando processamento da fila...');
+  
   // Get active instance name
   const activeInstanceName = await getActiveInstanceName(supabase);
+  console.log('[Queue] Instância ativa:', activeInstanceName);
+  console.log('[Queue] Evolution API URL:', evolutionApiUrl);
+  console.log('[Queue] Evolution API Key configurada:', !!evolutionApiKey);
+  
+  if (!activeInstanceName) {
+    console.error('[Queue] Nenhuma instância ativa encontrada!');
+    return { processed: 0, error: 'Nenhuma instância WhatsApp ativa' };
+  }
   
   // Get barbershop maps link once (cache it for all messages in this batch)
   const mapsLink = await getBarbershopMapsLink(supabase);
@@ -282,11 +308,14 @@ const processQueue = async (supabase: any) => {
     .limit(10);
 
   if (error) {
-    console.error('Error fetching queue:', error);
+    console.error('[Queue] Erro ao buscar fila:', error);
     return { processed: 0, error: error.message };
   }
 
+  console.log(`[Queue] Encontradas ${queue?.length || 0} mensagens pendentes`);
+  
   if (!queue || queue.length === 0) {
+    console.log('[Queue] Nenhuma mensagem pendente na fila');
     return { processed: 0 };
   }
 
@@ -302,11 +331,14 @@ const processQueue = async (supabase: any) => {
       // Garantir que o payload saiba para quem é a mensagem
       payload.targetType = targetType;
 
-      console.log(`[Queue] Processing item ${item.id} for ${targetPhone} (targetType=${targetType}, appointmentId=${payload.appointmentId})`);
+      console.log(`[Queue] Processando item ${item.id} para ${targetPhone} (targetType=${targetType}, appointmentId=${payload.appointmentId})`);
+      console.log(`[Queue] Payload:`, JSON.stringify(payload, null, 2));
 
       // Passar o mapsLink apenas para mensagens de cliente
       const message = generateMessage(payload, targetType === 'client' ? mapsLink : null);
+      console.log(`[Queue] Mensagem gerada (${message.length} caracteres):`, message.substring(0, 100) + '...');
       const result = await sendWhatsAppMessage(targetPhone, message, activeInstanceName);
+      console.log(`[Queue] Resultado do envio:`, result);
       
       // Update queue status
       const updateData: any = {
