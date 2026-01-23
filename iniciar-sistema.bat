@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
+setlocal enabledelayedexpansion
 cd /d "%~dp0"
 echo ========================================
 echo   INICIANDO SISTEMA BARBEARIA
@@ -67,16 +68,50 @@ echo.
 echo ========================================
 echo.
 
+REM Verificar se a porta 8080 está em uso
+echo [INFO] Verificando porta 8080...
+netstat -ano | findstr :8080 >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [AVISO] Porta 8080 ja esta em uso!
+    echo [INFO] Tentando iniciar mesmo assim...
+    echo.
+)
+
+REM Obter IP local
+echo [INFO] Obtendo IP local...
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
+    set LOCAL_IP=%%a
+    set LOCAL_IP=!LOCAL_IP: =!
+    goto :found_ip
+)
+:found_ip
+
 REM Iniciar servidor de desenvolvimento
 echo.
-echo [INFO] Iniciando servidor de desenvolvimento...
+echo ========================================
+echo   SERVIDOR INICIANDO...
+echo ========================================
 echo.
+echo [INFO] Iniciando servidor de desenvolvimento...
+echo [INFO] Aguarde alguns segundos para o servidor iniciar...
+echo.
+echo O servidor estara disponivel em:
+echo   - Local: http://localhost:8080
+if defined LOCAL_IP (
+    echo   - Rede: http://!LOCAL_IP!:8080
+) else (
+    echo   - Rede: http://SEU_IP_LOCAL:8080
+)
+echo.
+echo Pressione Ctrl+C para parar o servidor
+echo.
+echo ========================================
+echo.
+
+REM Iniciar servidor (sem pausar em caso de erro para ver a mensagem)
 npm run dev
 
-if %errorlevel% neq 0 (
-    echo.
-    echo [ERRO] Falha ao iniciar o servidor!
-    echo [INFO] Verifique se todas as dependencias foram instaladas corretamente
-    pause
-    exit /b 1
-)
+REM Se chegou aqui, o servidor parou
+echo.
+echo [INFO] Servidor parado.
+pause
