@@ -37,6 +37,11 @@ const SiteConfigEditor = () => {
       instagram: '',
       facebook: '',
       whatsapp: '',
+      google_reviews: '',
+    },
+    wifi: {
+      username: '',
+      password: '',
     },
   });
 
@@ -73,7 +78,22 @@ const SiteConfigEditor = () => {
       .eq('config_key', 'footer_info')
       .single();
 
-    if (footerData) setFooterInfo(footerData.config_value);
+    if (footerData) {
+      const config = footerData.config_value;
+      setFooterInfo({
+        ...config,
+        social: {
+          instagram: config.social?.instagram || '',
+          facebook: config.social?.facebook || '',
+          whatsapp: config.social?.whatsapp || '',
+          google_reviews: config.social?.google_reviews || '',
+        },
+        wifi: {
+          username: config.wifi?.username || '',
+          password: config.wifi?.password || '',
+        },
+      });
+    }
   };
 
   const saveThemeColors = async () => {
@@ -390,6 +410,37 @@ const SiteConfigEditor = () => {
               })}
               placeholder="5511999999999"
             />
+            <Input
+              value={footerInfo.social.google_reviews || ''}
+              onChange={(e) => setFooterInfo({ 
+                ...footerInfo, 
+                social: { ...footerInfo.social, google_reviews: e.target.value }
+              })}
+              placeholder="https://g.page/r/.../review ou link do Google Reviews"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>WiFi - Credenciais para Clientes</Label>
+            <Input
+              value={footerInfo.wifi?.username || ''}
+              onChange={(e) => setFooterInfo({ 
+                ...footerInfo, 
+                wifi: { ...footerInfo.wifi, username: e.target.value }
+              })}
+              placeholder="Nome da rede WiFi"
+            />
+            <Input
+              type="password"
+              value={footerInfo.wifi?.password || ''}
+              onChange={(e) => setFooterInfo({ 
+                ...footerInfo, 
+                wifi: { ...footerInfo.wifi, password: e.target.value }
+              })}
+              placeholder="Senha da rede WiFi"
+            />
+            <p className="text-xs text-muted-foreground">
+              Essas credenciais serão exibidas quando o cliente clicar no ícone WiFi
+            </p>
           </div>
           <Button onClick={saveFooterInfo}>Salvar Footer</Button>
         </CardContent>

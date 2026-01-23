@@ -297,7 +297,7 @@ const FilaDaBarbearia = () => {
         </button>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 lg:gap-6">
+        <div className="grid grid-cols-3 gap-3 md:gap-4 lg:gap-6">
           <div className="bg-card border border-border p-4 md:p-5 lg:p-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:border-primary/50 text-center flex flex-col justify-between min-h-[180px] md:min-h-[200px] lg:min-h-[220px]">
             <div className="flex items-center justify-center gap-1.5 md:gap-2 text-muted-foreground text-xs md:text-sm font-semibold uppercase tracking-wide mb-2 md:mb-3">
               <Users className="w-3 h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 text-primary" />
@@ -327,66 +327,80 @@ const FilaDaBarbearia = () => {
         </div>
 
         {/* Queues Side by Side */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 lg:gap-6">
+        <div className="grid grid-cols-2 gap-3">
         {/* Local Queue */}
-        <section className="bg-card border border-border p-2.5 md:p-4 lg:p-6 rounded-xl shadow-lg flex flex-col min-h-[600px] md:min-h-[650px] lg:min-h-[700px]">
-          <div className="flex items-center gap-2 md:gap-3 mb-2.5 md:mb-4 pb-2 md:pb-3 border-b border-border">
+        <section className="bg-card border border-border p-3 rounded-xl shadow-lg flex flex-col" style={{ height: '380px' }}>
+          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-border">
             <div className="p-1.5 bg-primary/10 rounded-lg">
-              <MapPin className="w-4 h-4 md:w-5 md:h-5 text-primary flex-shrink-0" />
+              <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
             </div>
             <div className="flex-1">
-              <h2 className="text-primary text-sm md:text-base lg:text-lg font-bold break-words">Fila Local (No Local)</h2>
-              <span className="inline-block bg-success text-success-foreground px-2 py-0.5 rounded-full text-xs font-semibold mt-0.5">
+              <h2 className="text-primary text-sm font-bold">Fila Local (No Local)</h2>
+              <span className="inline-block bg-success text-success-foreground px-1.5 py-0.5 rounded-full text-[10px] font-semibold mt-0.5">
                 Tablet Barbearia
               </span>
             </div>
           </div>
           
           {localAppointments.length === 0 ? (
-            <div className="text-center py-6 flex-1 flex items-center justify-center">
+            <div className="text-center py-8 flex-1 flex items-center justify-center">
               <div>
                 <MapPin className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
                 <p className="text-muted-foreground text-xs font-medium">Nenhum cliente na fila local</p>
               </div>
             </div>
           ) : (
-            <div className="space-y-1 flex-1 overflow-y-auto">
-              {localAppointments.map((apt, index) => {
+            <div className="flex-1 overflow-y-auto pr-1 space-y-1.5">
+              {localAppointments.slice(0, 4).map((apt, index) => {
                 const waitTime = calculateWaitTime(index);
+                const formattedDate = format(new Date(apt.appointment_date + "T12:00:00"), "dd/MM");
                 return (
-                  <div key={apt.id} className="flex flex-col md:flex-row md:items-center gap-1.5 md:gap-2 lg:gap-3 p-1.5 md:p-2 lg:p-3 border-l-3 border-primary bg-secondary/30 hover:bg-secondary/50 rounded-r-lg transition-all duration-200">
-                    <div className="flex items-center justify-center w-6 h-6 md:w-7 md:h-7 lg:w-8 lg:h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex-shrink-0">
-                      {index + 1}º
+                  <div key={apt.id} className="flex items-center gap-2 p-2 bg-secondary/40 hover:bg-secondary/60 rounded-lg transition-all duration-200 border border-border/50">
+                    {/* Date/Time Box */}
+                    <div className="flex flex-col items-center justify-center min-w-[50px] p-1 rounded bg-muted/50 flex-shrink-0">
+                      <div className="text-[10px] font-bold text-primary leading-tight text-center">
+                        {formattedDate}
+                      </div>
+                      <div className="text-[10px] font-semibold text-primary mt-0.5">
+                        {apt.appointment_time.slice(0, 5)}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-center w-8 h-8 md:w-9 md:h-9 lg:w-10 lg:h-10 rounded-full bg-primary/20 text-primary text-xs md:text-sm lg:text-base font-bold flex-shrink-0">
-                      {apt.profiles.name.charAt(0).toUpperCase()}
+                    
+                    {/* Position and Type Badges */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/20 text-primary text-[10px] font-bold">
+                        {index + 1}º
+                      </div>
+                      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-muted text-foreground text-[10px] font-bold">
+                        L
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0 space-y-0">
-                      <div className="font-bold text-foreground text-xs md:text-sm lg:text-base break-words leading-tight">{apt.profiles.name}</div>
-                      <div className="text-muted-foreground text-xs md:text-sm break-words leading-tight">
+                    
+                    {/* Client Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-foreground text-[10px] mb-0.5">LOCAL</div>
+                      <div className="text-foreground text-xs font-semibold mb-0.5 break-words line-clamp-1">{apt.profiles.name}</div>
+                      <div className="text-muted-foreground text-[10px] break-words line-clamp-1">
                         {apt.services.title} ({apt.services.duration}min) - {apt.barbers.name}
                       </div>
-                      <div className="text-primary text-xs md:text-sm font-medium break-words leading-tight">
-                        {apt.status === "in_progress"
-                          ? "⏳ Agora"
-                          : `⏱️ ~${waitTime}min`}
+                      <div className="text-muted-foreground text-[10px] mt-0.5">
+                        ~{waitTime}min
                       </div>
                     </div>
-                    <span
-                      className={`px-2 py-0.5 md:px-2.5 md:py-1 lg:px-3 lg:py-1.5 rounded-full text-xs md:text-sm font-bold uppercase whitespace-nowrap self-start ${
-                        apt.status === "in_progress"
-                          ? "bg-warning text-warning-foreground"
-                          : index === 0
-                          ? "bg-success text-success-foreground"
-                          : "bg-secondary border border-border text-muted-foreground"
+                    
+                    {/* Next Button */}
+                    <button
+                      className={`px-2 py-1 rounded text-[10px] font-bold whitespace-nowrap flex-shrink-0 transition-all ${
+                        index === 0 && apt.status !== "in_progress"
+                          ? "bg-success text-success-foreground hover:bg-success/90"
+                          : apt.status === "in_progress"
+                          ? "bg-warning text-warning-foreground hover:bg-warning/90"
+                          : "bg-muted text-muted-foreground cursor-not-allowed"
                       }`}
+                      disabled={index !== 0 && apt.status !== "in_progress"}
                     >
-                      {apt.status === "in_progress"
-                        ? "ATEND."
-                        : index === 0
-                        ? "PRÓX."
-                        : "AGUARD."}
-                    </span>
+                      {apt.status === "in_progress" ? "ATEND." : index === 0 ? "PRÓX." : "AGUARD."}
+                    </button>
                   </div>
                 );
               })}
@@ -395,57 +409,63 @@ const FilaDaBarbearia = () => {
         </section>
 
         {/* Online Queue */}
-        <section className="bg-card border border-border p-2.5 md:p-4 lg:p-6 rounded-xl shadow-lg flex flex-col min-h-[600px] md:min-h-[650px] lg:min-h-[700px]">
-          <div className="flex items-center gap-2 md:gap-3 mb-2.5 md:mb-4 pb-2 md:pb-3 border-b border-border">
-            <div className="p-1.5 bg-info/10 rounded-lg">
-              <Globe className="w-4 h-4 md:w-5 md:h-5 text-info flex-shrink-0" />
+        <section className="bg-card border border-border p-3 rounded-xl shadow-lg flex flex-col" style={{ height: '380px' }}>
+          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-border">
+            <div className="p-1.5 bg-primary/10 rounded-lg">
+              <Globe className="w-4 h-4 text-primary flex-shrink-0" />
             </div>
             <div className="flex-1">
-              <h2 className="text-primary text-sm md:text-base lg:text-lg font-bold break-words">Fila Agendada (Online)</h2>
-              <span className="inline-block bg-info text-info-foreground px-2 py-0.5 rounded-full text-xs font-semibold mt-0.5">
+              <h2 className="text-primary text-sm font-bold">Fila Agendada (Online)</h2>
+              <span className="inline-block bg-info text-info-foreground px-1.5 py-0.5 rounded-full text-[10px] font-semibold mt-0.5">
                 Clientes Remotos
               </span>
             </div>
           </div>
           
           {onlineAppointments.length === 0 ? (
-            <div className="text-center py-6 flex-1 flex items-center justify-center">
+            <div className="text-center py-8 flex-1 flex items-center justify-center">
               <div>
                 <Globe className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
                 <p className="text-muted-foreground text-xs font-medium">Nenhum agendamento online hoje</p>
               </div>
             </div>
           ) : (
-            <div className="space-y-1 flex-1 overflow-y-auto">
-              {onlineAppointments.map((apt) => {
+            <div className="flex-1 overflow-y-auto pr-1 space-y-1.5">
+              {onlineAppointments.slice(0, 4).map((apt) => {
                 const now = new Date();
                 const [hours, minutes] = apt.appointment_time.split(":").map(Number);
                 const appointmentTime = new Date();
                 appointmentTime.setHours(hours, minutes, 0, 0);
                 const minutesUntil = Math.round((appointmentTime.getTime() - now.getTime()) / 60000);
-
                 const isToday = apt.appointment_date === today;
                 const formattedDate = format(new Date(apt.appointment_date + "T12:00:00"), "dd/MM");
 
                 return (
-                  <div key={apt.id} className="flex flex-col md:flex-row md:items-center gap-1.5 md:gap-2 lg:gap-3 p-1.5 md:p-2 lg:p-3 border-l-3 border-info bg-secondary/30 hover:bg-secondary/50 rounded-r-lg transition-all duration-200">
-                    <div className="flex items-center justify-center min-w-[55px] md:min-w-[70px] lg:min-w-[80px] p-1 md:p-1.5 rounded-lg bg-info/10 flex-shrink-0">
-                      <div className="text-xs md:text-sm font-bold text-info leading-tight text-center">
-                        {formattedDate}<br className="hidden md:block" />
-                        <span className="text-xs">{apt.appointment_time.slice(0, 5)}</span>
+                  <div key={apt.id} className="flex items-center gap-2 p-2 bg-secondary/40 hover:bg-secondary/60 rounded-lg transition-all duration-200 border border-border/50">
+                    {/* Date/Time Box */}
+                    <div className="flex flex-col items-center justify-center min-w-[50px] p-1 rounded bg-muted/50 flex-shrink-0">
+                      <div className="text-[10px] font-bold text-primary leading-tight text-center">
+                        {formattedDate}
+                      </div>
+                      <div className="text-[10px] font-semibold text-primary mt-0.5">
+                        {apt.appointment_time.slice(0, 5)}
                       </div>
                     </div>
-                    <div className="flex items-center justify-center w-8 h-8 md:w-9 md:h-9 lg:w-10 lg:h-10 rounded-full bg-info/20 text-info text-xs md:text-sm lg:text-base font-bold flex-shrink-0">
+                    
+                    {/* Client Initial Badge */}
+                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-info/20 text-info text-[10px] font-bold flex-shrink-0">
                       {apt.profiles.name.charAt(0).toUpperCase()}
                     </div>
-                    <div className="flex-1 min-w-0 space-y-0">
-                      <div className="font-bold text-foreground text-xs md:text-sm lg:text-base break-words leading-tight">{apt.profiles.name}</div>
-                      <div className="text-muted-foreground text-xs md:text-sm break-words leading-tight">
+                    
+                    {/* Client Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-foreground text-xs font-semibold mb-0.5 break-words line-clamp-1">{apt.profiles.name}</div>
+                      <div className="text-muted-foreground text-[10px] break-words line-clamp-1">
                         {apt.services.title} ({apt.services.duration}min) - {apt.barbers.name}
                       </div>
-                      {isToday && minutesUntil > 0 && (
-                        <div className="text-primary text-xs md:text-sm font-medium break-words leading-tight">
-                          ⏱️ ~{minutesUntil}min
+                      {isToday && minutesUntil !== undefined && (
+                        <div className="text-muted-foreground text-[10px] mt-0.5">
+                          ~{Math.abs(minutesUntil)}min
                         </div>
                       )}
                     </div>
@@ -474,45 +494,6 @@ const FilaDaBarbearia = () => {
           />
         )}
 
-        {/* How it works */}
-        <section className="bg-card border border-border p-5 md:p-6 lg:p-7 rounded-xl shadow-lg">
-          <h2 className="text-primary text-lg md:text-xl lg:text-2xl font-bold mb-5 md:mb-6 pb-3 md:pb-4 border-b border-border">Como Funciona?</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 lg:gap-6">
-            <div className="p-4 md:p-5 rounded-lg bg-secondary/30 border border-border hover:bg-secondary/50 transition-colors flex flex-col min-h-[140px]">
-              <div className="flex items-center gap-2 md:gap-3 mb-3">
-                <div className="p-2 bg-primary/10 rounded-lg flex-shrink-0">
-                  <MapPin className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-                </div>
-                <strong className="text-primary text-sm md:text-base font-bold">Clientes Locais</strong>
-              </div>
-              <p className="text-muted-foreground text-xs md:text-sm leading-relaxed flex-1">
-                Esperam fisicamente na barbearia e são atendidos na ordem de chegada.
-              </p>
-            </div>
-            <div className="p-4 md:p-5 rounded-lg bg-secondary/30 border border-border hover:bg-secondary/50 transition-colors flex flex-col min-h-[140px]">
-              <div className="flex items-center gap-2 md:gap-3 mb-3">
-                <div className="p-2 bg-info/10 rounded-lg flex-shrink-0">
-                  <Globe className="w-4 h-4 md:w-5 md:h-5 text-info" />
-                </div>
-                <strong className="text-primary text-sm md:text-base font-bold">Clientes Agendados</strong>
-              </div>
-              <p className="text-muted-foreground text-xs md:text-sm leading-relaxed flex-1">
-                Chegam no horário agendado sem conflitos e com prioridade garantida.
-              </p>
-            </div>
-            <div className="p-4 md:p-5 rounded-lg bg-secondary/30 border border-border hover:bg-secondary/50 transition-colors flex flex-col min-h-[140px]">
-              <div className="flex items-center gap-2 md:gap-3 mb-3">
-                <div className="p-2 bg-success/10 rounded-lg flex-shrink-0">
-                  <Scissors className="w-4 h-4 md:w-5 md:h-5 text-success" />
-                </div>
-                <strong className="text-primary text-sm md:text-base font-bold">Garantia</strong>
-              </div>
-              <p className="text-muted-foreground text-xs md:text-sm leading-relaxed flex-1">
-                Múltiplos barbeiros trabalham em paralelo para máxima eficiência!
-              </p>
-            </div>
-          </div>
-        </section>
       </main>
     </div>
   );

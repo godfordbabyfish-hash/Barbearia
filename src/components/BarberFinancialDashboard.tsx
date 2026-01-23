@@ -543,9 +543,11 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
                         apt.booking_type === 'local' 
                           ? 'bg-primary/20 text-primary' 
+                          : apt.booking_type === 'manual'
+                          ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
                           : 'bg-blue-500/20 text-blue-400'
-                      }`}>
-                        {apt.booking_type === 'local' ? 'Local' : 'Online'}
+                      }`} title={apt.booking_type === 'manual' ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' : ''}>
+                        {apt.booking_type === 'local' ? 'Local' : apt.booking_type === 'manual' ? '📝 Manual' : 'Online'}
                       </span>
                     </td>
                     <td className="py-3 px-2">

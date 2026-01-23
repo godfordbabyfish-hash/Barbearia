@@ -181,22 +181,34 @@ const ClienteDashboard = () => {
           <h1 className="text-4xl font-bold">
             Meus <span className="bg-gradient-gold bg-clip-text text-transparent">Agendamentos</span>
           </h1>
-          <div className="flex flex-wrap gap-2 justify-start md:justify-end">
-            <Button onClick={() => navigate('/')} variant="outline">
-              <Home className="mr-2 h-4 w-4" />
-              Início
-            </Button>
-            <Button onClick={() => navigate('/shop')} variant="outline">
-              <ShoppingBag className="mr-2 h-4 w-4" />
-              Shop
-            </Button>
-            <Button onClick={() => navigate('/#agendamento')} className="bg-primary">
-              Novo Agendamento
-            </Button>
-            <Button onClick={signOut} variant="outline">
-              <LogOut className="mr-2 h-4 w-4" />
-              Sair
-            </Button>
+          <div className="flex flex-col gap-2 md:items-end">
+            {user && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30">
+                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary text-sm font-bold">
+                  {user.email?.charAt(0).toUpperCase() || 'U'}
+                </div>
+                <div className="text-sm font-medium text-foreground">
+                  {user.email || 'Usuário'}
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 justify-start md:justify-end">
+              <Button onClick={() => navigate('/')} variant="outline">
+                <Home className="mr-2 h-4 w-4" />
+                Início
+              </Button>
+              <Button onClick={() => navigate('/shop')} variant="outline">
+                <ShoppingBag className="mr-2 h-4 w-4" />
+                Shop
+              </Button>
+              <Button onClick={() => navigate('/#agendamento')} className="bg-primary">
+                Novo Agendamento
+              </Button>
+              <Button onClick={signOut} variant="outline" className="text-destructive hover:text-destructive hover:bg-destructive/10">
+                <LogOut className="mr-2 h-4 w-4" />
+                Sair
+              </Button>
+            </div>
           </div>
         </div>
 

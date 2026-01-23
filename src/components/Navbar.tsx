@@ -1,14 +1,24 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Scissors, Menu, X, LogOut, Home, ShoppingBag, Users, Calendar } from "lucide-react";
+import { Scissors, Menu, X, LogOut, Home, ShoppingBag, Users, Calendar, Wifi, Star, Instagram, Facebook, Copy, Check } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const Navbar = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [socialMenuOpen, setSocialMenuOpen] = useState(false);
+  const [wifiDialogOpen, setWifiDialogOpen] = useState(false);
+  const [wifiCredentials, setWifiCredentials] = useState({ username: '', password: '' });
+  const [copiedField, setCopiedField] = useState<string | null>(null);
   const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -20,6 +30,70 @@ const Navbar = () => {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  useEffect(() => {
+    loadSocialConfig();
+  }, []);
+
+  const loadSocialConfig = async () => {
+    const { data, error } = await supabase
+      .from('site_config')
+      .select('config_value')
+      .eq('config_key', 'footer_info')
+      .maybeSingle();
+
+    if (!error && data) {
+      const config = data.config_value as any;
+      setWifiCredentials({
+        username: config?.wifi?.username || '',
+        password: config?.wifi?.password || '',
+      });
+    }
+  };
+
+  const handleWifiClick = () => {
+    setSocialMenuOpen(false);
+    setWifiDialogOpen(true);
+  };
+
+  const copyToClipboard = async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      toast.success('Copiado!');
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch (err) {
+      toast.error('Erro ao copiar');
+    }
+  };
+
+  const handleSocialClick = async (type: 'google' | 'instagram' | 'facebook') => {
+    const { data, error } = await supabase
+      .from('site_config')
+      .select('config_value')
+      .eq('config_key', 'footer_info')
+      .maybeSingle();
+
+    if (!error && data) {
+      const config = data.config_value as any;
+      let url = '';
+      
+      if (type === 'google' && config.social?.google_reviews) {
+        url = config.social.google_reviews;
+      } else if (type === 'instagram' && config.social?.instagram) {
+        url = config.social.instagram;
+      } else if (type === 'facebook' && config.social?.facebook) {
+        url = config.social.facebook;
+      }
+
+      if (url) {
+        window.open(url, '_blank');
+      } else {
+        toast.error('Link não configurado');
+      }
+    }
+    setSocialMenuOpen(false);
+  };
 
   const scrollToSection = (id: string) => {
     const currentPath = window.location.pathname;
@@ -52,12 +126,50 @@ const Navbar = () => {
     >
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-20">
-          {/* Logo */}
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
-            <div className="w-10 h-10 rounded-full bg-gradient-gold flex items-center justify-center">
-              <Scissors className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold">Barbearia Raimundos</span>
+          {/* Logo with Social Menu */}
+          <div className="flex items-center gap-2">
+            <Popover open={socialMenuOpen} onOpenChange={setSocialMenuOpen}>
+              <PopoverTrigger asChild>
+                <button className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                  <div className="w-10 h-10 rounded-full bg-gradient-gold flex items-center justify-center cursor-pointer">
+                    <Scissors className="w-5 h-5 text-primary-foreground" />
+                  </div>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-2 bg-card border-border" align="start">
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => handleSocialClick('google')}
+                    className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                    title="Google Avaliações"
+                  >
+                    <Star className="w-6 h-6 text-primary" />
+                  </button>
+                  <button
+                    onClick={() => handleSocialClick('instagram')}
+                    className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                    title="Instagram"
+                  >
+                    <Instagram className="w-6 h-6 text-primary" />
+                  </button>
+                  <button
+                    onClick={() => handleSocialClick('facebook')}
+                    className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                    title="Facebook"
+                  >
+                    <Facebook className="w-6 h-6 text-primary" />
+                  </button>
+                  <button
+                    onClick={handleWifiClick}
+                    className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                    title="WiFi"
+                  >
+                    <Wifi className="w-6 h-6 text-primary" />
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
+            <span className="text-xl font-bold cursor-pointer" onClick={() => navigate('/')}>Barbearia Raimundos</span>
           </div>
 
           {/* Desktop Menu */}
@@ -279,6 +391,71 @@ const Navbar = () => {
           </SheetContent>
         </Sheet>
       </div>
+
+      {/* WiFi Credentials Dialog */}
+      <Dialog open={wifiDialogOpen} onOpenChange={setWifiDialogOpen}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wifi className="w-5 h-5 text-primary" />
+              Credenciais WiFi
+            </DialogTitle>
+            <DialogDescription>
+              Use essas credenciais para conectar-se à rede WiFi da barbearia
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Nome da Rede (SSID)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={wifiCredentials.username}
+                  readOnly
+                  className="bg-secondary/50"
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => copyToClipboard(wifiCredentials.username, 'username')}
+                >
+                  {copiedField === 'username' ? (
+                    <Check className="w-4 h-4 text-success" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Senha</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="password"
+                  value={wifiCredentials.password}
+                  readOnly
+                  className="bg-secondary/50"
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => copyToClipboard(wifiCredentials.password, 'password')}
+                >
+                  {copiedField === 'password' ? (
+                    <Check className="w-4 h-4 text-success" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+            {(!wifiCredentials.username || !wifiCredentials.password) && (
+              <p className="text-xs text-muted-foreground">
+                ⚠️ As credenciais WiFi ainda não foram configuradas pelo gestor.
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </nav>
   );
 };

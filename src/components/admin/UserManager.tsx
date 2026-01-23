@@ -79,10 +79,19 @@ export const UserManager = () => {
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(true);
   
-  // Edit role dialog
+  // Edit user dialog (role + barber info)
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
   const [updatingRole, setUpdatingRole] = useState(false);
   const [selectedRole, setSelectedRole] = useState<string>('');
+  const [editUserData, setEditUserData] = useState({
+    name: '',
+    phone: '',
+    specialty: '',
+    experience: '',
+    whatsapp_phone: '',
+  });
+  const [barberData, setBarberData] = useState<any>(null);
+  const [loadingBarberData, setLoadingBarberData] = useState(false);
   
   // Delete confirmation
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -225,6 +234,7 @@ export const UserManager = () => {
 
     setUpdatingRole(true);
     try {
+      // 1. Atualizar role via API
       const { data, error } = await supabase.functions.invoke('api', {
         body: {
           action: `admin/users/${selectedUser.id}/role`,
@@ -236,19 +246,70 @@ export const UserManager = () => {
         throw error;
       }
 
-      if (data?.success) {
-        toast.success('Role atualizada com sucesso!');
-        setRoleDialogOpen(false);
-        setSelectedUser(null);
-        setSelectedRole('');
-        loadUsers();
-      } else {
+      if (!data?.success) {
         toast.error('Erro ao atualizar role', {
           description: data?.message || 'Erro desconhecido',
         });
+        return;
       }
+
+      // 2. Atualizar perfil (nome e telefone)
+      if (editUserData.name || editUserData.phone) {
+        await (supabase as any)
+          .from('profiles')
+          .update({
+            name: editUserData.name,
+            phone: editUserData.phone,
+          })
+          .eq('id', selectedUser.id);
+      }
+
+      // 3. Se for barbeiro, atualizar dados do barbeiro
+      if (selectedRole === 'barbeiro' || barberData) {
+        // Verificar se o barbeiro existe
+        const { data: existingBarber } = await (supabase as any)
+          .from('barbers')
+          .select('id')
+          .eq('user_id', selectedUser.id)
+          .maybeSingle();
+
+        if (existingBarber) {
+          // Atualizar barbeiro existente
+          await (supabase as any)
+            .from('barbers')
+            .update({
+              name: editUserData.name,
+              specialty: editUserData.specialty || 'Cortes em geral',
+              experience: editUserData.experience?.trim() || '', // Permite vazio (opcional)
+              whatsapp_phone: editUserData.whatsapp_phone || null,
+            })
+            .eq('user_id', selectedUser.id);
+        } else if (selectedRole === 'barbeiro') {
+          // Criar novo barbeiro se mudou para role barbeiro
+          await (supabase as any)
+            .from('barbers')
+            .insert({
+              name: editUserData.name || selectedUser.name,
+              user_id: selectedUser.id,
+              specialty: editUserData.specialty || 'Cortes em geral',
+              experience: editUserData.experience?.trim() || '', // Permite vazio (opcional)
+              whatsapp_phone: editUserData.whatsapp_phone || null,
+              rating: 5.0,
+              visible: true,
+              order_index: 999,
+            });
+        }
+      }
+
+      toast.success('Usuário atualizado com sucesso!');
+      setRoleDialogOpen(false);
+      setSelectedUser(null);
+      setSelectedRole('');
+      setEditUserData({ name: '', phone: '', specialty: '', experience: '', whatsapp_phone: '' });
+      setBarberData(null);
+      loadUsers();
     } catch (error: any) {
-      toast.error('Erro ao atualizar role', {
+      toast.error('Erro ao atualizar usuário', {
         description: error.message,
       });
     } finally {
@@ -298,10 +359,45 @@ export const UserManager = () => {
     setPasswordDialogOpen(true);
   };
 
-  const openRoleDialog = (user: User) => {
+  const openRoleDialog = async (user: User) => {
     setSelectedUser(user);
     setSelectedRole(user.role);
+    setEditUserData({
+      name: user.name || '',
+      phone: user.phone || '',
+      specialty: '',
+      experience: '',
+      whatsapp_phone: '',
+    });
+    setBarberData(null);
     setRoleDialogOpen(true);
+
+    // Se for barbeiro, carregar dados do barbeiro
+    if (user.role === 'barbeiro' || user.roles?.includes('barbeiro')) {
+      setLoadingBarberData(true);
+      try {
+        const { data: barber, error } = await (supabase as any)
+          .from('barbers')
+          .select('*')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (!error && barber) {
+          setBarberData(barber);
+          setEditUserData(prev => ({
+            ...prev,
+            name: barber.name || user.name || '',
+            specialty: barber.specialty || '',
+            experience: barber.experience || '',
+            whatsapp_phone: barber.whatsapp_phone || '',
+          }));
+        }
+      } catch (err) {
+        console.error('Error loading barber data:', err);
+      } finally {
+        setLoadingBarberData(false);
+      }
+    }
   };
 
   const openDeleteDialog = (user: User) => {
@@ -443,7 +539,7 @@ export const UserManager = () => {
                         size="icon"
                         onClick={() => openRoleDialog(user)}
                         disabled={!canModifyUser(user)}
-                        title="Alterar Role"
+                        title="Editar Usuário"
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -647,38 +743,105 @@ export const UserManager = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Role Dialog */}
+      {/* Edit User Dialog (Role + Info) */}
       <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Alterar Role</DialogTitle>
+            <DialogTitle>Editar Usuário</DialogTitle>
             <DialogDescription>
-              {selectedUser?.name} ({selectedUser?.email})
+              {selectedUser?.email}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Nova Role</Label>
-              <Select value={selectedRole} onValueChange={setSelectedRole}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cliente">Cliente</SelectItem>
-                  <SelectItem value="barbeiro">Barbeiro</SelectItem>
-                  <SelectItem value="gestor">Gestor</SelectItem>
-                  {currentUserRole === 'admin' && (
-                    <SelectItem value="admin">Admin</SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+          {loadingBarberData ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+              <span className="ml-2">Carregando dados...</span>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+              {/* Informações Básicas */}
+              <div className="space-y-3">
+                <h4 className="font-semibold text-sm text-muted-foreground">Informações Básicas</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Nome</Label>
+                    <Input
+                      value={editUserData.name}
+                      onChange={(e) => setEditUserData(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="Nome completo"
+                    />
+                  </div>
+                  <div>
+                    <Label>Telefone</Label>
+                    <Input
+                      value={editUserData.phone}
+                      onChange={(e) => setEditUserData(prev => ({ ...prev, phone: e.target.value }))}
+                      placeholder="(XX) XXXXX-XXXX"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Role */}
+              <div>
+                <Label>Role</Label>
+                <Select value={selectedRole} onValueChange={setSelectedRole}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cliente">Cliente</SelectItem>
+                    <SelectItem value="barbeiro">Barbeiro</SelectItem>
+                    <SelectItem value="gestor">Gestor</SelectItem>
+                    {currentUserRole === 'admin' && (
+                      <SelectItem value="admin">Admin</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Informações do Barbeiro (só aparece se for barbeiro) */}
+              {(selectedRole === 'barbeiro' || barberData) && (
+                <div className="space-y-3 border-t pt-4">
+                  <h4 className="font-semibold text-sm text-muted-foreground">Informações do Barbeiro</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Especialidade</Label>
+                      <Input
+                        value={editUserData.specialty}
+                        onChange={(e) => setEditUserData(prev => ({ ...prev, specialty: e.target.value }))}
+                        placeholder="Ex: Cortes modernos"
+                      />
+                    </div>
+                    <div>
+                      <Label>Experiência</Label>
+                      <Input
+                        value={editUserData.experience}
+                        onChange={(e) => setEditUserData(prev => ({ ...prev, experience: e.target.value }))}
+                        placeholder="Ex: 5 anos"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>WhatsApp Pessoal</Label>
+                    <Input
+                      value={editUserData.whatsapp_phone}
+                      onChange={(e) => setEditUserData(prev => ({ ...prev, whatsapp_phone: e.target.value }))}
+                      placeholder="Ex: 5511999999999"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Para receber notificações de novos agendamentos
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setRoleDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleUpdateRole} disabled={updatingRole}>
+            <Button onClick={handleUpdateRole} disabled={updatingRole || loadingBarberData}>
               {updatingRole ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Salvar
             </Button>

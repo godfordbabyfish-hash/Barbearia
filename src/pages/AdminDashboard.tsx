@@ -24,7 +24,6 @@ import FinancialDashboard from '@/components/FinancialDashboard';
 import SiteConfigEditor from '@/components/admin/SiteConfigEditor';
 import ImageManager from '@/components/admin/ImageManager';
 import OperatingHoursEditor from '@/components/admin/OperatingHoursEditor';
-import { BarbeiroManager } from '@/components/admin/BarbeiroManager';
 import { UserManager } from '@/components/admin/UserManager';
 import { WhatsAppManager } from '@/components/admin/WhatsAppManager';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,10 +34,8 @@ const AdminDashboard = () => {
   const { user, role, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<string>('services');
   const [services, setServices] = useState<any[]>([]);
-  const [barbers, setBarbers] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [editingService, setEditingService] = useState<any>(null);
-  const [editingBarber, setEditingBarber] = useState<any>(null);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
   const [clearingAppointments, setClearingAppointments] = useState(false);
@@ -121,11 +118,6 @@ const AdminDashboard = () => {
       .from('services')
       .select('*')
       .order('order_index');
-    
-    const { data: barbersData } = await (supabase as any)
-      .from('barbers')
-      .select('*')
-      .order('order_index');
 
     const { data: productsData } = await (supabase as any)
       .from('products')
@@ -133,7 +125,6 @@ const AdminDashboard = () => {
       .order('order_index');
 
     if (servicesData) setServices(servicesData);
-    if (barbersData) setBarbers(barbersData);
     if (productsData) setProducts(productsData);
   };
 
@@ -176,16 +167,6 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleBarberImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !editingBarber) return;
-
-    const url = await handleImageUpload(file, 'barbers');
-    if (url) {
-      setEditingBarber({ ...editingBarber, image_url: url });
-      toast.success('Imagem carregada!');
-    }
-  };
 
   const handleSaveService = async () => {
     if (!editingService) return;
@@ -239,57 +220,6 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleSaveBarber = async () => {
-    if (!editingBarber) return;
-
-    const { error } = editingBarber.id
-      ? await (supabase as any)
-          .from('barbers')
-          .update({
-            name: editingBarber.name,
-            specialty: editingBarber.specialty,
-            experience: editingBarber.experience,
-            rating: editingBarber.rating,
-            visible: editingBarber.visible,
-            image_url: editingBarber.image_url,
-            whatsapp_phone: editingBarber.whatsapp_phone || null,
-          })
-          .eq('id', editingBarber.id)
-      : await (supabase as any)
-          .from('barbers')
-          .insert([{
-            name: editingBarber.name,
-            specialty: editingBarber.specialty,
-            experience: editingBarber.experience,
-            rating: editingBarber.rating,
-            visible: editingBarber.visible,
-            image_url: editingBarber.image_url,
-            whatsapp_phone: editingBarber.whatsapp_phone || null,
-            order_index: barbers.length,
-          }]);
-
-    if (error) {
-      toast.error('Erro ao salvar barbeiro');
-    } else {
-      toast.success('Barbeiro salvo com sucesso!');
-      setEditingBarber(null);
-      loadData();
-    }
-  };
-
-  const handleDeleteBarber = async (id: string) => {
-    const { error } = await (supabase as any)
-      .from('barbers')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      toast.error('Erro ao excluir barbeiro');
-    } else {
-      toast.success('Barbeiro excluído!');
-      loadData();
-    }
-  };
 
   const handleProductImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -501,143 +431,6 @@ const AdminDashboard = () => {
               </div>
             )}
 
-            {activeTab === 'barbeiros' && (
-              <div className="space-y-4">
-            <Card className="bg-card border-border">
-              <CardHeader>
-                <CardTitle>Gestão de Barbeiros</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <BarbeiroManager />
-              </CardContent>
-            </Card>
-            
-            <div className="space-y-4 mt-8">
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-                <h3 className="text-xl sm:text-2xl font-bold">Perfil dos Barbeiros</h3>
-                <Button onClick={() => setEditingBarber({ name: '', specialty: '', experience: '', rating: 5.0, visible: true, image_url: '' })} className="w-full sm:w-auto">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Novo Perfil de Barbeiro
-                </Button>
-              </div>
-
-              {editingBarber && (
-                <Card className="bg-card border-primary/50">
-                  <CardHeader>
-                    <CardTitle>{editingBarber.id ? 'Editar' : 'Novo'} Perfil de Barbeiro</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <Label>Nome</Label>
-                      <Input
-                        value={editingBarber.name}
-                        onChange={(e) => setEditingBarber({ ...editingBarber, name: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <Label>Especialidade</Label>
-                      <Input
-                        value={editingBarber.specialty}
-                        onChange={(e) => setEditingBarber({ ...editingBarber, specialty: e.target.value })}
-                      />
-                    </div>
-                    <div>
-                      <Label>Experiência</Label>
-                      <Input
-                        value={editingBarber.experience}
-                        onChange={(e) => setEditingBarber({ ...editingBarber, experience: e.target.value })}
-                        placeholder="8 anos"
-                      />
-                    </div>
-                    <div>
-                      <Label>WhatsApp do Barbeiro (opcional)</Label>
-                      <Input
-                        type="tel"
-                        value={editingBarber.whatsapp_phone || ''}
-                        onChange={(e) => setEditingBarber({ ...editingBarber, whatsapp_phone: e.target.value })}
-                        placeholder="Ex: 5582999999999"
-                      />
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Use apenas números. Exemplo: 5582982212126 (55 + DDD + número).
-                      </p>
-                    </div>
-                    <div>
-                      <Label>Avaliação (0-5)</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        min="0"
-                        max="5"
-                        value={editingBarber.rating}
-                        onChange={(e) => setEditingBarber({ ...editingBarber, rating: parseFloat(e.target.value) })}
-                      />
-                    </div>
-                    <div>
-                      <Label>Foto do Barbeiro</Label>
-                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                        <Input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleBarberImageUpload}
-                          disabled={uploading}
-                          className="flex-1"
-                        />
-                        {editingBarber.image_url && (
-                          <img src={editingBarber.image_url} alt="Preview" className="h-16 w-16 object-cover rounded-full flex-shrink-0" />
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Switch
-                        checked={editingBarber.visible}
-                        onCheckedChange={(checked) => setEditingBarber({ ...editingBarber, visible: checked })}
-                      />
-                      <Label>Visível</Label>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button onClick={handleSaveBarber} disabled={uploading}>Salvar</Button>
-                      <Button variant="outline" onClick={() => setEditingBarber(null)}>Cancelar</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              <div className="grid gap-4">
-                {barbers.map((barber) => (
-                  <Card key={barber.id} className="bg-card border-border">
-                    <CardContent className="p-4">
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
-                        <div className="flex gap-4 flex-1">
-                          {barber.image_url && (
-                            <img src={barber.image_url} alt={barber.name} className="h-20 w-20 sm:h-24 sm:w-24 object-cover rounded-full flex-shrink-0" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <h3 className="text-lg sm:text-xl font-bold">{barber.name}</h3>
-                            <p className="text-sm sm:text-base text-muted-foreground">{barber.specialty}</p>
-                            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-                              {barber.experience} de experiência | ⭐ {barber.rating}
-                            </p>
-                            <p className="text-xs sm:text-sm text-muted-foreground">
-                              {barber.visible ? 'Visível' : 'Oculto'}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 self-start sm:self-auto">
-                          <Button size="sm" variant="outline" onClick={() => setEditingBarber(barber)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button size="sm" variant="destructive" onClick={() => handleDeleteBarber(barber.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-              </div>
-              </div>
-            )}
 
             {activeTab === 'products' && (
               <div className="space-y-4">
