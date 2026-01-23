@@ -120,11 +120,11 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
               {user.email?.charAt(0).toUpperCase() || 'U'}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-foreground truncate">
-                {user.email || 'Usuário'}
+              <div className="text-sm font-medium text-foreground">
+                {role === 'admin' ? 'Administrador' : 'Gestor'}
               </div>
               <div className="text-xs text-muted-foreground">
-                {role === 'admin' ? 'Administrador' : 'Gestor'}
+                Usuário logado
               </div>
             </div>
           </div>
