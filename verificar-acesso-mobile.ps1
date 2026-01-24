@@ -59,7 +59,7 @@ Write-Host ""
 Write-Host "4. Verificando configuracao do Vite..." -ForegroundColor Yellow
 if (Test-Path "vite.config.ts") {
     $viteConfig = Get-Content "vite.config.ts" -Raw
-    if ($viteConfig -match 'host:\s*["\']0\.0\.0\.0["\']') {
+    if ($viteConfig -match 'host:\s*["'']0\.0\.0\.0["'']') {
         Write-Host "   Vite configurado corretamente (host: 0.0.0.0)" -ForegroundColor Green
     } else {
         Write-Host "   AVISO: Vite pode nao estar configurado para aceitar conexoes externas" -ForegroundColor Yellow
