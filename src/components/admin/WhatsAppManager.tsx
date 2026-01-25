@@ -532,8 +532,31 @@ export const WhatsAppManager = () => {
         throw new Error(errorData.error || `Erro HTTP ${response.status}: ${response.statusText}`);
       }
       
-      const data = await response.json();
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/14b94b1b-509e-40c0-ac72-3f9320fe43aa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'WhatsAppManager.tsx:535',message:'Before JSON parse',data:{responseStatus:response.status,responseOk:response.ok,hasBody:!!response.body},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      
+      const responseText = await response.text();
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/14b94b1b-509e-40c0-ac72-3f9320fe43aa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'WhatsAppManager.tsx:539',message:'Response text received',data:{textLength:responseText.length,textPreview:responseText.substring(0,200),isValidJSON:(()=>{try{JSON.parse(responseText);return true;}catch{return false;}})()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError: any) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/14b94b1b-509e-40c0-ac72-3f9320fe43aa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'WhatsAppManager.tsx:545',message:'JSON parse error',data:{error:parseError.message,responseText:responseText.substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
+        throw new Error(`Erro ao processar resposta: ${parseError.message}`);
+      }
+      
       const error = data.success === false ? { message: data.error } : null;
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/14b94b1b-509e-40c0-ac72-3f9320fe43aa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'WhatsAppManager.tsx:551',message:'Data parsed',data:{success:data.success,hasQrcode:!!data.qrcode,qrcodeType:typeof data.qrcode,qrcodeKeys:data.qrcode?Object.keys(data.qrcode):[],hasError:!!error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       
       console.log('[WhatsApp Manager Frontend] get-qrcode response:', { data, error });
 
@@ -542,6 +565,10 @@ export const WhatsAppManager = () => {
       console.log('[WhatsApp Manager Frontend] getQRCode response:', data);
       
       if (data?.success && data?.qrcode) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/14b94b1b-509e-40c0-ac72-3f9320fe43aa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'WhatsAppManager.tsx:560',message:'QR code object structure',data:{hasBase64:!!data.qrcode.base64,hasCode:!!data.qrcode.code,qrcodeKeys:Object.keys(data.qrcode),qrcodeType:typeof data.qrcode,base64Type:typeof data.qrcode.base64,codeType:typeof data.qrcode.code,base64Length:data.qrcode.base64?.length,codeLength:data.qrcode.code?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
+        
         console.log('[WhatsApp Manager Frontend] QR code received:', {
           hasBase64: !!data.qrcode.base64,
           hasCode: !!data.qrcode.code,
@@ -551,6 +578,10 @@ export const WhatsAppManager = () => {
         
         // Se o QR code vem em base64
         if (data.qrcode.base64) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/14b94b1b-509e-40c0-ac72-3f9320fe43aa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'WhatsAppManager.tsx:572',message:'Processing base64 QR code',data:{base64Type:typeof data.qrcode.base64,base64Length:data.qrcode.base64?.length,base64Preview:typeof data.qrcode.base64==='string'?data.qrcode.base64.substring(0,50):'not-string'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+          // #endregion
+          
           const base64String = typeof data.qrcode.base64 === 'string' 
             ? data.qrcode.base64 
             : String(data.qrcode.base64);
@@ -563,13 +594,25 @@ export const WhatsAppManager = () => {
             ? cleanBase64 
             : `data:image/png;base64,${cleanBase64}`;
           
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/14b94b1b-509e-40c0-ac72-3f9320fe43aa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'WhatsAppManager.tsx:585',message:'Setting QR code state',data:{qrCodeDataLength:qrCodeData.length,qrCodeDataStartsWith:qrCodeData.substring(0,30),willSetState:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+          // #endregion
+          
           console.log('[WhatsApp Manager Frontend] Setting QR code as base64 image, length:', qrCodeData.length);
           setQrCode(qrCodeData);
         } else if (data.qrcode.code) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/14b94b1b-509e-40c0-ac72-3f9320fe43aa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'WhatsAppManager.tsx:592',message:'Processing code QR code',data:{codeType:typeof data.qrcode.code,codeLength:data.qrcode.code?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
+          // #endregion
+          
           // Se vem como código direto (string do QR code)
           console.log('[WhatsApp Manager Frontend] Setting QR code as text code, length:', data.qrcode.code.length);
           setQrCode(String(data.qrcode.code));
         } else {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/14b94b1b-509e-40c0-ac72-3f9320fe43aa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'WhatsAppManager.tsx:598',message:'QR code format not recognized',data:{qrcodeKeys:Object.keys(data.qrcode),qrcodeType:typeof data.qrcode,qrcodeValue:JSON.stringify(data.qrcode).substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
+          // #endregion
+          
           console.error('[WhatsApp Manager Frontend] QR code format not recognized:', data.qrcode);
           console.error('[WhatsApp Manager Frontend] Full qrcode object:', JSON.stringify(data.qrcode, null, 2));
           throw new Error('QR code não disponível no formato esperado. Verifique os logs do console.');
@@ -1005,10 +1048,16 @@ export const WhatsAppManager = () => {
                       alt="QR Code WhatsApp" 
                       className="border-2 border-primary rounded-lg p-2 bg-white max-w-xs w-64 h-64 object-contain"
                       onError={(e) => {
+                        // #region agent log
+                        fetch('http://127.0.0.1:7242/ingest/14b94b1b-509e-40c0-ac72-3f9320fe43aa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'WhatsAppManager.tsx:1050',message:'QR code image load error',data:{qrCodeLength:qrCode.length,qrCodePrefix:qrCode.substring(0,50),errorType:e.type,errorTarget:!!e.target},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
+                        // #endregion
                         console.error('[WhatsApp Manager] Error loading QR code image:', e);
                         toast.error('Erro ao carregar imagem do QR code. Verifique o formato.');
                       }}
                       onLoad={() => {
+                        // #region agent log
+                        fetch('http://127.0.0.1:7242/ingest/14b94b1b-509e-40c0-ac72-3f9320fe43aa',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'WhatsAppManager.tsx:1054',message:'QR code image loaded successfully',data:{qrCodeLength:qrCode.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'K'})}).catch(()=>{});
+                        // #endregion
                         console.log('[WhatsApp Manager] QR code image loaded successfully');
                       }}
                     />
