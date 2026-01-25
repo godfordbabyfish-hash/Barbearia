@@ -1,0 +1,67 @@
+================================================================================
+  PLANO DE ACAO - RESOLVER WHATSAPP
+================================================================================
+
+PASSO 1: FAZER PUSH DO CODIGO CORS
+-----------------------------------
+1. Abra GitHub Desktop OU terminal
+2. Vá para o repositório: whatsapp-bot-railway
+3. Faça PUSH (botão "Push origin" ou git push)
+4. AGUARDE 2-3 MINUTOS para Railway fazer deploy
+
+PASSO 2: CONECTAR WHATSAPP
+---------------------------
+1. Abra: whatsapp-bot-railway\conectar-whatsapp-railway.html
+2. Preencha:
+   - URL: https://whatsapp-bot-barbearia-production.up.railway.app
+   - API Key: testdaapi2026
+   - Instancia: default
+3. Clique em "Gerar QR Code"
+4. ESCANEIE o QR Code com WhatsApp
+5. Aguarde aparecer "Conectado"
+
+PASSO 3: VERIFICAR CONEXAO
+---------------------------
+Execute no PowerShell:
+  .\testar-whatsapp-completo.ps1
+
+Deve mostrar:
+  - Connected: True
+  - Status: open ou connected
+
+PASSO 4: TESTAR ENVIO
+---------------------
+Execute novamente:
+  .\testar-whatsapp-completo.ps1
+
+Deve mostrar:
+  - SUCESSO! Mensagem enviada!
+
+================================================================================
+  SE DER ERRO
+================================================================================
+
+Erro CORS no HTML:
+  -> Aguarde mais tempo (deploy pode demorar 3-5 min)
+
+QR Code nao aparece:
+  -> Verifique API Key: testdaapi2026
+  -> Veja logs do Railway
+
+connected: false mesmo apos escanear:
+  -> Aguarde 10-15 segundos
+  -> Verifique logs do Railway (deve mostrar "Conectado com sucesso!")
+
+Mensagem nao chega:
+  -> Verifique se connected: true
+  -> Verifique fila no Supabase
+
+================================================================================
+  ARQUIVOS DE AJUDA
+================================================================================
+
+- RESOLVER_WHATSAPP_AGORA.md = Guia completo detalhado
+- testar-whatsapp-completo.ps1 = Script de teste completo
+- conectar-whatsapp-railway.html = Interface para conectar WhatsApp
+
+================================================================================

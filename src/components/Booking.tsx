@@ -962,9 +962,6 @@ const Booking = () => {
                   <CardContent className="p-3 md:p-6 lg:p-8 text-center">
                     <h3 className="text-sm md:text-lg lg:text-2xl font-bold mb-1 md:mb-2 line-clamp-1">{barber.name}</h3>
                     <p className="text-xs md:text-sm lg:text-base text-primary font-semibold mb-1 md:mb-2 line-clamp-1">{barber.specialty}</p>
-                    {barber.experience && barber.experience.trim() && (
-                      <p className="text-xs md:text-sm text-muted-foreground mb-2 md:mb-4 line-clamp-1">{barber.experience}</p>
-                    )}
                     
                     <div className="flex items-center justify-center gap-0.5 md:gap-1">
                       {[...Array(Math.floor(Number(barber.rating)))].map((_, i) => (

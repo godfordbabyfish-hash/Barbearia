@@ -405,11 +405,8 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
                   <div className="p-2 md:p-4">
                     <h4 className="text-xs md:text-base lg:text-lg font-bold text-white line-clamp-1">{barber.name}</h4>
                     <p className="text-gray-400 text-xs md:text-sm line-clamp-1">{barber.specialty}</p>
-                    <div className="flex items-center justify-between mt-1 md:mt-2">
-                      {barber.experience && barber.experience.trim() && (
-                        <span className="text-gray-500 text-xs hidden md:inline">{barber.experience}</span>
-                      )}
-                      <div className="flex items-center gap-1 ml-auto">
+                    <div className="flex items-center justify-end mt-1 md:mt-2">
+                      <div className="flex items-center gap-1">
                         <Star className="h-3 w-3 md:h-4 md:w-4 fill-yellow-500 text-yellow-500" />
                         <span style={{ color: "#FFD700" }} className="font-semibold text-xs md:text-sm">
                           {barber.rating?.toFixed(1) || "5.0"}

@@ -8,7 +8,7 @@ import { DollarSign, TrendingUp, Calendar, Users, Filter } from 'lucide-react';
 import { format, subDays, subMonths, subYears, startOfDay, endOfDay, startOfWeek, startOfMonth, startOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
-import { CommissionManager } from '@/components/CommissionManager';
+import { IndividualCommissionManager } from '@/components/IndividualCommissionManager';
 
 interface Appointment {
   id: string;
@@ -583,7 +583,7 @@ const FinancialDashboard = () => {
           </TabsContent>
           
           <TabsContent value="commissions" className="space-y-6 mt-6">
-            <CommissionManager />
+            <IndividualCommissionManager />
           </TabsContent>
         </Tabs>
       ) : (
