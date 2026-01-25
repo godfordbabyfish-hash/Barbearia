@@ -244,34 +244,34 @@ const createInstance = async (instanceName: string): Promise<{ success: boolean;
 // Get QR code for instance
 const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrcode?: any; error?: string }> => {
   try {
-    // Primeiro, verificar o status da instância
-    const instancesResult = await listInstances();
-    let instance = null;
-    if (instancesResult.success && instancesResult.instances) {
-      instance = instancesResult.instances.find((i: any) => i.instanceName === instanceName);
-      if (instance) {
-        // Se a instância já está conectada (open), precisamos desconectar primeiro para gerar novo QR code
-        if (instance.status === 'open') {
-          console.log(`[WhatsApp Manager] Instance ${instanceName} is already connected. Disconnecting to generate new QR code...`);
-          try {
-            const disconnectResponse = await fetch(`${evolutionApiUrl}/instance/logout/${instanceName}`, {
-              method: 'DELETE',
-              headers: {
-                'apikey': evolutionApiKey,
-              },
-            });
-            console.log('[WhatsApp Manager] Logout response status:', disconnectResponse.status);
-            // Aguardar um pouco para a desconexão processar
-            await new Promise(resolve => setTimeout(resolve, 2000));
-          } catch (e) {
-            console.warn('[WhatsApp Manager] Error during logout (may be OK):', e);
-          }
-        }
-      }
+    console.log(`[WhatsApp Manager] Getting QR code for instance: ${instanceName}`);
+    
+    // SEMPRE desconectar primeiro para limpar qualquer estado de autenticação inválido
+    console.log(`[WhatsApp Manager] Step 1: Disconnecting instance to clear auth state...`);
+    const disconnectResult = await disconnectInstance(instanceName);
+    console.log('[WhatsApp Manager] Disconnect result:', disconnectResult);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Deletar a instância para limpar completamente o estado (incluindo credenciais inválidas)
+    // Isso é crítico para garantir que não há credenciais antigas causando erro 401
+    console.log(`[WhatsApp Manager] Step 2: Deleting instance to force clean state...`);
+    const deleteResult = await deleteInstance(instanceName);
+    console.log('[WhatsApp Manager] Delete result:', deleteResult);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Recriar a instância (garantir que está limpa e sem credenciais antigas)
+    console.log(`[WhatsApp Manager] Step 3: Creating fresh instance...`);
+    const createResult = await createInstance(instanceName);
+    console.log('[WhatsApp Manager] Create result:', createResult);
+    if (!createResult.success && !createResult.error?.includes('already exists') && !createResult.error?.includes('409')) {
+      console.warn('[WhatsApp Manager] Create may have failed:', createResult.error);
+      // Continuar mesmo assim - pode ser que a instância já exista
     }
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
     // Agora tentar conectar e obter QR code
     // Adicionar ?qrcode=true para garantir que a API retorne o QR code
+    console.log(`[WhatsApp Manager] Step 4: Connecting to get QR code...`);
     const response = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}?qrcode=true`, {
       method: 'GET',
       headers: {
