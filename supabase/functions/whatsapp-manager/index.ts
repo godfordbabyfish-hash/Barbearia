@@ -250,15 +250,37 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
     console.log(`[WhatsApp Manager] Step 1: Disconnecting instance to clear auth state...`);
     const disconnectResult = await disconnectInstance(instanceName);
     console.log('[WhatsApp Manager] Disconnect result:', disconnectResult);
-    // Reduzir tempo de espera para evitar timeout
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Aumentar tempo de espera para dar tempo do bot Railway parar de tentar reconectar
+    await new Promise(resolve => setTimeout(resolve, 3000));
 
     // Deletar a instância para limpar completamente o estado (incluindo credenciais inválidas)
     // Isso é crítico para garantir que não há credenciais antigas causando erro 401
     console.log(`[WhatsApp Manager] Step 2: Deleting instance to force clean state...`);
     const deleteResult = await deleteInstance(instanceName);
     console.log('[WhatsApp Manager] Delete result:', deleteResult);
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Aumentar tempo de espera após deletar para garantir que o bot Railway pare completamente
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Verificar se a instância foi realmente deletada antes de recriar
+    console.log(`[WhatsApp Manager] Step 2.5: Verifying instance was deleted...`);
+    try {
+      const listResponse = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
+        method: 'GET',
+        headers: { 'apikey': evolutionApiKey },
+      });
+      if (listResponse.ok) {
+        const instances = await listResponse.json();
+        const instanceExists = instances.find((inst: any) => inst.instanceName === instanceName);
+        if (instanceExists) {
+          console.log('[WhatsApp Manager] Instance still exists after delete, waiting longer...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        } else {
+          console.log('[WhatsApp Manager] Instance successfully deleted');
+        }
+      }
+    } catch (e) {
+      console.warn('[WhatsApp Manager] Could not verify instance deletion:', e);
+    }
 
     // Recriar a instância (garantir que está limpa e sem credenciais antigas)
     console.log(`[WhatsApp Manager] Step 3: Creating fresh instance...`);
@@ -268,42 +290,130 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
       console.warn('[WhatsApp Manager] Create may have failed:', createResult.error);
       // Continuar mesmo assim - pode ser que a instância já exista
     }
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Aumentar tempo de espera após criar para garantir que a instância está pronta
+    // E dar tempo do bot Railway parar completamente de tentar reconectar
+    console.log(`[WhatsApp Manager] Step 3.5: Waiting for instance to stabilize and bot Railway to stop reconnecting...`);
+    await new Promise(resolve => setTimeout(resolve, 5000)); // Aumentado para 5 segundos
 
-    // Agora tentar conectar e obter QR code
+    // Verificar se a instância está realmente pronta antes de tentar conectar
+    console.log(`[WhatsApp Manager] Step 3.6: Verifying instance is ready...`);
+    try {
+      const verifyResponse = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
+        method: 'GET',
+        headers: { 'apikey': evolutionApiKey },
+      });
+      if (verifyResponse.ok) {
+        const instances = await verifyResponse.json();
+        const instance = instances.find((inst: any) => inst.instanceName === instanceName);
+        if (instance) {
+          console.log(`[WhatsApp Manager] Instance verified:`, {
+            name: instance.instanceName,
+            state: instance.instance?.state || instance.state,
+            status: instance.status
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[WhatsApp Manager] Could not verify instance readiness:', e);
+    }
+
+    // Agora tentar conectar e obter QR code com retry para erro 500
     // Adicionar ?qrcode=true para garantir que a API retorne o QR code
     console.log(`[WhatsApp Manager] Step 4: Connecting to get QR code...`);
+    console.log(`[WhatsApp Manager] Step 4 URL: ${evolutionApiUrl}/instance/connect/${instanceName}?qrcode=true`);
+    console.log(`[WhatsApp Manager] Step 4 API Key present: ${!!evolutionApiKey}`);
     
-    // Criar AbortController para timeout (máximo 20 segundos)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
-    
+    // Tentar até 3 vezes se receber erro 500 (pode ser erro temporário do servidor)
     let response;
-    try {
-      response = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}?qrcode=true`, {
-        method: 'GET',
-        headers: {
-          'apikey': evolutionApiKey,
-        },
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        return {
-          success: false,
-          error: 'Timeout ao conectar à Evolution API. A API pode estar demorando para responder. Tente novamente em alguns segundos.'
-        };
+    let lastError: any = null;
+    const maxRetries = 3;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      console.log(`[WhatsApp Manager] Step 4: Attempt ${attempt}/${maxRetries}...`);
+      
+      // Criar AbortController para timeout (aumentado para 40 segundos - Evolution API pode estar lenta)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 40000);
+      
+      const startTime = Date.now();
+      try {
+        console.log(`[WhatsApp Manager] Step 4: Making fetch request...`);
+        response = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}?qrcode=true`, {
+          method: 'GET',
+          headers: {
+            'apikey': evolutionApiKey,
+          },
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        const duration = Date.now() - startTime;
+        console.log(`[WhatsApp Manager] Step 4: Fetch completed in ${duration}ms, status: ${response.status}`);
+        
+        // Se sucesso (200) ou erro diferente de 500, sair do loop
+        if (response.ok || response.status !== 500) {
+          break;
+        }
+        
+        // Se erro 500 e não é a última tentativa, aguardar e tentar novamente
+        if (response.status === 500 && attempt < maxRetries) {
+          const errorText = await response.text().catch(() => '');
+          console.warn(`[WhatsApp Manager] Step 4: Received 500 error on attempt ${attempt}, retrying after delay...`, errorText);
+          await new Promise(resolve => setTimeout(resolve, 3000 * attempt)); // Backoff exponencial
+          continue;
+        }
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        const duration = Date.now() - startTime;
+        console.error(`[WhatsApp Manager] Step 4: Fetch failed after ${duration}ms (attempt ${attempt}):`, {
+          name: error.name,
+          message: error.message,
+          error: error
+        });
+        
+        if (error.name === 'AbortError') {
+          if (attempt < maxRetries) {
+            console.warn(`[WhatsApp Manager] Step 4: Timeout on attempt ${attempt}, retrying...`);
+            await new Promise(resolve => setTimeout(resolve, 3000 * attempt));
+            continue;
+          }
+          return {
+            success: false,
+            error: 'Timeout ao conectar à Evolution API após 40 segundos (3 tentativas). A API pode estar muito lenta ou indisponível. Verifique o Railway Dashboard e tente novamente.'
+          };
+        }
+        
+        lastError = error;
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 3000 * attempt));
+          continue;
+        }
+        throw error;
       }
-      throw error;
+    }
+    
+    // Se ainda não temos resposta válida após todas as tentativas
+    if (!response) {
+      return {
+        success: false,
+        error: lastError?.message || 'Falha ao conectar à Evolution API após múltiplas tentativas. Verifique o Railway Dashboard.'
+      };
     }
 
     if (!response.ok) {
       let errorData;
+      let errorText = '';
       try {
-        errorData = await response.json();
-      } catch {
+        // Tentar ler como texto primeiro para capturar tudo
+        errorText = await response.text();
+        console.error(`[WhatsApp Manager] Step 4: Error response body (raw):`, errorText);
+        // Tentar parsear como JSON
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: errorText || `HTTP ${response.status}: ${response.statusText}` };
+        }
+      } catch (e) {
+        console.error(`[WhatsApp Manager] Step 4: Failed to read error response:`, e);
         errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
       }
       
@@ -323,9 +433,18 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
         };
       }
       
+      // Se for Internal Server Error (500), o servidor Evolution API está com problema
+      if (response.status === 500) {
+        console.error(`[WhatsApp Manager] Step 4: Evolution API returned 500 error. Response:`, errorText);
+        return { 
+          success: false, 
+          error: `Erro interno na Evolution API (servidor Railway). A API retornou erro 500. Isso geralmente indica que o serviço precisa ser reiniciado. Detalhes: ${errorData.message || errorData.error || errorText || 'Internal Server Error'}. Acesse o Railway Dashboard e reinicie o serviço "whatsapp-bot-barbearia".` 
+        };
+      }
+      
       return { 
         success: false, 
-        error: errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}` 
+        error: errorData.message || errorData.error || errorText || `HTTP ${response.status}: ${response.statusText}` 
       };
     }
 

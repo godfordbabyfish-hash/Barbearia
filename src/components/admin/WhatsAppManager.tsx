@@ -626,7 +626,9 @@ export const WhatsAppManager = () => {
       
       // Mensagem de erro mais específica
       let errorMessage = error.message || 'Erro desconhecido';
-      if (error.message?.includes('timeout') || error.message?.includes('Timeout')) {
+      if (error.message?.includes('500') || error.message?.includes('Railway') || error.message?.includes('reiniciar')) {
+        errorMessage = 'Erro interno na Evolution API (servidor Railway). O serviço precisa ser reiniciado. Acesse o Railway Dashboard e reinicie o serviço "whatsapp-bot-barbearia", depois tente novamente.';
+      } else if (error.message?.includes('timeout') || error.message?.includes('Timeout')) {
         errorMessage = 'Timeout ao gerar QR code. A Evolution API pode estar demorando para responder. Tente novamente em alguns segundos.';
       } else if (error.message?.includes('401') || error.message?.includes('Connection Failure')) {
         errorMessage = 'Erro de autenticação. A Edge Function está limpando o estado. Tente novamente.';
