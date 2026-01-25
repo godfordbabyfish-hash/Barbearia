@@ -570,19 +570,19 @@ const FinancialDashboard = () => {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       {isManager ? (
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'overview' | 'commissions')} className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
-            <TabsTrigger value="overview">Visão Geral</TabsTrigger>
-            <TabsTrigger value="commissions">Comissões</TabsTrigger>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'overview' | 'commissions')} className="w-full" style={{ maxWidth: '100%' }}>
+          <TabsList className="grid w-full max-w-full grid-cols-2">
+            <TabsTrigger value="overview" className="text-xs sm:text-sm">Visão Geral</TabsTrigger>
+            <TabsTrigger value="commissions" className="text-xs sm:text-sm">Comissões</TabsTrigger>
           </TabsList>
           
           <TabsContent value="overview" className="space-y-6 mt-6">
             {renderContent()}
           </TabsContent>
           
-          <TabsContent value="commissions" className="space-y-6 mt-6">
+          <TabsContent value="commissions" className="space-y-6 mt-6 w-full overflow-x-hidden">
             <IndividualCommissionManager />
           </TabsContent>
         </Tabs>

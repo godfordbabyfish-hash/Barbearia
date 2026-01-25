@@ -28,6 +28,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { supabase } from '@/integrations/supabase/client';
+import { DEFAULT_INSTANCE_NAME, isValidInstanceName } from '@/config/whatsapp';
 
 interface WhatsAppInstance {
   instanceName: string;
@@ -191,7 +192,7 @@ export const WhatsAppManager = () => {
       
       // Se não há instâncias e não está carregando, criar automaticamente
       if (instances.length === 0 && !loading) {
-        const defaultInstanceName = 'evolution-4';
+        const defaultInstanceName = DEFAULT_INSTANCE_NAME;
         console.log('[WhatsApp Manager] Nenhuma instância encontrada. Tentando criar automaticamente:', defaultInstanceName);
         
         setAutoCreated(true); // Marcar que já tentou criar
@@ -468,13 +469,19 @@ export const WhatsAppManager = () => {
   const getQRCode = async (instanceName: string) => {
     setLoading(true);
     setSelectedInstance(instanceName);
+    
+    // Limpar QR code anterior se houver
+    if (qrCode) {
+      setQrCode(null);
+    }
+    
     try {
-      // SEMPRE desconectar primeiro para garantir que podemos gerar novo QR code
-      toast.info('Desconectando instância para gerar novo QR code...', {
-        duration: 2000,
+      // Passo 1: Desconectar completamente a instância
+      toast.info('Preparando para gerar novo QR code...', {
+        description: 'Desconectando instância atual',
+        duration: 3000,
       });
       
-      // Desconectar primeiro (mesmo que pareça desconectada na UI)
       const { data: disconnectData, error: disconnectError } = await supabase.functions.invoke('whatsapp-manager', {
         body: { 
           action: 'disconnect',
@@ -487,13 +494,39 @@ export const WhatsAppManager = () => {
         console.warn('Erro ao desconectar (pode já estar desconectada):', disconnectError);
       }
       
-      // Aguardar desconexão processar
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Aguardar desconexão processar completamente
+      await new Promise(resolve => setTimeout(resolve, 3000));
       
-      // Recarregar lista para atualizar status
+      // Passo 2: Recarregar lista para verificar status atual
       await loadInstances();
       
-      // Garantir que a instância existe (criar se necessário)
+      // Passo 3: Deletar a instância se necessário (para garantir QR code totalmente novo)
+      toast.info('Limpando instância anterior...', {
+        description: 'Isso garante um QR code totalmente novo',
+        duration: 2000,
+      });
+      
+      const { data: deleteData, error: deleteError } = await supabase.functions.invoke('whatsapp-manager', {
+        body: { 
+          action: 'delete',
+          instanceName
+        }
+      });
+      
+      // Ignorar erro se não conseguir deletar (pode não existir ou estar em uso)
+      if (deleteError) {
+        console.warn('Erro ao deletar instância (pode não existir):', deleteError);
+      }
+      
+      // Aguardar um pouco após deletar
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Passo 4: Criar instância nova (garantir que está limpa)
+      toast.info('Criando nova instância...', {
+        description: 'Aguarde alguns segundos',
+        duration: 2000,
+      });
+      
       const { data: createData, error: createError } = await supabase.functions.invoke('whatsapp-manager', {
         body: { 
           action: 'create',
@@ -501,15 +534,23 @@ export const WhatsAppManager = () => {
         }
       });
       
-      // Ignorar erro se a instância já existe
+      // Se não conseguir criar, pode ser que já existe - continuar mesmo assim
       if (createError && !createData?.success) {
         console.warn('Erro ao criar instância (pode já existir):', createError);
       }
       
-      // Aguardar um pouco para a instância ser criada
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Aguardar instância ser criada/estabilizada
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Agora obter o QR code
+      // Passo 5: Recarregar lista novamente
+      await loadInstances();
+      
+      // Passo 6: Obter o QR code
+      toast.info('Gerando QR code...', {
+        description: 'Quase lá!',
+        duration: 2000,
+      });
+      
       const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
         body: { 
           action: 'get-qrcode',
@@ -555,7 +596,10 @@ export const WhatsAppManager = () => {
           throw new Error('QR code não disponível no formato esperado. Verifique os logs do console.');
         }
 
-        toast.success('QR code gerado! Escaneie com seu WhatsApp.');
+        toast.success('QR code gerado com sucesso!', {
+          description: 'Escaneie com o WhatsApp no seu celular. O QR code expira em ~20 segundos.',
+          duration: 5000,
+        });
         
         // Iniciar polling mais frequente para verificar conexão (a cada 3 segundos quando esperando QR code)
         if (pollingInterval) {
@@ -862,7 +906,7 @@ export const WhatsAppManager = () => {
                           )}
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <Button
                           size="sm"
                           variant="outline"
@@ -870,10 +914,20 @@ export const WhatsAppManager = () => {
                             console.log('[WhatsApp Manager] Botão Conectar/Reconectar clicado para:', instance.instanceName);
                             getQRCode(instance.instanceName);
                           }}
-                          disabled={loading || (selectedInstance === instance.instanceName && !!qrCode)}
+                          disabled={loading}
+                          title={instance.status === 'open' ? 'Desconectar e gerar novo QR code para trocar número' : 'Gerar QR code para conectar'}
                         >
                           <QrCode className="h-4 w-4 mr-1" />
-                          {loading && selectedInstance === instance.instanceName ? 'Gerando...' : (instance.status === 'open' ? 'Reconectar' : 'Conectar')}
+                          {loading && selectedInstance === instance.instanceName ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                              Gerando QR...
+                            </>
+                          ) : instance.status === 'open' ? (
+                            'Gerar Novo QR'
+                          ) : (
+                            'Conectar'
+                          )}
                         </Button>
                         {instance.status === 'open' && (
                           <>
@@ -995,10 +1049,23 @@ export const WhatsAppManager = () => {
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={() => getQRCode(selectedInstance)}
+                      onClick={async () => {
+                        console.log('[WhatsApp Manager] Botão Atualizar QR Code clicado');
+                        await getQRCode(selectedInstance);
+                      }}
+                      disabled={loading}
                     >
-                      <RefreshCw className="h-4 w-4 mr-1" />
-                      Atualizar QR Code
+                      {loading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          Gerando...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-1" />
+                          Gerar Novo QR Code
+                        </>
+                      )}
                     </Button>
                   </div>
                 </div>
