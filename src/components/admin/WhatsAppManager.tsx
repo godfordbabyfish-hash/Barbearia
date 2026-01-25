@@ -476,80 +476,14 @@ export const WhatsAppManager = () => {
     }
     
     try {
-      // Passo 1: Desconectar completamente a instância
+      // A Edge Function agora faz toda a limpeza internamente (disconnect, delete, create)
+      // Então só precisamos chamar get-qrcode uma vez
       toast.info('Preparando para gerar novo QR code...', {
-        description: 'Desconectando instância atual',
+        description: 'Limpando estado e gerando QR code',
         duration: 3000,
       });
       
-      const { data: disconnectData, error: disconnectError } = await supabase.functions.invoke('whatsapp-manager', {
-        body: { 
-          action: 'disconnect',
-          instanceName
-        }
-      });
-      
-      // Ignorar erros de desconexão (pode já estar desconectada)
-      if (disconnectError) {
-        console.warn('Erro ao desconectar (pode já estar desconectada):', disconnectError);
-      }
-      
-      // Aguardar desconexão processar completamente
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Passo 2: Recarregar lista para verificar status atual
-      await loadInstances();
-      
-      // Passo 3: Deletar a instância se necessário (para garantir QR code totalmente novo)
-      toast.info('Limpando instância anterior...', {
-        description: 'Isso garante um QR code totalmente novo',
-        duration: 2000,
-      });
-      
-      const { data: deleteData, error: deleteError } = await supabase.functions.invoke('whatsapp-manager', {
-        body: { 
-          action: 'delete',
-          instanceName
-        }
-      });
-      
-      // Ignorar erro se não conseguir deletar (pode não existir ou estar em uso)
-      if (deleteError) {
-        console.warn('Erro ao deletar instância (pode não existir):', deleteError);
-      }
-      
-      // Aguardar um pouco após deletar
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Passo 4: Criar instância nova (garantir que está limpa)
-      toast.info('Criando nova instância...', {
-        description: 'Aguarde alguns segundos',
-        duration: 2000,
-      });
-      
-      const { data: createData, error: createError } = await supabase.functions.invoke('whatsapp-manager', {
-        body: { 
-          action: 'create',
-          instanceName
-        }
-      });
-      
-      // Se não conseguir criar, pode ser que já existe - continuar mesmo assim
-      if (createError && !createData?.success) {
-        console.warn('Erro ao criar instância (pode já existir):', createError);
-      }
-      
-      // Aguardar instância ser criada/estabilizada
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Passo 5: Recarregar lista novamente
-      await loadInstances();
-      
-      // Passo 6: Obter o QR code
-      toast.info('Gerando QR code...', {
-        description: 'Quase lá!',
-        duration: 2000,
-      });
+      console.log('[WhatsApp Manager Frontend] Calling get-qrcode for:', instanceName);
       
       const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
         body: { 
@@ -557,6 +491,8 @@ export const WhatsAppManager = () => {
           instanceName
         }
       });
+      
+      console.log('[WhatsApp Manager Frontend] get-qrcode response:', { data, error });
 
       if (error) throw error;
 
@@ -628,11 +564,34 @@ export const WhatsAppManager = () => {
         };
       } else {
         console.error('[WhatsApp Manager Frontend] Failed to get QR code:', data);
-        throw new Error(data?.error || 'Erro ao obter QR code');
+        const errorMessage = data?.error || 'Erro ao obter QR code';
+        console.error('[WhatsApp Manager Frontend] Error details:', {
+          error: errorMessage,
+          data: data,
+          instanceName
+        });
+        throw new Error(errorMessage);
       }
     } catch (error: any) {
+      console.error('[WhatsApp Manager Frontend] getQRCode error:', {
+        message: error.message,
+        error: error,
+        instanceName,
+        errorName: error.name,
+        errorStack: error.stack
+      });
+      
+      // Mensagem de erro mais específica
+      let errorMessage = error.message || 'Erro desconhecido';
+      if (error.message?.includes('timeout') || error.message?.includes('Timeout')) {
+        errorMessage = 'Timeout ao gerar QR code. A Evolution API pode estar demorando para responder. Tente novamente em alguns segundos.';
+      } else if (error.message?.includes('401') || error.message?.includes('Connection Failure')) {
+        errorMessage = 'Erro de autenticação. A Edge Function está limpando o estado. Tente novamente.';
+      }
+      
       toast.error('Erro ao obter QR code', {
-        description: error.message || 'Erro desconhecido',
+        description: errorMessage,
+        duration: 5000,
       });
       setSelectedInstance(null);
     } finally {
