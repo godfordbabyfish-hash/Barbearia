@@ -485,12 +485,55 @@ export const WhatsAppManager = () => {
       
       console.log('[WhatsApp Manager Frontend] Calling get-qrcode for:', instanceName);
       
-      const { data, error } = await supabase.functions.invoke('whatsapp-manager', {
-        body: { 
-          action: 'get-qrcode',
-          instanceName
+      // Usar fetch diretamente com timeout maior (90 segundos) para evitar timeout prematuro
+      // O Supabase functions.invoke tem timeout padrão de 60s, mas nosso processo pode levar mais tempo
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('Sessão não encontrada. Faça login novamente.');
+      }
+      
+      // Criar AbortController para timeout de 90 segundos
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 segundos
+      
+      let response;
+      try {
+        response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-manager`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action: 'get-qrcode',
+            instanceName
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          throw new Error('Timeout ao gerar QR code. O processo está demorando mais que o esperado (90s). A Evolution API pode estar lenta. Tente novamente.');
         }
-      });
+        throw error;
+      }
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: errorText || `HTTP ${response.status}: ${response.statusText}` };
+        }
+        throw new Error(errorData.error || `Erro HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      const error = data.success === false ? { message: data.error } : null;
       
       console.log('[WhatsApp Manager Frontend] get-qrcode response:', { data, error });
 
