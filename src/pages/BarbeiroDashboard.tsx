@@ -18,6 +18,7 @@ import { NotificationTester } from '@/components/NotificationTester';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import BarberFinancialDashboard from '@/components/BarberFinancialDashboard';
 import { BarberBreakManager } from '@/components/admin/BarberBreakManager';
+import { ProductSalesManager } from '@/components/ProductSalesManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 
@@ -1231,6 +1232,7 @@ const BarbeiroDashboard = () => {
 
               <TabsContent value="financeiro" className="space-y-6">
                 <BarberFinancialDashboard barberId={selectedBarber} />
+                <ProductSalesManager barberId={selectedBarber} />
               </TabsContent>
 
               <TabsContent value="historico" className="space-y-6">

@@ -25,6 +25,15 @@ interface Service {
   title: string;
 }
 
+interface ProductSale {
+  id: string;
+  sale_date: string;
+  sale_time: string;
+  total_price: number;
+  commission_value: number;
+  product?: { name: string } | null;
+}
+
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', '#22c55e', '#3b82f6', '#f59e0b', '#ef4444'];
 
 interface BarberFinancialDashboardProps {
@@ -34,6 +43,7 @@ interface BarberFinancialDashboardProps {
 const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) => {
   const { calculateServiceCommission, loading: commissionsLoading } = useBarberFixedCommissions(barberId);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [productSales, setProductSales] = useState<ProductSale[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('week');
   const [filterType, setFilterType] = useState<'all' | 'local' | 'online'>('all');
@@ -54,6 +64,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   useEffect(() => {
     if (barberId) {
       loadAppointments();
+      loadProductSales();
     }
   }, [barberId, period, filterType, filterService, filterStatus]);
 
@@ -78,8 +89,25 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
       )
       .subscribe();
 
+    const salesChannel = supabase
+      .channel(`product-sales-barber-${barberId}-${Date.now()}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'product_sales',
+          filter: `barber_id=eq.${barberId}`
+        },
+        () => {
+          loadProductSales();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(salesChannel);
     };
   }, [barberId]);
 
@@ -167,12 +195,48 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
     setAppointments((data as any) || []);
   };
 
+  const loadProductSales = async () => {
+    if (!barberId) return;
+
+    const { start, end } = getDateRange();
+    const startDate = format(start, 'yyyy-MM-dd');
+    const endDate = format(end, 'yyyy-MM-dd');
+
+    let query = supabase
+      .from('product_sales')
+      .select(`
+        id,
+        sale_date,
+        sale_time,
+        total_price,
+        commission_value,
+        product:products(name)
+      `)
+      .eq('barber_id', barberId);
+
+    if (startDate && endDate) {
+      query = query.gte('sale_date', startDate).lte('sale_date', endDate);
+    }
+
+    const { data, error } = await query.order('sale_date', { ascending: false }).order('sale_time', { ascending: false });
+
+    if (error) {
+      console.error('Error loading product sales:', error);
+      return;
+    }
+
+    setProductSales((data as any) || []);
+  };
+
   // Calculate stats (using commissions instead of full price)
   const completedAndConfirmed = appointments.filter(apt => apt.status === 'completed' || apt.status === 'confirmed');
-  const totalCommission = completedAndConfirmed.reduce((sum, apt) => {
+  const serviceCommission = completedAndConfirmed.reduce((sum, apt) => {
     const commission = getCommissionValue(apt);
     return sum + commission;
   }, 0);
+  
+  const productCommission = productSales.reduce((sum, sale) => sum + sale.commission_value, 0);
+  const totalCommission = serviceCommission + productCommission;
   
   const totalAppointments = appointments.length;
   const completedCount = appointments.filter(apt => apt.status === 'completed').length;
@@ -334,7 +398,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
               R$ {totalCommission.toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {confirmedCount + completedCount} atendimentos concluídos
+              {confirmedCount + completedCount} serviços + {productSales.length} vendas
             </p>
           </CardContent>
         </Card>

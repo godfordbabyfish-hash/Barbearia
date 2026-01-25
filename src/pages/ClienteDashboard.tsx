@@ -4,7 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
@@ -401,11 +401,11 @@ const ClienteDashboard = () => {
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Cancelar Agendamento</DialogTitle>
+              <DialogDescription>
+                Informe o motivo do cancelamento:
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              <p className="text-sm text-muted-foreground">
-                Informe o motivo do cancelamento:
-              </p>
               
               <div>
                 <Label htmlFor="cancellation-reason">Motivo do Cancelamento *</Label>

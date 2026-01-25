@@ -82,6 +82,8 @@ export const IndividualCommissionManager = () => {
       })
       .subscribe();
 
+    // Only subscribe to barber_commissions if the table exists
+    // Note: This subscription will fail silently if the table doesn't exist
     const serviceCommissionsChannel = supabase
       .channel('individual-commission-manager-service-commissions')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'barber_commissions' }, () => {
@@ -280,27 +282,29 @@ export const IndividualCommissionManager = () => {
   }
 
   return (
-    <Card className="bg-card border-border">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <DollarSign className="h-5 w-5 text-primary" />
-          Configurar Comissões Individuais
+    <Card className="bg-card border-border w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+      <CardHeader className="w-full" style={{ maxWidth: '100%' }}>
+        <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+          <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+          <span className="truncate">Configurar Comissões Individuais</span>
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="text-xs sm:text-sm break-words">
           Defina o percentual de comissão individualmente para cada barbeiro em cada serviço e produto.
           Exemplo: Corte de cabelo (R$ 25) pode ter 50% para um barbeiro e 40% para outro.
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <Tabs defaultValue="services" className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2 mb-6">
-            <TabsTrigger value="services" className="flex items-center gap-2">
-              <Scissors className="h-4 w-4" />
-              Comissão por Serviço
+      <CardContent className="w-full p-3 sm:p-4 md:p-6" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+        <Tabs defaultValue="services" className="w-full" style={{ maxWidth: '100%' }}>
+          <TabsList className="grid w-full max-w-full grid-cols-2 mb-4 sm:mb-6">
+            <TabsTrigger value="services" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+              <Scissors className="h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">Comissão por Serviço</span>
+              <span className="sm:hidden">Serviço</span>
             </TabsTrigger>
-            <TabsTrigger value="products" className="flex items-center gap-2">
-              <ShoppingBag className="h-4 w-4" />
-              Comissão por Produto
+            <TabsTrigger value="products" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+              <ShoppingBag className="h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">Comissão por Produto</span>
+              <span className="sm:hidden">Produto</span>
             </TabsTrigger>
           </TabsList>
 
@@ -311,86 +315,90 @@ export const IndividualCommissionManager = () => {
               </div>
             ) : (
               services.map(service => (
-                <div key={service.id} className="rounded-lg border border-border p-4 bg-secondary/20">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="font-semibold text-lg">{service.title}</h3>
-                      <p className="text-sm text-muted-foreground">
+                <div key={service.id} className="rounded-lg border border-border p-2 sm:p-3 md:p-4 bg-secondary/20 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                  <div className="flex items-center justify-between mb-3 sm:mb-4">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-base sm:text-lg truncate">{service.title}</h3>
+                      <p className="text-xs sm:text-sm text-muted-foreground">
                         Preço: R$ {service.price.toFixed(2)}
                       </p>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="min-w-[200px]">Barbeiro</TableHead>
-                          <TableHead className="text-center min-w-[150px]">Comissão (%)</TableHead>
-                          <TableHead className="text-center min-w-[120px]">Valor Comissão</TableHead>
-                          <TableHead className="text-center min-w-[100px]">Ações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {barbers.map(barber => {
-                          const key = `${barber.id}-${service.id}`;
-                          const isSaving = saving === key;
-                          const percentage = serviceCommissionValues[key] ?? 
-                            serviceCommissions.find(
-                              c => c.barber_id === barber.id && c.service_id === service.id
-                            )?.commission_percentage ?? 0;
-                          const commissionValue = (service.price * percentage) / 100;
+                  <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+                    <div className="relative w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+                      <table className="w-full caption-bottom text-sm" style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%' }}>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="px-1 sm:px-2" style={{ width: '30%' }}>Barbeiro</TableHead>
+                            <TableHead className="text-center px-1 sm:px-2" style={{ width: '25%' }}>Comissão (%)</TableHead>
+                            <TableHead className="text-center px-1 sm:px-2" style={{ width: '25%' }}>Valor</TableHead>
+                            <TableHead className="text-center px-1 sm:px-2" style={{ width: '20%' }}>Ações</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {barbers.map(barber => {
+                            const key = `${barber.id}-${service.id}`;
+                            const isSaving = saving === key;
+                            const percentage = serviceCommissionValues[key] ?? 
+                              serviceCommissions.find(
+                                c => c.barber_id === barber.id && c.service_id === service.id
+                              )?.commission_percentage ?? 0;
+                            const commissionValue = (service.price * percentage) / 100;
 
-                          return (
-                            <TableRow key={barber.id}>
-                              <TableCell className="font-semibold">
-                                {barber.name}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex gap-2 items-center justify-center">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    max="100"
-                                    step="0.01"
-                                    value={percentage}
-                                    onChange={(e) => handleServiceCommissionChange(barber.id, service.id, e.target.value)}
-                                    className="w-24 text-center"
+                            return (
+                              <TableRow key={barber.id}>
+                                <TableCell className="font-semibold px-1 sm:px-2">
+                                  <span className="truncate block" title={barber.name}>{barber.name}</span>
+                                </TableCell>
+                                <TableCell className="px-1 sm:px-2">
+                                  <div className="flex gap-1 sm:gap-2 items-center justify-center">
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      max="100"
+                                      step="0.01"
+                                      value={percentage}
+                                      onChange={(e) => handleServiceCommissionChange(barber.id, service.id, e.target.value)}
+                                      className="w-16 sm:w-20 text-center text-xs sm:text-sm h-8 sm:h-10"
+                                      disabled={isSaving}
+                                      placeholder="0"
+                                    />
+                                    <span className="text-xs sm:text-sm text-muted-foreground">%</span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-center px-1 sm:px-2">
+                                  <span className="font-semibold text-green-600 text-xs sm:text-sm">
+                                    R$ {commissionValue.toFixed(2)}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="px-1 sm:px-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleSaveServiceCommission(barber.id, service.id)}
                                     disabled={isSaving}
-                                    placeholder="0"
-                                  />
-                                  <span className="text-sm text-muted-foreground">%</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <span className="font-semibold text-green-600">
-                                  R$ {commissionValue.toFixed(2)}
-                                </span>
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleSaveServiceCommission(barber.id, service.id)}
-                                  disabled={isSaving}
-                                  className="w-full"
-                                >
-                                  {isSaving ? (
-                                    <>
-                                      <Loader2 className="h-3 w-3 animate-spin mr-2" />
-                                      Salvando...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Save className="h-3 w-3 mr-2" />
-                                      Salvar
-                                    </>
-                                  )}
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                                    className="w-full h-8 sm:h-9 text-xs sm:text-sm"
+                                  >
+                                    {isSaving ? (
+                                      <>
+                                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                        <span className="hidden sm:inline">Salvando...</span>
+                                        <span className="sm:hidden">...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Save className="h-3 w-3 mr-1" />
+                                        <span className="hidden sm:inline">Salvar</span>
+                                        <span className="sm:hidden">Salvar</span>
+                                      </>
+                                    )}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               ))
@@ -404,86 +412,90 @@ export const IndividualCommissionManager = () => {
               </div>
             ) : (
               products.map(product => (
-                <div key={product.id} className="rounded-lg border border-border p-4 bg-secondary/20">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <h3 className="font-semibold text-lg">{product.name}</h3>
-                      <p className="text-sm text-muted-foreground">
+                <div key={product.id} className="rounded-lg border border-border p-2 sm:p-3 md:p-4 bg-secondary/20 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                  <div className="flex items-center justify-between mb-3 sm:mb-4">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-base sm:text-lg truncate">{product.name}</h3>
+                      <p className="text-xs sm:text-sm text-muted-foreground">
                         Preço: R$ {product.price.toFixed(2)}
                       </p>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="min-w-[200px]">Barbeiro</TableHead>
-                          <TableHead className="text-center min-w-[150px]">Comissão (%)</TableHead>
-                          <TableHead className="text-center min-w-[120px]">Valor Comissão</TableHead>
-                          <TableHead className="text-center min-w-[100px]">Ações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {barbers.map(barber => {
-                          const key = `${barber.id}-${product.id}`;
-                          const isSaving = saving === key;
-                          const percentage = productCommissionValues[key] ?? 
-                            productCommissions.find(
-                              c => c.barber_id === barber.id && c.product_id === product.id
-                            )?.commission_percentage ?? 0;
-                          const commissionValue = (product.price * percentage) / 100;
+                  <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+                    <div className="relative w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+                      <table className="w-full caption-bottom text-sm" style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%' }}>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="px-1 sm:px-2" style={{ width: '30%' }}>Barbeiro</TableHead>
+                            <TableHead className="text-center px-1 sm:px-2" style={{ width: '25%' }}>Comissão (%)</TableHead>
+                            <TableHead className="text-center px-1 sm:px-2" style={{ width: '25%' }}>Valor</TableHead>
+                            <TableHead className="text-center px-1 sm:px-2" style={{ width: '20%' }}>Ações</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {barbers.map(barber => {
+                            const key = `${barber.id}-${product.id}`;
+                            const isSaving = saving === key;
+                            const percentage = productCommissionValues[key] ?? 
+                              productCommissions.find(
+                                c => c.barber_id === barber.id && c.product_id === product.id
+                              )?.commission_percentage ?? 0;
+                            const commissionValue = (product.price * percentage) / 100;
 
-                          return (
-                            <TableRow key={barber.id}>
-                              <TableCell className="font-semibold">
-                                {barber.name}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex gap-2 items-center justify-center">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    max="100"
-                                    step="0.01"
-                                    value={percentage}
-                                    onChange={(e) => handleProductCommissionChange(barber.id, product.id, e.target.value)}
-                                    className="w-24 text-center"
+                            return (
+                              <TableRow key={barber.id}>
+                                <TableCell className="font-semibold px-1 sm:px-2">
+                                  <span className="truncate block" title={barber.name}>{barber.name}</span>
+                                </TableCell>
+                                <TableCell className="px-1 sm:px-2">
+                                  <div className="flex gap-1 sm:gap-2 items-center justify-center">
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      max="100"
+                                      step="0.01"
+                                      value={percentage}
+                                      onChange={(e) => handleProductCommissionChange(barber.id, product.id, e.target.value)}
+                                      className="w-16 sm:w-20 text-center text-xs sm:text-sm h-8 sm:h-10"
+                                      disabled={isSaving}
+                                      placeholder="0"
+                                    />
+                                    <span className="text-xs sm:text-sm text-muted-foreground">%</span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-center px-1 sm:px-2">
+                                  <span className="font-semibold text-green-600 text-xs sm:text-sm">
+                                    R$ {commissionValue.toFixed(2)}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="px-1 sm:px-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleSaveProductCommission(barber.id, product.id)}
                                     disabled={isSaving}
-                                    placeholder="0"
-                                  />
-                                  <span className="text-sm text-muted-foreground">%</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <span className="font-semibold text-green-600">
-                                  R$ {commissionValue.toFixed(2)}
-                                </span>
-                              </TableCell>
-                              <TableCell>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleSaveProductCommission(barber.id, product.id)}
-                                  disabled={isSaving}
-                                  className="w-full"
-                                >
-                                  {isSaving ? (
-                                    <>
-                                      <Loader2 className="h-3 w-3 animate-spin mr-2" />
-                                      Salvando...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Save className="h-3 w-3 mr-2" />
-                                      Salvar
-                                    </>
-                                  )}
-                                </Button>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                                    className="w-full h-8 sm:h-9 text-xs sm:text-sm"
+                                  >
+                                    {isSaving ? (
+                                      <>
+                                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                        <span className="hidden sm:inline">Salvando...</span>
+                                        <span className="sm:hidden">...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Save className="h-3 w-3 mr-1" />
+                                        <span className="hidden sm:inline">Salvar</span>
+                                        <span className="sm:hidden">Salvar</span>
+                                      </>
+                                    )}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               ))

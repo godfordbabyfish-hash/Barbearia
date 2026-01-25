@@ -449,13 +449,13 @@ export const UserManager = () => {
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="text-2xl font-bold pl-12 lg:pl-0">Gerenciamento de Usuários</h2>
-        <div className="flex gap-2 flex-shrink-0">
+    <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 w-full" style={{ maxWidth: '100%' }}>
+        <h2 className="text-xl sm:text-2xl font-bold">Gerenciamento de Usuários</h2>
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
             <Select value={filterRole} onValueChange={setFilterRole}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Filtrar por role" />
+              <SelectTrigger className="w-full sm:w-[130px] text-sm">
+                <SelectValue placeholder="Filtrar" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
@@ -465,40 +465,41 @@ export const UserManager = () => {
                 <SelectItem value="cliente">Cliente</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="icon" onClick={loadUsers} disabled={loading}>
+            <Button variant="outline" size="icon" onClick={loadUsers} disabled={loading} className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10">
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
             <Button onClick={() => {
               setNewUser({ email: '', password: generatePassword(), name: '', phone: '', role: 'barbeiro' });
               setShowNewPassword(true);
               setCreateDialogOpen(true);
-            }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Usuário
+            }} className="flex-shrink-0 whitespace-nowrap text-sm h-9 sm:h-10">
+              <Plus className="h-4 w-4 mr-1 sm:mr-2" />
+              <span className="hidden sm:inline">Novo Usuário</span>
+              <span className="sm:hidden">Novo</span>
             </Button>
         </div>
       </div>
-    <Card className="bg-card border-border shadow-lg">
-      <CardContent className="p-6">
+    <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+      <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
         {loading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+            <table className="w-full caption-bottom text-sm" style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%' }}>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-20">Foto</TableHead>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="text-right w-40">Ações</TableHead>
+                  <TableHead className="w-[50px] sm:w-[60px] px-1 sm:px-2">Foto</TableHead>
+                  <TableHead className="px-1 sm:px-2">Nome</TableHead>
+                  <TableHead className="w-[80px] sm:w-[90px] px-1 sm:px-2">Role</TableHead>
+                  <TableHead className="text-right w-[110px] sm:w-[130px] px-1 sm:px-2">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredUsers.map((user) => (
                   <TableRow key={user.id} className="hover:bg-secondary/50">
-                    <TableCell>
+                    <TableCell className="w-[50px] sm:w-[60px] px-1 sm:px-2">
                       <button
                         onClick={() => {
                           setSelectedUser(user);
@@ -510,13 +511,13 @@ export const UserManager = () => {
                           <img
                             src={user.image_url}
                             alt={user.name || 'User'}
-                            className="w-10 h-10 rounded-full object-cover border-2 border-primary/50 shadow-md"
+                            className="w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10 rounded-full object-cover border-2 border-primary/50 shadow-md"
                             onError={(e) => {
                               (e.target as HTMLImageElement).style.display = 'none';
                             }}
                           />
                         ) : (
-                          <div className="w-10 h-10 rounded-full bg-secondary border-2 border-primary/30 flex items-center justify-center">
+                          <div className="w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10 rounded-full bg-secondary border-2 border-primary/30 flex items-center justify-center">
                             <span className="text-xs font-semibold text-primary">
                               {(user.name || user.email || '?').charAt(0).toUpperCase()}
                             </span>
@@ -524,32 +525,34 @@ export const UserManager = () => {
                         )}
                       </button>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="px-1 sm:px-2">
                       <button
                         onClick={() => {
                           setSelectedUser(user);
                           setDetailsDialogOpen(true);
                         }}
-                        className="text-left hover:text-primary transition-colors font-medium cursor-pointer"
+                        className="text-left hover:text-primary transition-colors font-medium cursor-pointer truncate block w-full"
+                        title={user.name || '-'}
                       >
                         {user.name || '-'}
                       </button>
                     </TableCell>
-                    <TableCell>
-                      <Badge variant={getRoleBadgeVariant(user.role)}>
+                    <TableCell className="w-[80px] sm:w-[90px] px-1 sm:px-2">
+                      <Badge variant={getRoleBadgeVariant(user.role)} className="whitespace-nowrap text-xs px-1.5 py-0.5">
                         {getRoleLabel(user.role)}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
+                    <TableCell className="text-right w-[110px] sm:w-[130px] px-1 sm:px-2">
+                      <div className="flex justify-end gap-0.5 sm:gap-1">
                         <Button
                           variant="outline"
                           size="icon"
                           onClick={() => openPasswordDialog(user)}
                           disabled={!canModifyUser(user)}
                           title="Redefinir Senha"
+                          className="flex-shrink-0 h-7 w-7 sm:h-8 sm:w-8 md:h-9 md:w-9"
                         >
-                          <Key className="h-4 w-4" />
+                          <Key className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                         </Button>
                         <Button
                           variant="outline"
@@ -557,8 +560,9 @@ export const UserManager = () => {
                           onClick={() => openRoleDialog(user)}
                           disabled={!canModifyUser(user)}
                           title="Editar Usuário"
+                          className="flex-shrink-0 h-7 w-7 sm:h-8 sm:w-8 md:h-9 md:w-9"
                         >
-                          <Pencil className="h-4 w-4" />
+                          <Pencil className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                         </Button>
                         <Button
                           variant="destructive"
@@ -566,8 +570,9 @@ export const UserManager = () => {
                           onClick={() => openDeleteDialog(user)}
                           disabled={!canDeleteUser(user)}
                           title="Excluir Usuário"
+                          className="flex-shrink-0 h-7 w-7 sm:h-8 sm:w-8 md:h-9 md:w-9"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                         </Button>
                       </div>
                     </TableCell>
@@ -581,53 +586,56 @@ export const UserManager = () => {
                   </TableRow>
                 )}
               </TableBody>
-            </Table>
+            </table>
           </div>
         )}
       </CardContent>
 
       {/* Create User Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-md overflow-hidden">
           <DialogHeader>
             <DialogTitle>Criar Novo Usuário</DialogTitle>
             <DialogDescription>
               Preencha os dados do novo usuário. A senha será exibida apenas uma vez.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
+          <div className="space-y-4 w-full">
+            <div className="w-full min-w-0">
               <Label>Nome *</Label>
               <Input
                 value={newUser.name}
                 onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
                 placeholder="Nome completo"
+                className="w-full"
               />
             </div>
-            <div>
+            <div className="w-full min-w-0">
               <Label>Email *</Label>
               <Input
                 type="email"
                 value={newUser.email}
                 onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
                 placeholder="email@exemplo.com"
+                className="w-full"
               />
             </div>
-            <div>
+            <div className="w-full min-w-0">
               <Label>Telefone</Label>
               <Input
                 value={newUser.phone}
                 onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
                 placeholder="(11) 99999-9999"
+                className="w-full"
               />
             </div>
-            <div>
+            <div className="w-full min-w-0">
               <Label>Role *</Label>
               <Select
                 value={newUser.role}
                 onValueChange={(value: any) => setNewUser({ ...newUser, role: value })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -639,22 +647,22 @@ export const UserManager = () => {
                 </SelectContent>
               </Select>
             </div>
-            <div>
+            <div className="w-full min-w-0">
               <Label>Senha *</Label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
+              <div className="flex gap-2 w-full">
+                <div className="relative flex-1 min-w-0">
                   <Input
                     type={showNewPassword ? 'text' : 'password'}
                     value={newUser.password}
                     onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
                     placeholder="Senha"
-                    className="pr-20"
+                    className="pr-20 w-full"
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute right-8 top-0 h-full"
+                    className="absolute right-8 top-0 h-full flex-shrink-0"
                     onClick={() => setShowNewPassword(!showNewPassword)}
                   >
                     {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -663,7 +671,7 @@ export const UserManager = () => {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute right-0 top-0 h-full"
+                    className="absolute right-0 top-0 h-full flex-shrink-0"
                     onClick={() => copyToClipboard(newUser.password)}
                   >
                     <Copy className="h-4 w-4" />
@@ -674,6 +682,7 @@ export const UserManager = () => {
                   variant="outline"
                   onClick={() => setNewUser({ ...newUser, password: generatePassword() })}
                   title="Gerar senha aleatória"
+                  className="flex-shrink-0"
                 >
                   <Dice5 className="h-4 w-4" />
                 </Button>
@@ -697,30 +706,30 @@ export const UserManager = () => {
 
       {/* Password Dialog */}
       <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-md overflow-hidden">
           <DialogHeader>
             <DialogTitle>Redefinir Senha</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="break-words">
               {selectedUser?.name} ({selectedUser?.email})
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
+          <div className="space-y-4 w-full">
+            <div className="w-full min-w-0">
               <Label>Nova Senha</Label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
+              <div className="flex gap-2 w-full">
+                <div className="relative flex-1 min-w-0">
                   <Input
                     type={showPassword ? 'text' : 'password'}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Nova senha"
-                    className="pr-20"
+                    className="pr-20 w-full"
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute right-8 top-0 h-full"
+                    className="absolute right-8 top-0 h-full flex-shrink-0"
                     onClick={() => setShowPassword(!showPassword)}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -729,7 +738,7 @@ export const UserManager = () => {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute right-0 top-0 h-full"
+                    className="absolute right-0 top-0 h-full flex-shrink-0"
                     onClick={() => copyToClipboard(newPassword)}
                   >
                     <Copy className="h-4 w-4" />
@@ -740,6 +749,7 @@ export const UserManager = () => {
                   variant="outline"
                   onClick={() => setNewPassword(generatePassword())}
                   title="Gerar senha aleatória"
+                  className="flex-shrink-0"
                 >
                   <Dice5 className="h-4 w-4" />
                 </Button>
@@ -763,10 +773,10 @@ export const UserManager = () => {
 
       {/* Edit User Dialog (Role + Info) */}
       <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-w-[95vw] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Editar Usuário</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="break-words">
               {selectedUser?.email}
             </DialogDescription>
           </DialogHeader>
@@ -776,25 +786,27 @@ export const UserManager = () => {
               <span className="ml-2">Carregando dados...</span>
             </div>
           ) : (
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 w-full">
               {/* Informações Básicas */}
               <div className="space-y-3">
                 <h4 className="font-semibold text-sm text-muted-foreground">Informações Básicas</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="w-full min-w-0">
                     <Label>Nome</Label>
                     <Input
                       value={editUserData.name}
                       onChange={(e) => setEditUserData(prev => ({ ...prev, name: e.target.value }))}
                       placeholder="Nome completo"
+                      className="w-full"
                     />
                   </div>
-                  <div>
+                  <div className="w-full min-w-0">
                     <Label>Telefone</Label>
                     <Input
                       value={editUserData.phone}
                       onChange={(e) => setEditUserData(prev => ({ ...prev, phone: e.target.value }))}
                       placeholder="(XX) XXXXX-XXXX"
+                      className="w-full"
                     />
                   </div>
                 </div>
@@ -822,30 +834,33 @@ export const UserManager = () => {
               {(selectedRole === 'barbeiro' || barberData) && (
                 <div className="space-y-3 border-t pt-4">
                   <h4 className="font-semibold text-sm text-muted-foreground">Informações do Barbeiro</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="w-full min-w-0">
                       <Label>Especialidade</Label>
                       <Input
                         value={editUserData.specialty}
                         onChange={(e) => setEditUserData(prev => ({ ...prev, specialty: e.target.value }))}
                         placeholder="Ex: Cortes modernos"
+                        className="w-full"
                       />
                     </div>
-                    <div>
+                    <div className="w-full min-w-0">
                       <Label>Experiência</Label>
                       <Input
                         value={editUserData.experience}
                         onChange={(e) => setEditUserData(prev => ({ ...prev, experience: e.target.value }))}
                         placeholder="Ex: 5 anos"
+                        className="w-full"
                       />
                     </div>
                   </div>
-                  <div>
+                  <div className="w-full min-w-0">
                     <Label>WhatsApp Pessoal</Label>
                     <Input
                       value={editUserData.whatsapp_phone}
                       onChange={(e) => setEditUserData(prev => ({ ...prev, whatsapp_phone: e.target.value }))}
                       placeholder="Ex: 5511999999999"
+                      className="w-full"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                       Para receber notificações de novos agendamentos
@@ -869,7 +884,7 @@ export const UserManager = () => {
 
       {/* User Details Dialog */}
       <Dialog open={detailsDialogOpen} onOpenChange={setDetailsDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-w-[95vw] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Detalhes do Usuário</DialogTitle>
             <DialogDescription>
@@ -877,41 +892,41 @@ export const UserManager = () => {
             </DialogDescription>
           </DialogHeader>
           {selectedUser && (
-            <div className="space-y-4 py-4">
-              <div className="flex items-center gap-4">
+            <div className="space-y-4 py-4 w-full min-w-0">
+              <div className="flex items-center gap-4 w-full min-w-0">
                 {selectedUser.image_url ? (
                   <img
                     src={selectedUser.image_url}
                     alt={selectedUser.name || 'User'}
-                    className="w-16 h-16 rounded-full object-cover border-2 border-primary/50 shadow-md"
+                    className="w-16 h-16 rounded-full object-cover border-2 border-primary/50 shadow-md flex-shrink-0"
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = 'none';
                     }}
                   />
                 ) : (
-                  <div className="w-16 h-16 rounded-full bg-secondary border-2 border-primary/30 flex items-center justify-center">
+                  <div className="w-16 h-16 rounded-full bg-secondary border-2 border-primary/30 flex items-center justify-center flex-shrink-0">
                     <span className="text-lg font-semibold text-primary">
                       {(selectedUser.name || selectedUser.email || '?').charAt(0).toUpperCase()}
                     </span>
                   </div>
                 )}
-                <div>
-                  <h3 className="text-lg font-bold">{selectedUser.name || '-'}</h3>
-                  <Badge variant={getRoleBadgeVariant(selectedUser.role)}>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-lg font-bold truncate">{selectedUser.name || '-'}</h3>
+                  <Badge variant={getRoleBadgeVariant(selectedUser.role)} className="whitespace-nowrap">
                     {getRoleLabel(selectedUser.role)}
                   </Badge>
                 </div>
               </div>
-              <div className="space-y-3 pt-4 border-t border-border">
-                <div>
+              <div className="space-y-3 pt-4 border-t border-border w-full min-w-0">
+                <div className="w-full min-w-0">
                   <Label className="text-sm text-muted-foreground">Email</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-sm font-medium">{selectedUser.email || '-'}</p>
+                  <div className="flex items-center gap-2 mt-1 w-full min-w-0">
+                    <p className="text-sm font-medium break-all flex-1 min-w-0">{selectedUser.email || '-'}</p>
                     {selectedUser.email && (
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6"
+                        className="h-6 w-6 flex-shrink-0"
                         onClick={() => {
                           navigator.clipboard.writeText(selectedUser.email);
                           toast.success('Email copiado!');
@@ -923,15 +938,15 @@ export const UserManager = () => {
                     )}
                   </div>
                 </div>
-                <div>
+                <div className="w-full min-w-0">
                   <Label className="text-sm text-muted-foreground">Telefone</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-sm font-medium">{selectedUser.phone || '-'}</p>
+                  <div className="flex items-center gap-2 mt-1 w-full min-w-0">
+                    <p className="text-sm font-medium break-all flex-1 min-w-0">{selectedUser.phone || '-'}</p>
                     {selectedUser.phone && (
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-6 w-6"
+                        className="h-6 w-6 flex-shrink-0"
                         onClick={() => {
                           navigator.clipboard.writeText(selectedUser.phone);
                           toast.success('Telefone copiado!');
@@ -943,14 +958,14 @@ export const UserManager = () => {
                     )}
                   </div>
                 </div>
-                <div>
+                <div className="w-full min-w-0">
                   <Label className="text-sm text-muted-foreground">ID</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-xs font-mono text-muted-foreground break-all">{selectedUser.id}</p>
+                  <div className="flex items-center gap-2 mt-1 w-full min-w-0">
+                    <p className="text-xs font-mono text-muted-foreground break-all flex-1 min-w-0">{selectedUser.id}</p>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6"
+                      className="h-6 w-6 flex-shrink-0"
                       onClick={() => {
                         navigator.clipboard.writeText(selectedUser.id);
                         toast.success('ID copiado!');

@@ -311,9 +311,9 @@ const AdminDashboard = () => {
       />
 
       {/* Main Content */}
-      <main className="flex-1 lg:pl-64 bg-background">
-        <div className="min-h-screen py-6 px-4 md:px-6 lg:px-8 pt-20 lg:pt-6">
-          <div className="max-w-7xl mx-auto space-y-6">
+      <main className="flex-1 lg:pl-64 bg-background overflow-x-hidden">
+        <div className="min-h-screen py-6 px-4 md:px-6 lg:px-8 pt-20 lg:pt-6 overflow-x-hidden">
+          <div className="max-w-7xl mx-auto space-y-6 w-full overflow-x-hidden">
             {/* Content based on active tab */}
             {activeTab === 'services' && (
               <div className="space-y-6">
@@ -693,7 +693,7 @@ const AdminDashboard = () => {
             )}
 
             {activeTab === 'users' && (
-              <div className="space-y-6">
+              <div className="space-y-6 w-full overflow-x-hidden">
                 <UserManager />
               </div>
             )}
