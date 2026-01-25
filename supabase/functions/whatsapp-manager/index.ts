@@ -250,14 +250,15 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
     console.log(`[WhatsApp Manager] Step 1: Disconnecting instance to clear auth state...`);
     const disconnectResult = await disconnectInstance(instanceName);
     console.log('[WhatsApp Manager] Disconnect result:', disconnectResult);
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Reduzir tempo de espera para evitar timeout
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
     // Deletar a instância para limpar completamente o estado (incluindo credenciais inválidas)
     // Isso é crítico para garantir que não há credenciais antigas causando erro 401
     console.log(`[WhatsApp Manager] Step 2: Deleting instance to force clean state...`);
     const deleteResult = await deleteInstance(instanceName);
     console.log('[WhatsApp Manager] Delete result:', deleteResult);
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
     // Recriar a instância (garantir que está limpa e sem credenciais antigas)
     console.log(`[WhatsApp Manager] Step 3: Creating fresh instance...`);
@@ -267,17 +268,36 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
       console.warn('[WhatsApp Manager] Create may have failed:', createResult.error);
       // Continuar mesmo assim - pode ser que a instância já exista
     }
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
     // Agora tentar conectar e obter QR code
     // Adicionar ?qrcode=true para garantir que a API retorne o QR code
     console.log(`[WhatsApp Manager] Step 4: Connecting to get QR code...`);
-    const response = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}?qrcode=true`, {
-      method: 'GET',
-      headers: {
-        'apikey': evolutionApiKey,
-      },
-    });
+    
+    // Criar AbortController para timeout (máximo 20 segundos)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    
+    let response;
+    try {
+      response = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}?qrcode=true`, {
+        method: 'GET',
+        headers: {
+          'apikey': evolutionApiKey,
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        return {
+          success: false,
+          error: 'Timeout ao conectar à Evolution API. A API pode estar demorando para responder. Tente novamente em alguns segundos.'
+        };
+      }
+      throw error;
+    }
 
     if (!response.ok) {
       let errorData;
@@ -575,6 +595,14 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const { action, instanceName } = body;
 
+    // Log da requisição recebida
+    console.log('[WhatsApp Manager] Request received:', {
+      action,
+      instanceName,
+      hasBody: !!body,
+      bodyKeys: Object.keys(body || {})
+    });
+
     let result;
 
     switch (action) {
@@ -654,13 +682,21 @@ serve(async (req) => {
         break;
 
       case 'get-qrcode':
+        console.log('[WhatsApp Manager] get-qrcode action called for instance:', instanceName);
         if (!instanceName) {
+          console.error('[WhatsApp Manager] get-qrcode called without instanceName');
           return new Response(
             JSON.stringify({ success: false, error: 'instanceName é obrigatório' }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
+        console.log('[WhatsApp Manager] Starting getQRCode function...');
         result = await getQRCode(instanceName);
+        console.log('[WhatsApp Manager] getQRCode completed:', {
+          success: result.success,
+          hasQrcode: !!result.qrcode,
+          error: result.error
+        });
         break;
 
       case 'disconnect':
@@ -705,7 +741,12 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
-    console.error('[WhatsApp Manager] Error:', error);
+    console.error('[WhatsApp Manager] Unhandled error:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack?.substring(0, 500),
+      error: error
+    });
     return new Response(
       JSON.stringify({ 
         success: false, 

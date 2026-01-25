@@ -58,9 +58,10 @@ A função de gerar QR code agora faz **limpeza completa** do estado antes de ge
 
 ## ⚠️ Importante
 
-- O processo agora leva **~15-20 segundos** (mais tempo para garantir limpeza completa)
+- O processo agora leva **~8-12 segundos** (otimizado para evitar timeout)
 - Você verá mensagens de progresso em cada etapa
-- Se o QR code não aparecer, aguarde até 30 segundos e tente novamente
+- Se o QR code não aparecer, aguarde até 20 segundos e tente novamente
+- **IMPORTANTE:** Faça o deploy da Edge Function atualizada antes de usar
 
 ## ❓ Se Ainda Não Funcionar
 
@@ -78,3 +79,21 @@ O problema ocorria porque:
 - Quando você desconecta o WhatsApp no celular, o estado fica inválido
 - O bot tenta usar esse estado inválido ao invés de gerar novo QR code
 - A solução força limpeza completa do estado antes de gerar QR code
+
+## 🚀 Deploy da Solução
+
+**IMPORTANTE:** Você precisa fazer o deploy da Edge Function atualizada:
+
+1. **Via Supabase CLI:**
+   ```bash
+   npx supabase functions deploy whatsapp-manager
+   ```
+
+2. **Ou via Supabase Dashboard:**
+   - Acesse: Supabase Dashboard > Edge Functions > whatsapp-manager
+   - Clique em "Deploy" ou faça commit/push para o GitHub (se estiver usando CI/CD)
+
+3. **Verificar se funcionou:**
+   - Após o deploy, tente gerar o QR code novamente
+   - O processo deve levar ~8-12 segundos
+   - Você verá mensagens de progresso em cada etapa
