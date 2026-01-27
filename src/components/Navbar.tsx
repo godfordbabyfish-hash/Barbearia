@@ -151,6 +151,7 @@ const Navbar = () => {
   };
 
   const handleDashboardClick = () => {
+    // Cada tipo de usuário vai para seu próprio painel
     if (role === 'admin' || role === 'gestor') navigate('/admin');
     else if (role === 'barbeiro') navigate('/barbeiro');
     else navigate('/cliente');

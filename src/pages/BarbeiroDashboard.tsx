@@ -4,12 +4,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { ArrowLeft, Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -21,10 +22,13 @@ import { BarberBreakManager } from '@/components/admin/BarberBreakManager';
 import { ProductSalesManager } from '@/components/ProductSalesManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
+import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 
 const BarbeiroDashboard = () => {
   const navigate = useNavigate();
   const { role: userRole, user, signOut } = useAuth();
+  const queryClient = useQueryClient();
   const [appointments, setAppointments] = useState<any[]>([]);
   const [barbers, setBarbers] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
@@ -45,13 +49,27 @@ const BarbeiroDashboard = () => {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'pix' | 'dinheiro' | ''>('');
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [historyFilterPeriod, setHistoryFilterPeriod] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
+  const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'completed' | 'cancelled' | 'confirmed'>('all');
+  const [historyFilterService, setHistoryFilterService] = useState<string>('all');
+  const [historyFilterPayment, setHistoryFilterPayment] = useState<'all' | 'pix' | 'dinheiro'>('all');
+  
+  // Product sale dialog
+  const [productSaleDialogOpen, setProductSaleDialogOpen] = useState(false);
+  const [availableProducts, setAvailableProducts] = useState<any[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string>('');
+  const [productQuantity, setProductQuantity] = useState<number>(1);
+  const [savingProductSale, setSavingProductSale] = useState(false);
+  
+  // Hooks for commission calculation
+  const barberIdForCommissions = currentUserBarber?.id || selectedBarber;
+  const { getCommissionPercentage: getIndividualProductCommissionPercentage } = useBarberProductCommissions(barberIdForCommissions);
+  const { getProductCommissionPercentage: getFixedProductCommissionPercentage } = useBarberFixedCommissions(barberIdForCommissions);
 
-  // Troca de senha do próprio barbeiro
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [passwordForm, setPasswordForm] = useState({
-    newPassword: '',
-    confirmPassword: '',
-  });
 
   useEffect(() => {
     if (userRole !== null) {
@@ -157,6 +175,118 @@ const BarbeiroDashboard = () => {
     } catch (error) {
       console.error('Error in loadData:', error);
       toast.error('Erro ao carregar dados');
+    }
+  };
+
+  // Load products for sale
+  const loadProductsForSale = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, name, price, stock')
+        .eq('visible', true)
+        .order('name');
+
+      if (error) {
+        console.error('Error loading products:', error);
+        toast.error('Erro ao carregar produtos');
+      } else {
+        setAvailableProducts(data || []);
+      }
+    } catch (error) {
+      console.error('Error loading products:', error);
+      toast.error('Erro ao carregar produtos');
+    }
+  };
+
+  // Handle product sale
+  const handleProductSale = async () => {
+    if (!selectedProductId) {
+      toast.error('Selecione um produto');
+      return;
+    }
+
+    if (productQuantity <= 0) {
+      toast.error('Quantidade deve ser maior que zero');
+      return;
+    }
+
+    const product = availableProducts.find(p => p.id === selectedProductId);
+    if (!product) {
+      toast.error('Produto não encontrado');
+      return;
+    }
+
+    // Verificar estoque
+    if (product.stock !== null && product.stock < productQuantity) {
+      toast.error(`Estoque insuficiente. Disponível: ${product.stock}`);
+      return;
+    }
+
+    if (!barberIdForCommissions) {
+      toast.error('Barbeiro não identificado');
+      return;
+    }
+
+    setSavingProductSale(true);
+
+    try {
+      const unitPrice = product.price;
+      const totalPrice = unitPrice * productQuantity;
+      
+      // Calcular comissão (prioridade: individual > fixa)
+      const individualCommission = getIndividualProductCommissionPercentage(barberIdForCommissions, selectedProductId);
+      const fixedCommission = getFixedProductCommissionPercentage(barberIdForCommissions);
+      const commissionPercentage = individualCommission > 0 ? individualCommission : fixedCommission;
+      const commissionValue = (totalPrice * commissionPercentage) / 100;
+
+      const { error } = await supabase
+        .from('product_sales')
+        .insert({
+          barber_id: barberIdForCommissions,
+          product_id: selectedProductId,
+          quantity: productQuantity,
+          unit_price: unitPrice,
+          total_price: totalPrice,
+          commission_percentage: commissionPercentage,
+          commission_value: commissionValue,
+          sale_date: format(new Date(), 'yyyy-MM-dd'),
+          sale_time: format(new Date(), 'HH:mm'),
+        });
+
+      if (error) throw error;
+
+      // Atualizar estoque do produto
+      if (product.stock !== null) {
+        const { error: stockError } = await supabase
+          .from('products')
+          .update({ stock: product.stock - productQuantity })
+          .eq('id', selectedProductId);
+
+        if (stockError) {
+          console.error('Error updating stock:', stockError);
+          // Não falhar a venda se o estoque não atualizar
+        }
+      }
+
+      toast.success('Venda registrada com sucesso!', {
+        description: `Produto: ${product.name} - Total: R$ ${totalPrice.toFixed(2)} - Comissão: R$ ${commissionValue.toFixed(2)}`,
+      });
+      
+      setProductSaleDialogOpen(false);
+      setSelectedProductId('');
+      setProductQuantity(1);
+      
+      // Recarregar produtos para atualizar estoque
+      loadProductsForSale();
+      
+      // Forçar atualização do dashboard financeiro (se estiver aberto)
+      // O dashboard financeiro já tem realtime subscription, então será atualizado automaticamente
+    } catch (error: any) {
+      console.error('Error saving product sale:', error);
+      toast.error(error.message || 'Erro ao registrar venda');
+    } finally {
+      setSavingProductSale(false);
     }
   };
 
@@ -619,6 +749,67 @@ const BarbeiroDashboard = () => {
     }
   };
 
+  const handleCancelClick = (id: string) => {
+    setAppointmentToCancel(id);
+    setCancellationReason('');
+    setCancelDialogOpen(true);
+  };
+
+  const handleCancelAppointment = async () => {
+    if (!appointmentToCancel) return;
+
+    if (!cancellationReason.trim()) {
+      toast.error('Por favor, informe o motivo do cancelamento');
+      return;
+    }
+
+    const { error } = await (supabase as any)
+      .from('appointments')
+      .update({ 
+        status: 'cancelled',
+        notes: `[Cancelado pelo barbeiro] ${cancellationReason.trim()}`
+      })
+      .eq('id', appointmentToCancel);
+
+    if (error) {
+      toast.error('Erro ao cancelar agendamento');
+    } else {
+      // Disparar processamento da fila de WhatsApp (cliente + barbeiro)
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        
+        if (supabaseUrl) {
+          const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': supabaseAnonKey || '',
+              'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
+            },
+            body: JSON.stringify({}),
+          });
+
+          if (!response.ok) {
+            console.error('Error triggering WhatsApp queue after cancellation:', response.status);
+          } else {
+            console.log('WhatsApp queue processed after cancellation');
+          }
+        }
+      } catch (queueError) {
+        console.error('Error triggering WhatsApp queue after cancellation:', queueError);
+        // Não bloquear o fluxo do usuário se a fila falhar
+      }
+
+      toast.success('Agendamento cancelado com sucesso');
+      setCancelDialogOpen(false);
+      setAppointmentToCancel(null);
+      setCancellationReason('');
+      loadAppointments();
+    }
+  };
+
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -647,6 +838,12 @@ const BarbeiroDashboard = () => {
 
   const handleCompleteWithPhoto = async () => {
     if (!appointmentToComplete) return;
+
+    // Validar forma de pagamento
+    if (!paymentMethod || (paymentMethod !== 'pix' && paymentMethod !== 'dinheiro')) {
+      toast.error('Selecione a forma de pagamento (Pix ou Dinheiro)');
+      return;
+    }
 
     setUploadingPhoto(true);
     let photoUrl: string | null = null;
@@ -681,12 +878,13 @@ const BarbeiroDashboard = () => {
         }
       }
 
-      // Atualizar status do agendamento com a foto (se houver)
+      // Atualizar status do agendamento com a foto (se houver) e forma de pagamento
       const { error } = await (supabase as any)
         .from('appointments')
         .update({ 
           status: 'completed',
-          photo_url: photoUrl
+          photo_url: photoUrl,
+          payment_method: paymentMethod
         })
         .eq('id', appointmentToComplete);
 
@@ -698,6 +896,7 @@ const BarbeiroDashboard = () => {
         setAppointmentToComplete(null);
         setPhotoFile(null);
         setPhotoPreview(null);
+        setPaymentMethod('');
         loadAppointments();
       }
     } catch (error: any) {
@@ -708,42 +907,22 @@ const BarbeiroDashboard = () => {
     }
   };
 
-  const handleChangeOwnPassword = async () => {
-    if (!passwordForm.newPassword || !passwordForm.confirmPassword) {
-      toast.error('Preencha a nova senha e a confirmação.');
-      return;
-    }
-
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      toast.error('As senhas não conferem.');
-      return;
-    }
-
-    setChangingPassword(true);
-    try {
-      const { error } = await supabase.auth.updateUser({
-        password: passwordForm.newPassword,
-      });
-
-      if (error) throw error;
-
-      toast.success('Senha atualizada com sucesso!');
-      setPasswordForm({ newPassword: '', confirmPassword: '' });
-    } catch (error: any) {
-      toast.error('Erro ao atualizar senha', {
-        description: error.message,
-      });
-    } finally {
-      setChangingPassword(false);
-    }
-  };
 
   const handleCompleteWithoutPhoto = async () => {
     if (!appointmentToComplete) return;
 
+    // Validar forma de pagamento
+    if (!paymentMethod || (paymentMethod !== 'pix' && paymentMethod !== 'dinheiro')) {
+      toast.error('Selecione a forma de pagamento (Pix ou Dinheiro)');
+      return;
+    }
+
     const { error } = await (supabase as any)
       .from('appointments')
-      .update({ status: 'completed' })
+      .update({ 
+        status: 'completed',
+        payment_method: paymentMethod
+      })
       .eq('id', appointmentToComplete);
 
     if (error) {
@@ -754,6 +933,7 @@ const BarbeiroDashboard = () => {
       setAppointmentToComplete(null);
       setPhotoFile(null);
       setPhotoPreview(null);
+      setPaymentMethod('');
       loadAppointments();
     }
   };
@@ -806,6 +986,65 @@ const BarbeiroDashboard = () => {
       }
       return a.appointment_time.localeCompare(b.appointment_time);
     });
+
+  // Função para filtrar agendamentos do histórico
+  const getFilteredHistoryAppointments = () => {
+    // Começar com todos os agendamentos (não apenas concluídos, para permitir filtrar por status)
+    let filtered = [...appointments];
+
+    // Filtro por período
+    if (historyFilterPeriod !== 'all') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      filtered = filtered.filter(apt => {
+        const aptDate = new Date(apt.appointment_date + 'T00:00:00');
+        aptDate.setHours(0, 0, 0, 0);
+        
+        switch (historyFilterPeriod) {
+          case 'today':
+            return aptDate.getTime() === today.getTime();
+          case 'week':
+            const weekAgo = new Date(today);
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            return aptDate >= weekAgo;
+          case 'month':
+            const monthAgo = new Date(today);
+            monthAgo.setMonth(monthAgo.getMonth() - 1);
+            return aptDate >= monthAgo;
+          case 'year':
+            const yearAgo = new Date(today);
+            yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+            return aptDate >= yearAgo;
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Filtro por status
+    if (historyFilterStatus !== 'all') {
+      filtered = filtered.filter(apt => apt.status === historyFilterStatus);
+    }
+
+    // Filtro por serviço
+    if (historyFilterService !== 'all') {
+      filtered = filtered.filter(apt => apt.service_id === historyFilterService);
+    }
+
+    // Filtro por forma de pagamento (apenas para concluídos)
+    if (historyFilterPayment !== 'all') {
+      filtered = filtered.filter(apt => apt.payment_method === historyFilterPayment);
+    }
+
+    // Ordenar por data descendente, depois por hora descendente
+    return filtered.sort((a, b) => {
+      if (a.appointment_date !== b.appointment_date) {
+        return b.appointment_date.localeCompare(a.appointment_date);
+      }
+      return b.appointment_time.localeCompare(a.appointment_time);
+    });
+  };
 
   const completedAppointments = appointments
     .filter(a => a.status === 'completed')
@@ -961,10 +1200,10 @@ const BarbeiroDashboard = () => {
               <NotificationTester />
             </div>
 
-            <div className="mb-6">
+            <div className="mb-6 flex flex-col sm:flex-row gap-3">
               <Dialog open={showNewAppointment} onOpenChange={setShowNewAppointment}>
                 <DialogTrigger asChild>
-                  <Button className="w-full md:w-auto">
+                  <Button className="w-full sm:w-auto">
                     <Plus className="mr-2 h-4 w-4" />
                     Novo Agendamento
                   </Button>
@@ -1068,6 +1307,145 @@ const BarbeiroDashboard = () => {
                   </div>
                 </DialogContent>
               </Dialog>
+
+              <Dialog 
+                open={productSaleDialogOpen} 
+                onOpenChange={(open) => {
+                  setProductSaleDialogOpen(open);
+                  if (open) {
+                    loadProductsForSale();
+                  } else {
+                    setSelectedProductId('');
+                    setProductQuantity(1);
+                  }
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Button variant="outline" className="w-full sm:w-auto">
+                    <ShoppingBag className="mr-2 h-4 w-4" />
+                    Vender Produto
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Registrar Venda de Produto</DialogTitle>
+                    <DialogDescription>
+                      Registre a venda de um produto. A comissão será calculada automaticamente.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div>
+                      <Label>Produto</Label>
+                      <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione um produto" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableProducts.map((product) => (
+                            <SelectItem 
+                              key={product.id} 
+                              value={product.id}
+                              disabled={product.stock !== null && product.stock === 0}
+                            >
+                              {product.name} - R$ {product.price.toFixed(2)}
+                              {product.stock !== null && ` (Estoque: ${product.stock})`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {selectedProductId && (
+                      <>
+                        <div>
+                          <Label>Quantidade</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={productQuantity}
+                            onChange={(e) => {
+                              const qty = parseInt(e.target.value) || 1;
+                              setProductQuantity(Math.max(1, qty));
+                            }}
+                          />
+                          {availableProducts.find(p => p.id === selectedProductId)?.stock !== null && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Estoque disponível: {availableProducts.find(p => p.id === selectedProductId)?.stock || 0}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="p-3 bg-secondary/50 rounded-lg space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Valor Unitário:</span>
+                            <span className="font-medium">
+                              R$ {availableProducts.find(p => p.id === selectedProductId)?.price.toFixed(2) || '0.00'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Total:</span>
+                            <span className="font-bold text-primary">
+                              R$ {((availableProducts.find(p => p.id === selectedProductId)?.price || 0) * productQuantity).toFixed(2)}
+                            </span>
+                          </div>
+                          {barberIdForCommissions && (
+                            <>
+                              <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">Comissão ({(() => {
+                                  const individual = getIndividualProductCommissionPercentage(barberIdForCommissions, selectedProductId);
+                                  const fixed = getFixedProductCommissionPercentage(barberIdForCommissions);
+                                  return individual > 0 ? individual : fixed;
+                                })()}%):</span>
+                                <span className="font-bold text-green-400">
+                                  R$ {((() => {
+                                    const product = availableProducts.find(p => p.id === selectedProductId);
+                                    if (!product) return 0;
+                                    const totalPrice = product.price * productQuantity;
+                                    const individual = getIndividualProductCommissionPercentage(barberIdForCommissions, selectedProductId);
+                                    const fixed = getFixedProductCommissionPercentage(barberIdForCommissions);
+                                    const commissionPercentage = individual > 0 ? individual : fixed;
+                                    return (totalPrice * commissionPercentage) / 100;
+                                  })()).toFixed(2)}
+                                </span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    <div className="flex gap-2">
+                      <Button 
+                        onClick={handleProductSale} 
+                        className="flex-1"
+                        disabled={!selectedProductId || savingProductSale}
+                      >
+                        {savingProductSale ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Registrando...
+                          </>
+                        ) : (
+                          <>
+                            <ShoppingBag className="mr-2 h-4 w-4" />
+                            Registrar Venda
+                          </>
+                        )}
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => {
+                          setProductSaleDialogOpen(false);
+                          setSelectedProductId('');
+                          setProductQuantity(1);
+                        }}
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
 
             <Card className="bg-card border-border mb-6">
@@ -1145,15 +1523,41 @@ const BarbeiroDashboard = () => {
                               </Button>
                             )}
                             {appointment.status === 'confirmed' && (
+                              <>
+                                <Button 
+                                  size="sm" 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUpdateStatus(appointment.id, 'completed');
+                                  }}
+                                  className="bg-green-600 hover:bg-green-700 text-xs"
+                                >
+                                  Concluir
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="destructive"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCancelClick(appointment.id);
+                                  }}
+                                  className="text-xs"
+                                >
+                                  Cancelar
+                                </Button>
+                              </>
+                            )}
+                            {(appointment.status === 'pending') && (
                               <Button 
                                 size="sm" 
+                                variant="destructive"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleUpdateStatus(appointment.id, 'completed');
+                                  handleCancelClick(appointment.id);
                                 }}
-                                className="bg-green-600 hover:bg-green-700 text-xs"
+                                className="text-xs"
                               >
-                                Concluir
+                                Cancelar
                               </Button>
                             )}
                           </div>
@@ -1177,7 +1581,7 @@ const BarbeiroDashboard = () => {
                 {upcomingAppointments.length > 0 ? (
                   <div className="space-y-3">
                    {upcomingAppointments.map((appointment) => (
-                     <div key={appointment.id} className="p-4 bg-secondary rounded-lg">
+                     <div key={appointment.id} className="p-4 bg-secondary rounded-lg relative group">
                        <div className="flex justify-between items-start">
                          <div className="space-y-1 flex-1">
                            <div className="flex items-center gap-2 flex-wrap">
@@ -1214,6 +1618,60 @@ const BarbeiroDashboard = () => {
                            </div>
                          </div>
                        </div>
+                       
+                       {/* Botões de ação no hover */}
+                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg flex items-center justify-center gap-2">
+                         {appointment.status === 'pending' && (
+                           <Button 
+                             size="sm" 
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               handleUpdateStatus(appointment.id, 'confirmed');
+                             }}
+                             className="bg-primary text-xs"
+                           >
+                             Confirmar
+                           </Button>
+                         )}
+                         {appointment.status === 'confirmed' && (
+                           <>
+                             <Button 
+                               size="sm" 
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 handleUpdateStatus(appointment.id, 'completed');
+                               }}
+                               className="bg-green-600 hover:bg-green-700 text-xs"
+                             >
+                               Concluir
+                             </Button>
+                             <Button 
+                               size="sm" 
+                               variant="destructive"
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 handleCancelClick(appointment.id);
+                               }}
+                               className="text-xs"
+                             >
+                               Cancelar
+                             </Button>
+                           </>
+                         )}
+                         {(appointment.status === 'pending') && (
+                           <Button 
+                             size="sm" 
+                             variant="destructive"
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               handleCancelClick(appointment.id);
+                             }}
+                             className="text-xs"
+                           >
+                             Cancelar
+                           </Button>
+                         )}
+                       </div>
                      </div>
                    ))}
                   </div>
@@ -1238,24 +1696,105 @@ const BarbeiroDashboard = () => {
               <TabsContent value="historico" className="space-y-6">
                 <Card className="bg-card border-border">
                   <CardHeader>
-                    <CardTitle>Histórico de Serviços Concluídos</CardTitle>
+                    <CardTitle>Histórico de Serviços</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {completedAppointments.length > 0 ? (
-                      <div className="space-y-3">
-                        {completedAppointments.map((appointment) => (
-                          <div key={appointment.id} className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+                    {/* Filtros */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 pb-4 border-b border-border">
+                      <div>
+                        <Label className="text-sm text-muted-foreground mb-1 block">Período</Label>
+                        <Select value={historyFilterPeriod} onValueChange={(v) => setHistoryFilterPeriod(v as any)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Todos</SelectItem>
+                            <SelectItem value="today">Hoje</SelectItem>
+                            <SelectItem value="week">Última Semana</SelectItem>
+                            <SelectItem value="month">Último Mês</SelectItem>
+                            <SelectItem value="year">Último Ano</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-sm text-muted-foreground mb-1 block">Status</Label>
+                        <Select value={historyFilterStatus} onValueChange={(v) => setHistoryFilterStatus(v as any)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Todos</SelectItem>
+                            <SelectItem value="completed">Concluído</SelectItem>
+                            <SelectItem value="confirmed">Confirmado</SelectItem>
+                            <SelectItem value="cancelled">Cancelado</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-sm text-muted-foreground mb-1 block">Serviço</Label>
+                        <Select value={historyFilterService} onValueChange={setHistoryFilterService}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Todos</SelectItem>
+                            {services.map((service) => (
+                              <SelectItem key={service.id} value={service.id}>{service.title}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-sm text-muted-foreground mb-1 block">Pagamento</Label>
+                        <Select value={historyFilterPayment} onValueChange={(v) => setHistoryFilterPayment(v as any)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Todos</SelectItem>
+                            <SelectItem value="pix">Pix</SelectItem>
+                            <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const filteredAppointments = getFilteredHistoryAppointments();
+                      return filteredAppointments.length > 0 ? (
+                        <div className="space-y-3">
+                          {filteredAppointments.map((appointment) => (
+                          <div key={appointment.id} className={`p-4 rounded-lg border ${
+                            appointment.status === 'completed' ? 'bg-green-500/10 border-green-500/30' :
+                            appointment.status === 'confirmed' ? 'bg-blue-500/10 border-blue-500/30' :
+                            appointment.status === 'cancelled' ? 'bg-red-500/10 border-red-500/30' :
+                            'bg-yellow-500/10 border-yellow-500/30'
+                          }`}>
                             <div className="flex justify-between items-start">
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <p className="font-bold text-lg">{appointment.service?.title || 'Serviço'}</p>
-                                  <span className="px-2 py-1 rounded text-xs font-medium bg-green-500/20 text-green-400">
-                                    Concluído
+                                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                    appointment.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                                    appointment.status === 'confirmed' ? 'bg-blue-500/20 text-blue-400' :
+                                    appointment.status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
+                                    'bg-yellow-500/20 text-yellow-400'
+                                  }`}>
+                                    {appointment.status === 'completed' ? 'Concluído' :
+                                     appointment.status === 'confirmed' ? 'Confirmado' :
+                                     appointment.status === 'cancelled' ? 'Cancelado' :
+                                     'Pendente'}
                                   </span>
                                   {/* Badge para agendamentos manuais/retroativos */}
                                   {appointment.booking_type === 'manual' && (
                                     <span className="px-2 py-1 rounded text-xs font-medium bg-orange-500/20 text-orange-400 border border-orange-500/30" title="Agendamento criado manualmente pelo barbeiro">
                                       📝 Manual
+                                    </span>
+                                  )}
+                                  {/* Badge para forma de pagamento (apenas concluídos) */}
+                                  {appointment.status === 'completed' && appointment.payment_method && (
+                                    <span className="px-2 py-1 rounded text-xs font-medium bg-primary/20 text-primary">
+                                      {appointment.payment_method === 'pix' ? '💳 Pix' : '💵 Dinheiro'}
                                     </span>
                                   )}
                                 </div>
@@ -1303,9 +1842,12 @@ const BarbeiroDashboard = () => {
                       </div>
                     ) : (
                       <p className="text-center text-muted-foreground py-8">
-                        Nenhum serviço concluído ainda
+                        {appointments.length === 0 
+                          ? 'Nenhum serviço registrado ainda'
+                          : 'Nenhum agendamento encontrado com os filtros selecionados'}
                       </p>
-                    )}
+                    );
+                    })()}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1313,54 +1855,20 @@ const BarbeiroDashboard = () => {
           </>
         )}
 
-        {/* Card: Minha Conta / alterar senha do barbeiro */}
-        <div className="mt-10">
-          <Card className="bg-card border-border max-w-xl">
-            <CardHeader>
-              <CardTitle>Minha Conta</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Nova senha</Label>
-                  <Input
-                    type="password"
-                    value={passwordForm.newPassword}
-                    onChange={(e) =>
-                      setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))
-                    }
-                    placeholder="Digite a nova senha"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Confirmar nova senha</Label>
-                  <Input
-                    type="password"
-                    value={passwordForm.confirmPassword}
-                    onChange={(e) =>
-                      setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))
-                    }
-                    placeholder="Repita a nova senha"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-start">
-                <Button
-                  onClick={handleChangeOwnPassword}
-                  disabled={changingPassword}
-                >
-                  {changingPassword && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  Atualizar minha senha
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
 
         {/* Dialog para adicionar foto ao concluir */}
-        <Dialog open={completeDialogOpen} onOpenChange={setCompleteDialogOpen}>
+        <Dialog 
+          open={completeDialogOpen} 
+          onOpenChange={(open) => {
+            setCompleteDialogOpen(open);
+            if (!open) {
+              // Limpar estados quando fechar o dialog
+              setPaymentMethod('');
+              setPhotoFile(null);
+              setPhotoPreview(null);
+            }
+          }}
+        >
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Concluir Agendamento</DialogTitle>
@@ -1405,6 +1913,28 @@ const BarbeiroDashboard = () => {
                 </label>
               )}
 
+              {/* Campo de forma de pagamento */}
+              <div className="space-y-2">
+                <Label htmlFor="payment-method" className="text-sm font-medium">
+                  Forma de Pagamento <span className="text-destructive">*</span>
+                </Label>
+                <Select
+                  value={paymentMethod}
+                  onValueChange={(value) => setPaymentMethod(value as 'pix' | 'dinheiro')}
+                >
+                  <SelectTrigger id="payment-method">
+                    <SelectValue placeholder="Selecione a forma de pagamento" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pix">Pix</SelectItem>
+                    <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Selecione como o serviço foi pago
+                </p>
+              </div>
+
               <div className="flex gap-2 pt-4">
                 <Button
                   onClick={handleCompleteWithoutPhoto}
@@ -1430,6 +1960,61 @@ const BarbeiroDashboard = () => {
                       Concluir {photoFile ? 'com Foto' : ''}
                     </>
                   )}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog para cancelar agendamento */}
+        <Dialog 
+          open={cancelDialogOpen} 
+          onOpenChange={(open) => {
+            setCancelDialogOpen(open);
+            if (!open) {
+              setAppointmentToCancel(null);
+              setCancellationReason('');
+            }
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Cancelar Agendamento</DialogTitle>
+              <DialogDescription>
+                Informe o motivo do cancelamento:
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <Label htmlFor="cancellation-reason">Motivo do Cancelamento *</Label>
+                <Textarea
+                  id="cancellation-reason"
+                  value={cancellationReason}
+                  onChange={(e) => setCancellationReason(e.target.value)}
+                  placeholder="Ex: Cliente não compareceu, Impedimento de última hora, etc."
+                  className="mt-2 min-h-[100px]"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  onClick={() => {
+                    setCancelDialogOpen(false);
+                    setAppointmentToCancel(null);
+                    setCancellationReason('');
+                  }}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  Voltar
+                </Button>
+                <Button
+                  onClick={handleCancelAppointment}
+                  variant="destructive"
+                  className="flex-1"
+                >
+                  Confirmar Cancelamento
                 </Button>
               </div>
             </div>

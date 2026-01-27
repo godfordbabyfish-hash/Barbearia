@@ -8,6 +8,8 @@ import { DollarSign, TrendingUp, Calendar, Users } from 'lucide-react';
 import { format, startOfDay, endOfDay, startOfWeek, startOfMonth, startOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
+import { useBarberCommissions } from '@/hooks/useBarberCommissions';
+import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
 
 interface Appointment {
   id: string;
@@ -41,7 +43,11 @@ interface BarberFinancialDashboardProps {
 }
 
 const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) => {
-  const { calculateServiceCommission, loading: commissionsLoading } = useBarberFixedCommissions(barberId);
+  // Hooks for different commission types (priority: individual > fixed)
+  const { calculateCommission: calculateIndividualCommission } = useBarberCommissions(barberId);
+  const { calculateServiceCommission: calculateFixedServiceCommission, calculateProductCommission: calculateFixedProductCommission } = useBarberFixedCommissions(barberId);
+  const { calculateCommission: calculateIndividualProductCommission } = useBarberProductCommissions(barberId);
+  
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [productSales, setProductSales] = useState<ProductSale[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -51,10 +57,19 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
 
   // Helper function to calculate commission for an appointment
+  // Priority: 1) Individual commission per service, 2) Fixed commission
   const getCommissionValue = (apt: Appointment): number => {
-    if (!apt.service) return 0;
+    if (!apt.service || !apt.service_id) return 0;
     const servicePrice = apt.service.price || 0;
-    return calculateServiceCommission(barberId, servicePrice);
+    
+    // Try individual commission first
+    const individualCommission = calculateIndividualCommission(barberId, apt.service_id, servicePrice);
+    if (individualCommission > 0) {
+      return individualCommission;
+    }
+    
+    // Fallback to fixed commission
+    return calculateFixedServiceCommission(barberId, servicePrice);
   };
 
   useEffect(() => {
@@ -633,7 +648,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
                 ))}
                 {appointments.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-muted-foreground">
+                    <td colSpan={6} className="py-8 text-center text-muted-foreground">
                       Nenhum agendamento encontrado
                     </td>
                   </tr>
@@ -643,6 +658,47 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
           </div>
         </CardContent>
       </Card>
+
+      {/* Product Sales table */}
+      {productSales.length > 0 && (
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <CardTitle>Vendas de Produtos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-2">Data</th>
+                    <th className="text-left py-3 px-2">Horário</th>
+                    <th className="text-left py-3 px-2">Produto</th>
+                    <th className="text-right py-3 px-2">Valor Total</th>
+                    <th className="text-right py-3 px-2">Comissão</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {productSales.slice(0, 10).map((sale) => (
+                    <tr key={sale.id} className="border-b border-border/50 hover:bg-muted/50">
+                      <td className="py-3 px-2">
+                        {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
+                      </td>
+                      <td className="py-3 px-2">{sale.sale_time}</td>
+                      <td className="py-3 px-2">{(sale.product as any)?.name || '-'}</td>
+                      <td className="py-3 px-2 text-right font-medium text-primary">
+                        R$ {sale.total_price.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-2 text-right font-medium text-green-400">
+                        R$ {sale.commission_value.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };

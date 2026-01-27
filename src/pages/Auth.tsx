@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Loader2, Scissors } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import logoRaimundos from '@/assets/logo-raimundos.png';
+import { formatCPF, cleanCPF, validateCPF } from '@/utils/cpfValidation';
 
 const Auth = () => {
   const [authLogo, setAuthLogo] = useState<string | null>(null);
@@ -18,9 +19,39 @@ const Auth = () => {
     email: '',
     password: '',
   });
-  const [clientFormData, setClientFormData] = useState({ name: '', phone: '' });
-  const { signIn, signInOrSignUp, user, role } = useAuth();
+  const [clientCPF, setClientCPF] = useState('');
+  const { signIn, signInWithCPF, user, role } = useAuth();
   const navigate = useNavigate();
+
+  // Carregar CPF salvo do localStorage ao montar o componente
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const savedCPF = localStorage.getItem('lastClientCPF');
+        if (savedCPF) {
+          // Formatar o CPF salvo antes de exibir
+          const formatted = formatCPF(savedCPF);
+          setClientCPF(formatted);
+        }
+      } catch (e) {
+        console.warn('Não foi possível carregar CPF do localStorage:', e);
+      }
+    }
+  }, []);
+
+  // Carregar email salvo do localStorage ao montar o componente (para aba de barbeiro)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const savedEmail = localStorage.getItem('lastBarberEmail');
+        if (savedEmail) {
+          setFormData(prev => ({ ...prev, email: savedEmail }));
+        }
+      } catch (e) {
+        console.warn('Não foi possível carregar email do localStorage:', e);
+      }
+    }
+  }, []);
 
   // Load auth logo from database
   useEffect(() => {
@@ -46,7 +77,11 @@ const Auth = () => {
   // Redirecionar após autenticação
   useEffect(() => {
     if (user && role) {
-      const path = (role === 'admin' || role === 'gestor') ? '/admin' : role === 'barbeiro' ? '/barbeiro' : '/cliente';
+      // Cada tipo de usuário vai para seu próprio painel
+      const path = 
+        role === 'admin' || role === 'gestor' ? '/admin' : 
+        role === 'barbeiro' ? '/barbeiro' : 
+        '/cliente';
       navigate(path, { replace: true });
     }
   }, [user, role, navigate]);
@@ -68,16 +103,36 @@ const Auth = () => {
     setIsLoading(false);
   };
 
+  // Format CPF as user types
+  const handleCPFChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    const cleaned = cleanCPF(value);
+    
+    // Limita a 11 dígitos
+    if (cleaned.length <= 11) {
+      const formatted = formatCPF(cleaned);
+      setClientCPF(formatted);
+    }
+  };
+
   const handleClientAccess = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    const result = await signInOrSignUp(clientFormData.name, clientFormData.phone);
+    // Validar CPF
+    const cpfValidation = validateCPF(clientCPF);
+    if (!cpfValidation.isValid) {
+      toast.error(cpfValidation.errorMessage || 'CPF inválido');
+      setIsLoading(false);
+      return;
+    }
+
+    const result = await signInWithCPF(clientCPF);
 
     if (result.error) {
       toast.error('Erro ao acessar', { description: result.error.message });
     } else {
-      toast.success('Acesso realizado com sucesso!');
+      toast.success('Login realizado com sucesso!');
     }
 
     setIsLoading(false);
@@ -107,33 +162,25 @@ const Auth = () => {
             {/* Tab Cliente */}
             <TabsContent value="cliente" className="space-y-6">
               <p className="text-center text-muted-foreground text-sm">
-                Você só precisa preencher estes dados uma vez
+                Digite seu CPF para acessar
               </p>
               
               <form onSubmit={handleClientAccess} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="client-phone">Telefone *</Label>
+                  <Label htmlFor="client-cpf">CPF *</Label>
                   <Input
-                    id="client-phone"
-                    type="tel"
-                    placeholder="(82) 98221-2126"
-                    value={clientFormData.phone}
-                    onChange={(e) => setClientFormData({ ...clientFormData, phone: e.target.value })}
+                    id="client-cpf"
+                    type="text"
+                    placeholder="000.000.000-00"
+                    value={clientCPF}
+                    onChange={handleCPFChange}
+                    maxLength={14}
                     required
                     className="h-12"
                   />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="client-name">Seu nome *</Label>
-                  <Input
-                    id="client-name"
-                    placeholder="Digite seu nome"
-                    value={clientFormData.name}
-                    onChange={(e) => setClientFormData({ ...clientFormData, name: e.target.value })}
-                    required
-                    className="h-12"
-                  />
+                  <p className="text-xs text-muted-foreground">
+                    Digite apenas os números do seu CPF
+                  </p>
                 </div>
 
                 <Button 
@@ -147,10 +194,19 @@ const Auth = () => {
                       Entrando...
                     </>
                   ) : (
-                    'CONFIRMAR'
+                    'Entrar'
                   )}
                 </Button>
               </form>
+
+              <div className="text-center pt-2">
+                <p className="text-sm text-muted-foreground">
+                  Não tem uma conta?{' '}
+                  <Link to="/cadastro" className="text-primary hover:underline font-medium">
+                    Cadastre-se
+                  </Link>
+                </p>
+              </div>
             </TabsContent>
 
             {/* Tab Barbeiros */}

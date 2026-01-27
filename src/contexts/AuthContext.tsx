@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
+import { cleanCPF } from '@/utils/cpfValidation';
 
 type UserRole = 'admin' | 'gestor' | 'cliente' | 'barbeiro';
 
@@ -13,6 +14,8 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, name: string) => Promise<{ error: any }>;
   signInOrSignUp: (name: string, phone: string) => Promise<{ error: any }>;
+  signUpWithCPF: (cpf: string, name: string, whatsapp: string, birthDate: string) => Promise<{ error: any }>;
+  signInWithCPF: (cpf: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
 }
 
@@ -84,6 +87,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         email,
         password,
       });
+      
+      // Salvar email no localStorage para preenchimento automático futuro (apenas se login bem-sucedido)
+      if (!error && typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('lastBarberEmail', email);
+        } catch (e) {
+          console.warn('Não foi possível salvar email no localStorage:', e);
+        }
+      }
       
       return { error };
     } catch (error: any) {
@@ -181,6 +193,120 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const signUpWithCPF = async (cpf: string, name: string, whatsapp: string, birthDate: string) => {
+    try {
+      const cleanedCPF = cleanCPF(cpf);
+      const tempEmail = `${cleanedCPF}@cliente.com`;
+      const tempPassword = cleanedCPF;
+
+      // Criar usuário no Supabase Auth
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: tempEmail,
+        password: tempPassword,
+        options: {
+          data: {
+            name,
+            cpf: cleanedCPF,
+            whatsapp,
+            birth_date: birthDate,
+          },
+        },
+      });
+
+      if (signUpError) {
+        return { error: signUpError };
+      }
+
+      // O trigger handle_new_user cria profile e role automaticamente
+      // Após signup, fazer signIn para criar a sessão (se não houver sessão)
+      if (signUpData.user && !signUpData.session) {
+        // Aguardar um pouco para o trigger executar
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Fazer signIn para criar a sessão
+        const { data: signInAfterSignUp, error: signInAfterSignUpError } = await supabase.auth.signInWithPassword({
+          email: tempEmail,
+          password: tempPassword,
+        });
+        
+        if (signInAfterSignUpError) {
+          console.warn('SignIn after signup failed:', signInAfterSignUpError);
+          // Ainda retorna sucesso pois o usuário foi criado
+        } else {
+          // Salvar CPF no localStorage após cadastro bem-sucedido
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem('lastClientCPF', cleanedCPF);
+            } catch (e) {
+              console.warn('Não foi possível salvar CPF no localStorage:', e);
+            }
+          }
+        }
+      } else if (signUpData.user && signUpData.session) {
+        // Se já tiver sessão, salvar CPF também
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('lastClientCPF', cleanedCPF);
+          } catch (e) {
+            console.warn('Não foi possível salvar CPF no localStorage:', e);
+          }
+        }
+      }
+
+      return { error: null };
+    } catch (error: any) {
+      return { error };
+    }
+  };
+
+  const signInWithCPF = async (cpf: string) => {
+    try {
+      const cleanedCPF = cleanCPF(cpf);
+      
+      // Buscar usuário pelo CPF na tabela profiles
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, cpf')
+        .eq('cpf', cleanedCPF)
+        .maybeSingle();
+
+      if (profileError) {
+        return { error: new Error('Erro ao buscar CPF: ' + profileError.message) };
+      }
+
+      if (!profile) {
+        return { error: new Error('CPF não cadastrado. Faça seu cadastro primeiro.') };
+      }
+
+      // Gerar email e senha baseados no CPF
+      const tempEmail = `${cleanedCPF}@cliente.com`;
+      const tempPassword = cleanedCPF;
+
+      // Fazer login
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: tempEmail,
+        password: tempPassword,
+      });
+
+      if (signInError) {
+        return { error: signInError };
+      }
+
+      // Salvar CPF no localStorage para preenchimento automático futuro
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('lastClientCPF', cleanedCPF);
+        } catch (e) {
+          console.warn('Não foi possível salvar CPF no localStorage:', e);
+        }
+      }
+
+      return { error: null };
+    } catch (error: any) {
+      return { error };
+    }
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
     setRole(null);
@@ -188,7 +314,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, role, loading, signIn, signUp, signInOrSignUp, signOut }}>
+    <AuthContext.Provider value={{ user, session, role, loading, signIn, signUp, signInOrSignUp, signUpWithCPF, signInWithCPF, signOut }}>
       {children}
     </AuthContext.Provider>
   );

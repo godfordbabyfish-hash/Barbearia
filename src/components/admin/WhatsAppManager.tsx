@@ -669,8 +669,8 @@ export const WhatsAppManager = () => {
       
       // Mensagem de erro mais específica
       let errorMessage = error.message || 'Erro desconhecido';
-      if (error.message?.includes('500') || error.message?.includes('Railway') || error.message?.includes('reiniciar')) {
-        errorMessage = 'Erro interno na Evolution API (servidor Railway). O serviço precisa ser reiniciado. Acesse o Railway Dashboard e reinicie o serviço "whatsapp-bot-barbearia", depois tente novamente.';
+      if (error.message?.includes('500') || error.message?.includes('Railway') || error.message?.includes('reiniciar') || error.message?.includes('estado inconsistente')) {
+        errorMessage = 'Erro interno na Evolution API. A instância pode estar em estado inconsistente. SOLUÇÃO: 1) Clique em "Remover" para deletar a instância atual, 2) Reinicie o serviço "whatsapp-bot-barbearia" no Railway Dashboard, 3) Crie uma nova instância e tente gerar o QR code novamente.';
       } else if (error.message?.includes('timeout') || error.message?.includes('Timeout')) {
         errorMessage = 'Timeout ao gerar QR code. A Evolution API pode estar demorando para responder. Tente novamente em alguns segundos.';
       } else if (error.message?.includes('401') || error.message?.includes('Connection Failure')) {

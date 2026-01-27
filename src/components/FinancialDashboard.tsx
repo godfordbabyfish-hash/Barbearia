@@ -31,17 +31,37 @@ interface Service {
   title: string;
 }
 
+interface Product {
+  id: string;
+  name: string;
+}
+
+interface ProductSale {
+  id: string;
+  sale_date: string;
+  sale_time: string;
+  total_price: number;
+  commission_value: number;
+  barber_id: string;
+  product_id: string;
+  barber?: { name: string } | null;
+  product?: { name: string } | null;
+}
+
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', '#22c55e', '#3b82f6', '#f59e0b', '#ef4444'];
 
 const FinancialDashboard = () => {
   const { role } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [productSales, setProductSales] = useState<ProductSale[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('week');
   const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
   const [filterBarber, setFilterBarber] = useState<string>('all');
   const [filterService, setFilterService] = useState<string>('all');
+  const [filterProduct, setFilterProduct] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
   const [activeTab, setActiveTab] = useState<'overview' | 'commissions'>('overview');
   
@@ -50,13 +70,15 @@ const FinancialDashboard = () => {
   useEffect(() => {
     loadBarbers();
     loadServices();
+    loadProducts();
   }, []);
 
   useEffect(() => {
     loadAppointments();
+    loadProductSales();
 
     // Realtime subscription
-    const channel = supabase
+    const appointmentsChannel = supabase
       .channel('financial-appointments')
       .on(
         'postgres_changes',
@@ -71,10 +93,26 @@ const FinancialDashboard = () => {
       )
       .subscribe();
 
+    const productSalesChannel = supabase
+      .channel('financial-product-sales')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'product_sales',
+        },
+        () => {
+          loadProductSales();
+        }
+      )
+      .subscribe();
+
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(appointmentsChannel);
+      supabase.removeChannel(productSalesChannel);
     };
-  }, [period, filterType, filterBarber, filterService, filterStatus]);
+  }, [period, filterType, filterBarber, filterService, filterProduct, filterStatus]);
 
   const loadBarbers = async () => {
     const { data } = await supabase
@@ -90,6 +128,14 @@ const FinancialDashboard = () => {
       .select('id, title')
       .eq('visible', true);
     setServices(data || []);
+  };
+
+  const loadProducts = async () => {
+    const { data } = await supabase
+      .from('products')
+      .select('id, name')
+      .eq('visible', true);
+    setProducts(data || []);
   };
 
   const getDateRange = () => {
@@ -149,10 +195,50 @@ const FinancialDashboard = () => {
     setAppointments((data as any) || []);
   };
 
+  const loadProductSales = async () => {
+    const { start, end } = getDateRange();
+    
+    let query = supabase
+      .from('product_sales')
+      .select(`
+        id,
+        sale_date,
+        sale_time,
+        total_price,
+        commission_value,
+        barber_id,
+        product_id,
+        barber:barbers(name),
+        product:products(name)
+      `)
+      .gte('sale_date', format(start, 'yyyy-MM-dd'))
+      .lte('sale_date', format(end, 'yyyy-MM-dd'));
+
+    if (filterBarber !== 'all') {
+      query = query.eq('barber_id', filterBarber);
+    }
+    if (filterProduct !== 'all') {
+      query = query.eq('product_id', filterProduct);
+    }
+
+    const { data, error } = await query.order('sale_date', { ascending: false });
+
+    if (error) {
+      console.error('Error loading product sales:', error);
+      return;
+    }
+
+    setProductSales((data as any) || []);
+  };
+
   // Calculate stats
   const totalRevenue = appointments
     .filter(apt => apt.status === 'completed' || apt.status === 'confirmed')
     .reduce((sum, apt) => sum + ((apt.service as any)?.price || 0), 0);
+  
+  const totalProductRevenue = productSales.reduce((sum, sale) => sum + sale.total_price, 0);
+  const totalProductCommission = productSales.reduce((sum, sale) => sum + sale.commission_value, 0);
+  const totalRevenueWithProducts = totalRevenue + totalProductRevenue;
   
   const totalAppointments = appointments.length;
   const completedCount = appointments.filter(apt => apt.status === 'completed').length;
@@ -196,7 +282,7 @@ const FinancialDashboard = () => {
     { name: 'Cancelados', value: cancelledCount, color: '#ef4444' },
   ].filter(d => d.value > 0);
 
-  // Revenue by barber
+  // Revenue by barber (including products)
   const revenueByBarber = () => {
     const grouped: Record<string, number> = {};
     appointments
@@ -205,6 +291,10 @@ const FinancialDashboard = () => {
         const barberName = (apt.barber as any)?.name || 'Desconhecido';
         grouped[barberName] = (grouped[barberName] || 0) + ((apt.service as any)?.price || 0);
       });
+    productSales.forEach((sale) => {
+      const barberName = (sale.barber as any)?.name || 'Desconhecido';
+      grouped[barberName] = (grouped[barberName] || 0) + sale.total_price;
+    });
     return Object.entries(grouped).map(([name, value]) => ({ name, value }));
   };
 
@@ -228,6 +318,58 @@ const FinancialDashboard = () => {
     }));
   };
 
+  // Revenue by product
+  const revenueByProduct = () => {
+    const grouped: Record<string, { count: number; revenue: number; commission: number }> = {};
+    productSales.forEach((sale) => {
+      const productName = (sale.product as any)?.name || 'Desconhecido';
+      if (!grouped[productName]) {
+        grouped[productName] = { count: 0, revenue: 0, commission: 0 };
+      }
+      grouped[productName].count += 1;
+      grouped[productName].revenue += sale.total_price;
+      grouped[productName].commission += sale.commission_value;
+    });
+    return Object.entries(grouped).map(([name, data]) => ({ 
+      name, 
+      quantidade: data.count,
+      receita: data.revenue,
+      comissao: data.commission
+    }));
+  };
+
+  // Chart data by date (including products)
+  const chartDataByDateWithProducts = () => {
+    const grouped: Record<string, { date: string; receita: number; receitaProdutos: number; agendamentos: number }> = {};
+    
+    appointments
+      .filter(apt => apt.status === 'completed' || apt.status === 'confirmed')
+      .forEach((apt) => {
+        const dateKey = period === 'day' 
+          ? apt.appointment_time.slice(0, 2) + 'h'
+          : format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM');
+        
+        if (!grouped[dateKey]) {
+          grouped[dateKey] = { date: dateKey, receita: 0, receitaProdutos: 0, agendamentos: 0 };
+        }
+        grouped[dateKey].receita += (apt.service as any)?.price || 0;
+        grouped[dateKey].agendamentos += 1;
+      });
+
+    productSales.forEach((sale) => {
+      const dateKey = period === 'day' 
+        ? sale.sale_time.slice(0, 2) + 'h'
+        : format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM');
+      
+      if (!grouped[dateKey]) {
+        grouped[dateKey] = { date: dateKey, receita: 0, receitaProdutos: 0, agendamentos: 0 };
+      }
+      grouped[dateKey].receitaProdutos += sale.total_price;
+    });
+
+    return Object.values(grouped).sort((a, b) => a.date.localeCompare(b.date));
+  };
+
   const getPeriodLabel = () => {
     switch (period) {
       case 'day': return 'Hoje';
@@ -248,7 +390,7 @@ const FinancialDashboard = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">Período</label>
               <Select value={period} onValueChange={(v) => setPeriod(v as any)}>
@@ -306,6 +448,20 @@ const FinancialDashboard = () => {
               </Select>
             </div>
             <div>
+              <label className="text-sm text-muted-foreground mb-1 block">Produto</label>
+              <Select value={filterProduct} onValueChange={setFilterProduct}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {products.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <label className="text-sm text-muted-foreground mb-1 block">Status</label>
               <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
                 <SelectTrigger>
@@ -332,10 +488,10 @@ const FinancialDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">
-              R$ {totalRevenue.toFixed(2)}
+              R$ {totalRevenueWithProducts.toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {confirmedCount + completedCount} atendimentos faturados
+              {confirmedCount + completedCount} serviços + {productSales.length} produtos
             </p>
           </CardContent>
         </Card>
@@ -377,25 +533,75 @@ const FinancialDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">
-              R$ {(confirmedCount + completedCount) > 0 
-                ? (totalRevenue / (confirmedCount + completedCount)).toFixed(2) 
+              R$ {(confirmedCount + completedCount + productSales.length) > 0 
+                ? (totalRevenueWithProducts / (confirmedCount + completedCount + productSales.length)).toFixed(2) 
                 : '0.00'}
             </div>
-            <p className="text-xs text-muted-foreground">por atendimento</p>
+            <p className="text-xs text-muted-foreground">por atendimento/produto</p>
           </CardContent>
         </Card>
       </div>
 
+      {/* Product Stats Cards */}
+      {productSales.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Receita de Produtos</CardTitle>
+              <DollarSign className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">
+                R$ {totalProductRevenue.toFixed(2)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {productSales.length} vendas realizadas
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Comissões de Produtos</CardTitle>
+              <TrendingUp className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">
+                R$ {totalProductCommission.toFixed(2)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Total de comissões pagas
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Ticket Médio Produtos</CardTitle>
+              <Users className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">
+                R$ {productSales.length > 0 
+                  ? (totalProductRevenue / productSales.length).toFixed(2) 
+                  : '0.00'}
+              </div>
+              <p className="text-xs text-muted-foreground">por venda</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Charts */}
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Revenue over time */}
+        {/* Revenue over time (including products) */}
         <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle>Receita e Agendamentos</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartDataByDate()}>
+              <BarChart data={chartDataByDateWithProducts()}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" />
                 <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" />
@@ -408,7 +614,8 @@ const FinancialDashboard = () => {
                   }} 
                 />
                 <Legend />
-                <Bar yAxisId="left" dataKey="receita" fill="hsl(var(--primary))" name="Receita (R$)" radius={[4, 4, 0, 0]} />
+                <Bar yAxisId="left" dataKey="receita" fill="hsl(var(--primary))" name="Receita Serviços (R$)" radius={[4, 4, 0, 0]} />
+                <Bar yAxisId="left" dataKey="receitaProdutos" fill="#22c55e" name="Receita Produtos (R$)" radius={[4, 4, 0, 0]} />
                 <Bar yAxisId="right" dataKey="agendamentos" fill="hsl(var(--secondary))" name="Agendamentos" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -503,6 +710,39 @@ const FinancialDashboard = () => {
             </ResponsiveContainer>
           </CardContent>
         </Card>
+
+        {/* Revenue by product */}
+        {revenueByProduct().length > 0 && (
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle>Receita por Produto</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={revenueByProduct()} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis type="number" stroke="hsl(var(--muted-foreground))" />
+                  <YAxis dataKey="name" type="category" stroke="hsl(var(--muted-foreground))" width={120} />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'hsl(var(--card))', 
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                    formatter={(value: number, name: string) => [
+                      name === 'receita' || name === 'comissao' ? `R$ ${value.toFixed(2)}` : value,
+                      name === 'receita' ? 'Receita' : name === 'comissao' ? 'Comissão' : 'Quantidade'
+                    ]}
+                  />
+                  <Legend />
+                  <Bar dataKey="quantidade" fill="hsl(var(--secondary))" name="Quantidade" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="receita" fill="#22c55e" name="Receita (R$)" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="comissao" fill="#f59e0b" name="Comissão (R$)" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Recent appointments table */}
@@ -561,11 +801,61 @@ const FinancialDashboard = () => {
                     </td>
                   </tr>
                 ))}
+                {appointments.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-muted-foreground">
+                      Nenhum agendamento encontrado
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </CardContent>
       </Card>
+
+      {/* Product Sales table */}
+      {productSales.length > 0 && (
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <CardTitle>Vendas de Produtos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-2">Data</th>
+                    <th className="text-left py-3 px-2">Horário</th>
+                    <th className="text-left py-3 px-2">Produto</th>
+                    <th className="text-left py-3 px-2">Barbeiro</th>
+                    <th className="text-right py-3 px-2">Valor Total</th>
+                    <th className="text-right py-3 px-2">Comissão</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {productSales.slice(0, 10).map((sale) => (
+                    <tr key={sale.id} className="border-b border-border/50 hover:bg-muted/50">
+                      <td className="py-3 px-2">
+                        {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy')}
+                      </td>
+                      <td className="py-3 px-2">{sale.sale_time}</td>
+                      <td className="py-3 px-2">{(sale.product as any)?.name || '-'}</td>
+                      <td className="py-3 px-2">{(sale.barber as any)?.name || '-'}</td>
+                      <td className="py-3 px-2 text-right font-medium text-primary">
+                        R$ {sale.total_price.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-2 text-right font-medium text-green-400">
+                        R$ {sale.commission_value.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </>
   );
 
