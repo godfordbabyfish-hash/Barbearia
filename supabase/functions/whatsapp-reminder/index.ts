@@ -177,11 +177,11 @@ const processReminders = async (supabase: any) => {
     return { processed: 0 };
   }
 
-  // Fetch related data separately
+  // Fetch related data separately - prioritize 'whatsapp' field, fallback to 'phone'
   const appointmentsWithDetails = await Promise.all(
     appointmentsData.map(async (apt) => {
       const [profile, service, barber] = await Promise.all([
-        supabase.from('profiles').select('name, phone').eq('id', apt.client_id).maybeSingle(),
+        supabase.from('profiles').select('name, phone, whatsapp').eq('id', apt.client_id).maybeSingle(),
         apt.service_id ? supabase.from('services').select('title').eq('id', apt.service_id).maybeSingle() : Promise.resolve({ data: null }),
         apt.barber_id ? supabase.from('barbers').select('name').eq('id', apt.barber_id).maybeSingle() : Promise.resolve({ data: null })
       ]);
@@ -195,10 +195,40 @@ const processReminders = async (supabase: any) => {
     })
   );
 
-  // Filter out appointments without valid phone
-  const appointments = appointmentsWithDetails.filter(
-    apt => apt.profiles?.phone && apt.profiles.phone !== '' && apt.profiles.phone !== '00000000000'
-  );
+  // Format WhatsApp number helper function
+  const formatWhatsAppNumber = (phone: string | null | undefined): string | null => {
+    if (!phone || phone === '' || phone === '00000000000') return null;
+    
+    // Remove any non-numeric characters
+    const cleaned = phone.replace(/\D/g, '');
+    
+    // If it's 10 digits (DDD + 8 digits without 9), add country code 55
+    if (cleaned.length === 10) {
+      return '55' + cleaned;
+    }
+    // If it's 11 digits (DDD + 9 + 8 digits), add country code 55
+    if (cleaned.length === 11) {
+      return '55' + cleaned;
+    }
+    // If it already has country code (12+ digits), use as is
+    if (cleaned.length >= 12) {
+      return cleaned;
+    }
+    
+    return null;
+  };
+
+  // Filter out appointments without valid whatsapp/phone and format the number
+  const appointments = appointmentsWithDetails
+    .map(apt => {
+      const whatsappField = apt.profiles?.whatsapp || apt.profiles?.phone;
+      const formattedWhatsApp = formatWhatsAppNumber(whatsappField);
+      return {
+        ...apt,
+        formattedWhatsApp
+      };
+    })
+    .filter(apt => apt.formattedWhatsApp !== null);
 
   if (!appointments || appointments.length === 0) {
     console.log('[Reminder] No appointments found for reminder');
@@ -212,11 +242,11 @@ const processReminders = async (supabase: any) => {
 
   for (const appointment of appointments) {
     try {
-      const clientPhone = appointment.profiles?.phone;
+      const clientWhatsApp = appointment.formattedWhatsApp;
       const clientName = appointment.profiles?.name;
       
-      if (!clientPhone || clientPhone === '' || clientPhone === '00000000000') {
-        console.log(`[Reminder] Skipping appointment ${appointment.id} - no valid phone`);
+      if (!clientWhatsApp) {
+        console.log(`[Reminder] Skipping appointment ${appointment.id} - no valid whatsapp`);
         continue;
       }
 
@@ -228,7 +258,7 @@ const processReminders = async (supabase: any) => {
         barber_name: appointment.barbers?.name,
       }, mapsLink);
 
-      const success = await sendReminder(clientPhone, message, activeInstanceName);
+      const success = await sendReminder(clientWhatsApp, message, activeInstanceName);
 
       if (success) {
         // Mark reminder as sent (with race condition protection - only update if still false)
