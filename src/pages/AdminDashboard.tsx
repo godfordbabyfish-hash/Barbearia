@@ -319,122 +319,209 @@ const AdminDashboard = () => {
               <div className="space-y-6">
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-2xl font-bold pl-12 lg:pl-0">Serviços</h2>
-                  <Button onClick={() => setEditingService({ title: '', description: '', price: 0, icon: 'Scissors', visible: true, image_url: '', duration: 30 })}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Novo Serviço
-                  </Button>
                 </div>
-
-            {editingService && (
-              <Card className="bg-card border-border shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-xl">{editingService.id ? 'Editar' : 'Novo'} Serviço</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label>Título</Label>
-                    <Input
-                      value={editingService.title}
-                      onChange={(e) => setEditingService({ ...editingService, title: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Descrição</Label>
-                    <Textarea
-                      value={editingService.description}
-                      onChange={(e) => setEditingService({ ...editingService, description: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Preço (R$)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={editingService.price}
-                      onChange={(e) => setEditingService({ ...editingService, price: parseFloat(e.target.value) })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Ícone (lucide-react)</Label>
-                    <Input
-                      value={editingService.icon}
-                      onChange={(e) => setEditingService({ ...editingService, icon: e.target.value })}
-                      placeholder="Scissors, Wind, Sparkles..."
-                    />
-                  </div>
-                  <div>
-                    <Label>Duração (minutos)</Label>
-                    <Input
-                      type="number"
-                      value={editingService.duration || 30}
-                      onChange={(e) => setEditingService({ ...editingService, duration: parseInt(e.target.value) })}
-                      placeholder="30"
-                    />
-                  </div>
-                  <div>
-                    <Label>Imagem do Serviço</Label>
-                    <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleServiceImageUpload}
-                        disabled={uploading}
-                        className="flex-1"
-                      />
-                      {editingService.image_url && (
-                        <img src={editingService.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Switch
-                      checked={editingService.visible}
-                      onCheckedChange={(checked) => setEditingService({ ...editingService, visible: checked })}
-                    />
-                    <Label>Visível</Label>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button onClick={handleSaveService} disabled={uploading}>Salvar</Button>
-                    <Button variant="outline" onClick={() => setEditingService(null)}>Cancelar</Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {services.map((service) => (
-                <Card key={service.id} className="bg-card border-border hover:border-primary/50 transition-all">
-                  <CardContent className="p-4">
-                    <div className="space-y-3">
-                      {service.image_url && (
-                        <img src={service.image_url} alt={service.title} className="w-full h-32 object-cover rounded-lg" />
-                      )}
+                editingService?.id === service.id ? (
+                  // Formulário de edição inline
+                  <Card key={service.id} className="bg-card border-border shadow-lg border-primary">
+                    <CardHeader>
+                      <CardTitle className="text-xl">Editar Serviço</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
                       <div>
-                        <h3 className="text-lg font-bold mb-1">{service.title}</h3>
-                        <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{service.description}</p>
-                        <div className="flex items-center justify-between">
-                          <p className="text-lg font-bold text-primary">R$ {service.price.toFixed(2)}</p>
-                          <Badge variant={service.visible ? 'default' : 'secondary'}>
-                            {service.visible ? 'Visível' : 'Oculto'}
-                          </Badge>
+                        <Label>Título</Label>
+                        <Input
+                          value={editingService.title}
+                          onChange={(e) => setEditingService({ ...editingService, title: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label>Descrição</Label>
+                        <Textarea
+                          value={editingService.description}
+                          onChange={(e) => setEditingService({ ...editingService, description: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label>Preço (R$)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={editingService.price}
+                          onChange={(e) => setEditingService({ ...editingService, price: parseFloat(e.target.value) })}
+                        />
+                      </div>
+                      <div>
+                        <Label>Ícone (lucide-react)</Label>
+                        <Input
+                          value={editingService.icon}
+                          onChange={(e) => setEditingService({ ...editingService, icon: e.target.value })}
+                          placeholder="Scissors, Wind, Sparkles..."
+                        />
+                      </div>
+                      <div>
+                        <Label>Duração (minutos)</Label>
+                        <Input
+                          type="number"
+                          value={editingService.duration || 30}
+                          onChange={(e) => setEditingService({ ...editingService, duration: parseInt(e.target.value) })}
+                          placeholder="30"
+                        />
+                      </div>
+                      <div>
+                        <Label>Imagem do Serviço</Label>
+                        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleServiceImageUpload}
+                            disabled={uploading}
+                            className="flex-1"
+                          />
+                          {editingService.image_url && (
+                            <img src={editingService.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                          )}
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Duração: {service.duration || 30}min
-                        </p>
                       </div>
-                      <div className="flex gap-2 pt-2 border-t border-border">
-                        <Button size="sm" variant="outline" className="flex-1" onClick={() => setEditingService(service)}>
-                          <Pencil className="h-4 w-4 mr-2" />
-                          Editar
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleDeleteService(service.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                      <div className="flex items-center space-x-2">
+                        <Switch
+                          checked={editingService.visible}
+                          onCheckedChange={(checked) => setEditingService({ ...editingService, visible: checked })}
+                        />
+                        <Label>Visível</Label>
                       </div>
+                      <div className="flex gap-2">
+                        <Button onClick={handleSaveService} disabled={uploading}>Salvar</Button>
+                        <Button variant="outline" onClick={() => setEditingService(null)}>Cancelar</Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  // Card normal do serviço
+                  <Card key={service.id} className="bg-card border-border hover:border-primary/50 transition-all">
+                    <CardContent className="p-4">
+                      <div className="space-y-3">
+                        {service.image_url && (
+                          <img src={service.image_url} alt={service.title} className="w-full h-32 object-cover rounded-lg" />
+                        )}
+                        <div>
+                          <h3 className="text-lg font-bold mb-1">{service.title}</h3>
+                          <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{service.description}</p>
+                          <div className="flex items-center justify-between">
+                            <p className="text-lg font-bold text-primary">R$ {service.price.toFixed(2)}</p>
+                            <Badge variant={service.visible ? 'default' : 'secondary'}>
+                              {service.visible ? 'Visível' : 'Oculto'}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Duração: {service.duration || 30}min
+                          </p>
+                        </div>
+                        <div className="flex gap-2 pt-2 border-t border-border">
+                          <Button size="sm" variant="outline" className="flex-1" onClick={() => setEditingService(service)}>
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Editar
+                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => handleDeleteService(service.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              ))}
+              {/* Formulário para novo serviço ou card para adicionar */}
+              {editingService && !editingService.id ? (
+                <Card className="bg-card border-border shadow-lg border-primary">
+                  <CardHeader>
+                    <CardTitle className="text-xl">Novo Serviço</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <Label>Título</Label>
+                      <Input
+                        value={editingService.title}
+                        onChange={(e) => setEditingService({ ...editingService, title: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label>Descrição</Label>
+                      <Textarea
+                        value={editingService.description}
+                        onChange={(e) => setEditingService({ ...editingService, description: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label>Preço (R$)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={editingService.price}
+                        onChange={(e) => setEditingService({ ...editingService, price: parseFloat(e.target.value) })}
+                      />
+                    </div>
+                    <div>
+                      <Label>Ícone (lucide-react)</Label>
+                      <Input
+                        value={editingService.icon}
+                        onChange={(e) => setEditingService({ ...editingService, icon: e.target.value })}
+                        placeholder="Scissors, Wind, Sparkles..."
+                      />
+                    </div>
+                    <div>
+                      <Label>Duração (minutos)</Label>
+                      <Input
+                        type="number"
+                        value={editingService.duration || 30}
+                        onChange={(e) => setEditingService({ ...editingService, duration: parseInt(e.target.value) })}
+                        placeholder="30"
+                      />
+                    </div>
+                    <div>
+                      <Label>Imagem do Serviço</Label>
+                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                        <Input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleServiceImageUpload}
+                          disabled={uploading}
+                          className="flex-1"
+                        />
+                        {editingService.image_url && (
+                          <img src={editingService.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        checked={editingService.visible}
+                        onCheckedChange={(checked) => setEditingService({ ...editingService, visible: checked })}
+                      />
+                      <Label>Visível</Label>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button onClick={handleSaveService} disabled={uploading}>Salvar</Button>
+                      <Button variant="outline" onClick={() => setEditingService(null)}>Cancelar</Button>
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+              ) : !editingService ? (
+                <Card className="bg-card border-border border-dashed hover:border-primary/50 transition-all">
+                  <CardContent className="p-4 flex items-center justify-center min-h-[200px]">
+                    <Button 
+                      variant="ghost" 
+                      className="w-full h-full flex flex-col gap-2"
+                      onClick={() => setEditingService({ title: '', description: '', price: 0, icon: 'Scissors', visible: true, image_url: '', duration: 30 })}
+                    >
+                      <Plus className="h-8 w-8 text-muted-foreground" />
+                      <span className="text-muted-foreground">Novo Serviço</span>
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : null}
             </div>
               </div>
             )}
@@ -444,125 +531,213 @@ const AdminDashboard = () => {
               <div className="space-y-6">
                 <div className="flex items-center justify-between gap-4">
                   <h2 className="text-2xl font-bold pl-12 lg:pl-0">Produtos</h2>
-                  <Button onClick={() => setEditingProduct({ name: '', description: '', price: 0, category: 'Styling', stock: 0, visible: true, image_url: '' })}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Novo Produto
-                  </Button>
                 </div>
-
-            {editingProduct && (
-              <Card className="bg-card border-border shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-xl">{editingProduct.id ? 'Editar' : 'Novo'} Produto</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label>Nome</Label>
-                    <Input
-                      value={editingProduct.name}
-                      onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Descrição</Label>
-                    <Textarea
-                      value={editingProduct.description}
-                      onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label>Preço (R$)</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={editingProduct.price}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, price: parseFloat(e.target.value) })}
-                      />
-                    </div>
-                    <div>
-                      <Label>Estoque</Label>
-                      <Input
-                        type="number"
-                        value={editingProduct.stock || 0}
-                        onChange={(e) => setEditingProduct({ ...editingProduct, stock: parseInt(e.target.value) })}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Categoria</Label>
-                    <Input
-                      value={editingProduct.category}
-                      onChange={(e) => setEditingProduct({ ...editingProduct, category: e.target.value })}
-                      placeholder="Styling, Ferramentas, Barba, Cuidados"
-                    />
-                  </div>
-                  <div>
-                    <Label>Imagem do Produto</Label>
-                    <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleProductImageUpload}
-                        disabled={uploading}
-                        className="flex-1"
-                      />
-                      {editingProduct.image_url && (
-                        <img src={editingProduct.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Switch
-                      checked={editingProduct.visible}
-                      onCheckedChange={(checked) => setEditingProduct({ ...editingProduct, visible: checked })}
-                    />
-                    <Label>Visível</Label>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button onClick={handleSaveProduct} disabled={uploading}>Salvar</Button>
-                    <Button variant="outline" onClick={() => setEditingProduct(null)}>Cancelar</Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {products.map((product) => (
-                <Card key={product.id} className="bg-card border-border hover:border-primary/50 transition-all">
-                  <CardContent className="p-4">
-                    <div className="space-y-3">
-                      {product.image_url && (
-                        <img src={product.image_url} alt={product.name} className="w-full h-32 object-cover rounded-lg" />
-                      )}
+                editingProduct?.id === product.id ? (
+                  // Formulário de edição inline
+                  <Card key={product.id} className="bg-card border-border shadow-lg border-primary">
+                    <CardHeader>
+                      <CardTitle className="text-xl">Editar Produto</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
                       <div>
-                        <h3 className="text-lg font-bold mb-1">{product.name}</h3>
-                        <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{product.description}</p>
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-lg font-bold text-primary">R$ {Number(product.price).toFixed(2)}</p>
-                          <Badge variant={product.visible ? 'default' : 'secondary'}>
-                            {product.visible ? 'Visível' : 'Oculto'}
-                          </Badge>
+                        <Label>Nome</Label>
+                        <Input
+                          value={editingProduct.name}
+                          onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label>Descrição</Label>
+                        <Textarea
+                          value={editingProduct.description}
+                          onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Preço (R$)</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={editingProduct.price}
+                            onChange={(e) => setEditingProduct({ ...editingProduct, price: parseFloat(e.target.value) })}
+                          />
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>{product.category}</span>
-                          <span>•</span>
-                          <span>Estoque: {product.stock}</span>
+                        <div>
+                          <Label>Estoque</Label>
+                          <Input
+                            type="number"
+                            value={editingProduct.stock || 0}
+                            onChange={(e) => setEditingProduct({ ...editingProduct, stock: parseInt(e.target.value) })}
+                          />
                         </div>
                       </div>
-                      <div className="flex gap-2 pt-2 border-t border-border">
-                        <Button size="sm" variant="outline" className="flex-1" onClick={() => setEditingProduct(product)}>
-                          <Pencil className="h-4 w-4 mr-2" />
-                          Editar
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleDeleteProduct(product.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                      <div>
+                        <Label>Categoria</Label>
+                        <Input
+                          value={editingProduct.category}
+                          onChange={(e) => setEditingProduct({ ...editingProduct, category: e.target.value })}
+                          placeholder="Styling, Ferramentas, Barba, Cuidados"
+                        />
                       </div>
+                      <div>
+                        <Label>Imagem do Produto</Label>
+                        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleProductImageUpload}
+                            disabled={uploading}
+                            className="flex-1"
+                          />
+                          {editingProduct.image_url && (
+                            <img src={editingProduct.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Switch
+                          checked={editingProduct.visible}
+                          onCheckedChange={(checked) => setEditingProduct({ ...editingProduct, visible: checked })}
+                        />
+                        <Label>Visível</Label>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button onClick={handleSaveProduct} disabled={uploading}>Salvar</Button>
+                        <Button variant="outline" onClick={() => setEditingProduct(null)}>Cancelar</Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  // Card normal do produto
+                  <Card key={product.id} className="bg-card border-border hover:border-primary/50 transition-all">
+                    <CardContent className="p-4">
+                      <div className="space-y-3">
+                        {product.image_url && (
+                          <img src={product.image_url} alt={product.name} className="w-full h-32 object-cover rounded-lg" />
+                        )}
+                        <div>
+                          <h3 className="text-lg font-bold mb-1">{product.name}</h3>
+                          <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{product.description}</p>
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-lg font-bold text-primary">R$ {Number(product.price).toFixed(2)}</p>
+                            <Badge variant={product.visible ? 'default' : 'secondary'}>
+                              {product.visible ? 'Visível' : 'Oculto'}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>{product.category}</span>
+                            <span>•</span>
+                            <span>Estoque: {product.stock}</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 pt-2 border-t border-border">
+                          <Button size="sm" variant="outline" className="flex-1" onClick={() => setEditingProduct(product)}>
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Editar
+                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => handleDeleteProduct(product.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              ))}
+              {/* Formulário para novo produto ou card para adicionar */}
+              {editingProduct && !editingProduct.id ? (
+                <Card className="bg-card border-border shadow-lg border-primary">
+                  <CardHeader>
+                    <CardTitle className="text-xl">Novo Produto</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <Label>Nome</Label>
+                      <Input
+                        value={editingProduct.name}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label>Descrição</Label>
+                      <Textarea
+                        value={editingProduct.description}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, description: e.target.value })}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label>Preço (R$)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={editingProduct.price}
+                          onChange={(e) => setEditingProduct({ ...editingProduct, price: parseFloat(e.target.value) })}
+                        />
+                      </div>
+                      <div>
+                        <Label>Estoque</Label>
+                        <Input
+                          type="number"
+                          value={editingProduct.stock || 0}
+                          onChange={(e) => setEditingProduct({ ...editingProduct, stock: parseInt(e.target.value) })}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Categoria</Label>
+                      <Input
+                        value={editingProduct.category}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, category: e.target.value })}
+                        placeholder="Styling, Ferramentas, Barba, Cuidados"
+                      />
+                    </div>
+                    <div>
+                      <Label>Imagem do Produto</Label>
+                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                        <Input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleProductImageUpload}
+                          disabled={uploading}
+                          className="flex-1"
+                        />
+                        {editingProduct.image_url && (
+                          <img src={editingProduct.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        checked={editingProduct.visible}
+                        onCheckedChange={(checked) => setEditingProduct({ ...editingProduct, visible: checked })}
+                      />
+                      <Label>Visível</Label>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button onClick={handleSaveProduct} disabled={uploading}>Salvar</Button>
+                      <Button variant="outline" onClick={() => setEditingProduct(null)}>Cancelar</Button>
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+              ) : !editingProduct ? (
+                <Card className="bg-card border-border border-dashed hover:border-primary/50 transition-all">
+                  <CardContent className="p-4 flex items-center justify-center min-h-[200px]">
+                    <Button 
+                      variant="ghost" 
+                      className="w-full h-full flex flex-col gap-2"
+                      onClick={() => setEditingProduct({ name: '', description: '', price: 0, category: 'Styling', stock: 0, visible: true, image_url: '' })}
+                    >
+                      <Plus className="h-8 w-8 text-muted-foreground" />
+                      <span className="text-muted-foreground">Novo Produto</span>
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : null}
             </div>
               </div>
             )}

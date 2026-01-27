@@ -14,6 +14,7 @@ import ClienteDashboard from "./pages/ClienteDashboard";
 import BarbeiroDashboard from "./pages/BarbeiroDashboard";
 import FilaDaBarbearia from "./pages/FilaDaBarbearia";
 import Servicos from "./pages/Servicos";
+import ClientRegister from "./pages/ClientRegister";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -37,6 +38,7 @@ const App = () => (
               <Route path="/" element={<Index />} />
               <Route path="/shop" element={<Shop />} />
               <Route path="/auth" element={<Auth />} />
+              <Route path="/cadastro" element={<ClientRegister />} />
               <Route path="/admin-setup" element={<AdminSetup />} />
               <Route path="/admin" element={<AdminDashboard />} />
               <Route path="/cliente" element={<ClienteDashboard />} />

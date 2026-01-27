@@ -40,14 +40,14 @@ export const validateBrazilianPhone = (phone: string): { isValid: boolean; error
   if (cleaned.length < 10) {
     return {
       isValid: false,
-      errorMessage: `Número muito curto. Digite o DDD (2 dígitos) + número (8 dígitos, sem o 9). Exemplo: 8282212126`
+      errorMessage: `Formato incorreto. Use: DDD (2 dígitos) + número (8 dígitos, sem o 9). Exemplo: 8200000000`
     };
   }
 
   if (cleaned.length > 10) {
     return {
       isValid: false,
-      errorMessage: `Número muito longo. Digite apenas o DDD (2 dígitos) + número (8 dígitos, sem o 9). Exemplo: 8282212126`
+      errorMessage: `Formato incorreto. Use: DDD (2 dígitos) + número (8 dígitos, sem o 9). Exemplo: 8200000000`
     };
   }
 
@@ -67,7 +67,7 @@ export const validateBrazilianPhone = (phone: string): { isValid: boolean; error
   if (numberPart.length !== 8) {
     return {
       isValid: false,
-      errorMessage: 'Número inválido. Após o DDD, o número deve ter exatamente 8 dígitos (sem o 9). Exemplo: 8282212126'
+      errorMessage: 'Formato incorreto. Use: DDD (2 dígitos) + número (8 dígitos, sem o 9). Exemplo: 8200000000'
     };
   }
   
@@ -75,7 +75,7 @@ export const validateBrazilianPhone = (phone: string): { isValid: boolean; error
   if (numberPart[0] === '9') {
     return {
       isValid: false,
-      errorMessage: 'Não use o número 9 após o DDD. Use apenas DDD + 8 dígitos. Exemplo: 8282212126'
+      errorMessage: 'Não use o número 9 após o DDD. O cadastro deve ser sem o número 9 após o DDD. Exemplo: 8200000000'
     };
   }
 

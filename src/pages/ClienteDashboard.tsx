@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { LogOut, Calendar, Clock, Scissors, Sparkles, Wind, Home, ShoppingBag, History } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -37,6 +38,9 @@ const ClienteDashboard = () => {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
   const [cancellationReason, setCancellationReason] = useState('');
+  const [historyFilterPeriod, setHistoryFilterPeriod] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
+  const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'completed' | 'cancelled' | 'confirmed' | 'pending'>('all');
+  const [historyFilterService, setHistoryFilterService] = useState<string>('all');
 
   useEffect(() => {
     if (!user || role !== 'cliente') {
@@ -109,6 +113,53 @@ const ClienteDashboard = () => {
     } else {
       setServices(data || []);
     }
+  };
+
+  // Função para filtrar agendamentos do histórico
+  const getFilteredHistoryAppointments = () => {
+    let filtered = [...appointments];
+
+    // Filtro por período
+    if (historyFilterPeriod !== 'all') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      filtered = filtered.filter(apt => {
+        const aptDate = new Date(apt.appointment_date + 'T00:00:00');
+        aptDate.setHours(0, 0, 0, 0);
+        
+        switch (historyFilterPeriod) {
+          case 'today':
+            return aptDate.getTime() === today.getTime();
+          case 'week':
+            const weekAgo = new Date(today);
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            return aptDate >= weekAgo;
+          case 'month':
+            const monthAgo = new Date(today);
+            monthAgo.setMonth(monthAgo.getMonth() - 1);
+            return aptDate >= monthAgo;
+          case 'year':
+            const yearAgo = new Date(today);
+            yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+            return aptDate >= yearAgo;
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Filtro por status
+    if (historyFilterStatus !== 'all') {
+      filtered = filtered.filter(apt => apt.status === historyFilterStatus);
+    }
+
+    // Filtro por serviço
+    if (historyFilterService !== 'all') {
+      filtered = filtered.filter(apt => apt.service_id === historyFilterService);
+    }
+
+    return filtered;
   };
 
   const handleCancelClick = (id: string) => {
@@ -327,9 +378,59 @@ const ClienteDashboard = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                {/* Filtros */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 pb-4 border-b border-border">
+                  <div>
+                    <Label className="text-sm text-muted-foreground mb-1 block">Período</Label>
+                    <Select value={historyFilterPeriod} onValueChange={(v) => setHistoryFilterPeriod(v as any)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos</SelectItem>
+                        <SelectItem value="today">Hoje</SelectItem>
+                        <SelectItem value="week">Última Semana</SelectItem>
+                        <SelectItem value="month">Último Mês</SelectItem>
+                        <SelectItem value="year">Último Ano</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-sm text-muted-foreground mb-1 block">Status</Label>
+                    <Select value={historyFilterStatus} onValueChange={(v) => setHistoryFilterStatus(v as any)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos</SelectItem>
+                        <SelectItem value="completed">Concluído</SelectItem>
+                        <SelectItem value="confirmed">Confirmado</SelectItem>
+                        <SelectItem value="cancelled">Cancelado</SelectItem>
+                        <SelectItem value="pending">Pendente</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-sm text-muted-foreground mb-1 block">Serviço</Label>
+                    <Select value={historyFilterService} onValueChange={setHistoryFilterService}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos</SelectItem>
+                        {services.map((service) => (
+                          <SelectItem key={service.id} value={service.id}>{service.title}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
                 <div className="space-y-3">
-                  {appointments.length > 0 ? (
-                    appointments.map((appointment) => (
+                  {(() => {
+                    const filteredAppointments = getFilteredHistoryAppointments();
+                    return filteredAppointments.length > 0 ? (
+                      filteredAppointments.map((appointment) => (
                       <div key={appointment.id} className="p-4 bg-secondary rounded-lg">
                         <div className="flex justify-between items-start">
                           <div className="space-y-1">
@@ -384,12 +485,15 @@ const ClienteDashboard = () => {
                           )}
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <p className="text-center text-muted-foreground py-8">
-                      Você ainda não tem agendamentos
-                    </p>
-                  )}
+                      ))
+                    ) : (
+                      <p className="text-center text-muted-foreground py-8">
+                        {appointments.length === 0 
+                          ? 'Você ainda não tem agendamentos'
+                          : 'Nenhum agendamento encontrado com os filtros selecionados'}
+                      </p>
+                    );
+                  })()}
                 </div>
               </CardContent>
             </Card>

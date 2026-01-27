@@ -78,6 +78,7 @@ export const UserManager = () => {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(true);
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
   
   // Edit user dialog (role + barber info)
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
@@ -92,6 +93,12 @@ export const UserManager = () => {
   });
   const [barberData, setBarberData] = useState<any>(null);
   const [loadingBarberData, setLoadingBarberData] = useState(false);
+  
+  // Password management in edit dialog
+  const [editPassword, setEditPassword] = useState('');
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [updatingPasswordInEdit, setUpdatingPasswordInEdit] = useState(false);
+  const [generatedPasswordInEdit, setGeneratedPasswordInEdit] = useState<string | null>(null);
   
   // Delete confirmation
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -192,17 +199,20 @@ export const UserManager = () => {
   };
 
   const handleUpdatePassword = async () => {
-    if (!selectedUser || !newPassword) {
-      toast.error('Digite a nova senha');
+    if (!selectedUser) {
+      toast.error('Usuário não selecionado');
       return;
     }
+
+    // Se não houver senha digitada, gerar uma automaticamente
+    const passwordToUse = newPassword || generatePassword();
 
     setUpdatingPassword(true);
     try {
       const { data, error } = await supabase.functions.invoke('api', {
         body: {
           action: `admin/users/${selectedUser.id}/password`,
-          password: newPassword,
+          password: passwordToUse,
         },
       });
 
@@ -211,10 +221,13 @@ export const UserManager = () => {
       }
 
       if (data?.success) {
-        toast.success('Senha atualizada com sucesso!');
-        setPasswordDialogOpen(false);
-        setSelectedUser(null);
-        setNewPassword('');
+        // Mostrar a senha gerada/definida
+        setGeneratedPassword(passwordToUse);
+        setNewPassword(passwordToUse);
+        toast.success('Senha atualizada com sucesso!', {
+          description: `Nova senha: ${passwordToUse}`,
+          duration: 10000,
+        });
       } else {
         toast.error('Erro ao atualizar senha', {
           description: data?.message || 'Erro desconhecido',
@@ -227,6 +240,13 @@ export const UserManager = () => {
     } finally {
       setUpdatingPassword(false);
     }
+  };
+
+  const openPasswordDialog = (user: User) => {
+    setSelectedUser(user);
+    setNewPassword('');
+    setGeneratedPassword(null);
+    setPasswordDialogOpen(true);
   };
 
   const handleUpdateRole = async () => {
@@ -355,12 +375,6 @@ export const UserManager = () => {
     }
   };
 
-  const openPasswordDialog = (user: User) => {
-    setSelectedUser(user);
-    setNewPassword(generatePassword());
-    setShowPassword(true);
-    setPasswordDialogOpen(true);
-  };
 
   const openRoleDialog = async (user: User) => {
     setSelectedUser(user);
@@ -373,6 +387,9 @@ export const UserManager = () => {
       whatsapp_phone: '',
     });
     setBarberData(null);
+    setEditPassword('');
+    setGeneratedPasswordInEdit(null);
+    setShowEditPassword(false);
     setRoleDialogOpen(true);
 
     // Se for barbeiro, carregar dados do barbeiro
@@ -829,6 +846,163 @@ export const UserManager = () => {
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Senha - especialmente importante para barbeiros */}
+              {(selectedRole === 'barbeiro' || selectedUser?.role === 'barbeiro') && (
+                <div className="space-y-3 border-t pt-4">
+                  <h4 className="font-semibold text-sm text-muted-foreground">Senha do Barbeiro</h4>
+                  {generatedPasswordInEdit ? (
+                    <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+                      <Label className="text-green-400 font-semibold mb-2 block">Senha Gerada/Atualizada</Label>
+                      <div className="flex gap-2 items-center">
+                        <div className="relative flex-1 min-w-0">
+                          <Input
+                            type={showEditPassword ? 'text' : 'password'}
+                            value={generatedPasswordInEdit}
+                            readOnly
+                            className="pr-20 w-full bg-secondary font-mono text-lg"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-8 top-0 h-full flex-shrink-0"
+                            onClick={() => setShowEditPassword(!showEditPassword)}
+                          >
+                            {showEditPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-0 top-0 h-full flex-shrink-0"
+                            onClick={() => copyToClipboard(generatedPasswordInEdit)}
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-green-400/80 mt-2">
+                        ✅ Copie e compartilhe esta senha com o barbeiro. Ela não será exibida novamente.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 w-full"
+                        onClick={() => {
+                          setGeneratedPasswordInEdit(null);
+                          setEditPassword('');
+                        }}
+                      >
+                        Gerar Nova Senha
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label>Nova Senha</Label>
+                      <div className="flex gap-2 w-full">
+                        <div className="relative flex-1 min-w-0">
+                          <Input
+                            type={showEditPassword ? 'text' : 'password'}
+                            value={editPassword}
+                            onChange={(e) => setEditPassword(e.target.value)}
+                            placeholder="Deixe em branco para gerar automaticamente"
+                            className="pr-20 w-full"
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-8 top-0 h-full flex-shrink-0"
+                            onClick={() => setShowEditPassword(!showEditPassword)}
+                          >
+                            {showEditPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-0 top-0 h-full flex-shrink-0"
+                            onClick={() => copyToClipboard(editPassword)}
+                            disabled={!editPassword}
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            const newPass = generatePassword();
+                            setEditPassword(newPass);
+                            setShowEditPassword(true);
+                          }}
+                          title="Gerar senha aleatória"
+                          className="flex-shrink-0"
+                        >
+                          <Dice5 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {editPassword ? '⚠️ A senha será atualizada ao salvar. Anote antes de salvar!' : '💡 Deixe em branco para gerar uma senha aleatória automaticamente ao salvar.'}
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={async () => {
+                          if (!selectedUser) return;
+                          const passwordToUse = editPassword || generatePassword();
+                          setUpdatingPasswordInEdit(true);
+                          try {
+                            const { data, error } = await supabase.functions.invoke('api', {
+                              body: {
+                                action: `admin/users/${selectedUser.id}/password`,
+                                password: passwordToUse,
+                              },
+                            });
+
+                            if (error) throw error;
+
+                            if (data?.success) {
+                              setGeneratedPasswordInEdit(passwordToUse);
+                              setEditPassword(passwordToUse);
+                              setShowEditPassword(true);
+                              toast.success('Senha atualizada com sucesso!', {
+                                description: `Nova senha: ${passwordToUse}`,
+                                duration: 10000,
+                              });
+                            } else {
+                              toast.error('Erro ao atualizar senha', {
+                                description: data?.message || 'Erro desconhecido',
+                              });
+                            }
+                          } catch (error: any) {
+                            toast.error('Erro ao atualizar senha', {
+                              description: error.message,
+                            });
+                          } finally {
+                            setUpdatingPasswordInEdit(false);
+                          }
+                        }}
+                        disabled={updatingPasswordInEdit}
+                      >
+                        {updatingPasswordInEdit ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Atualizando...
+                          </>
+                        ) : (
+                          <>
+                            <Key className="mr-2 h-4 w-4" />
+                            {editPassword ? 'Atualizar Senha' : 'Gerar e Atualizar Senha'}
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Informações do Barbeiro (só aparece se for barbeiro) */}
               {(selectedRole === 'barbeiro' || barberData) && (

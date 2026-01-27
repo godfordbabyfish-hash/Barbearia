@@ -12,7 +12,7 @@ if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   if (!SUPABASE_PUBLISHABLE_KEY) missing.push('VITE_SUPABASE_PUBLISHABLE_KEY');
   
   console.error('❌ Erro: Variáveis de ambiente não configuradas:', missing.join(', '));
-  console.error('📝 Configure as variáveis de ambiente no Netlify:');
+  console.error('📝 Configure as variáveis de ambiente no Vercel/Netlify:');
   console.error('   - VITE_SUPABASE_URL');
   console.error('   - VITE_SUPABASE_PUBLISHABLE_KEY');
   console.error('   - VITE_SUPABASE_PROJECT_ID');

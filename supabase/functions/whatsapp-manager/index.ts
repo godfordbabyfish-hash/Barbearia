@@ -317,6 +317,26 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
       console.warn('[WhatsApp Manager] Could not verify instance readiness:', e);
     }
 
+    // Verificar estado final da instância antes de tentar conectar
+    console.log(`[WhatsApp Manager] Step 3.7: Final instance state check before connect...`);
+    try {
+      const finalCheckResponse = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
+        method: 'GET',
+        headers: { 'apikey': evolutionApiKey },
+      });
+      if (finalCheckResponse.ok) {
+        const instances = await finalCheckResponse.json();
+        const instance = instances.find((inst: any) => inst.instanceName === instanceName);
+        if (instance) {
+          console.log(`[WhatsApp Manager] Final instance state:`, JSON.stringify(instance, null, 2));
+        } else {
+          console.warn(`[WhatsApp Manager] Instance ${instanceName} not found in final check!`);
+        }
+      }
+    } catch (e) {
+      console.warn('[WhatsApp Manager] Could not perform final instance check:', e);
+    }
+
     // Agora tentar conectar e obter QR code com retry para erro 500
     // Adicionar ?qrcode=true para garantir que a API retorne o QR code
     console.log(`[WhatsApp Manager] Step 4: Connecting to get QR code...`);
@@ -438,7 +458,7 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
         console.error(`[WhatsApp Manager] Step 4: Evolution API returned 500 error. Response:`, errorText);
         return { 
           success: false, 
-          error: `Erro interno na Evolution API (servidor Railway). A API retornou erro 500. Isso geralmente indica que o serviço precisa ser reiniciado. Detalhes: ${errorData.message || errorData.error || errorText || 'Internal Server Error'}. Acesse o Railway Dashboard e reinicie o serviço "whatsapp-bot-barbearia".` 
+          error: `Erro interno na Evolution API (servidor Railway). A instância pode estar em estado inconsistente. SOLUÇÃO: 1) Remova a instância atual no painel admin (botão "Remover"), 2) Reinicie o serviço "whatsapp-bot-barbearia" no Railway Dashboard, 3) Crie uma nova instância e tente gerar o QR code novamente. Detalhes: ${errorData.message || errorData.error || errorText || 'Internal Server Error'}.` 
         };
       }
       
