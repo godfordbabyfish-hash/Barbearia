@@ -49,6 +49,7 @@ const getActiveInstanceName = async (supabase: any): Promise<string> => {
 // Format phone number (remove non-digits, add country code if needed)
 // IMPORTANTE: O bot Railway adiciona @s.whatsapp.net automaticamente,
 // então só precisamos enviar o número limpo (sem @s.whatsapp.net)
+// NOTA: A migration SQL já formata o número com código 55, então aqui só validamos
 const formatPhoneNumber = (phone: string): string => {
   // Remove todos os caracteres não numéricos
   let cleaned = phone.replace(/\D/g, '');
@@ -56,12 +57,28 @@ const formatPhoneNumber = (phone: string): string => {
   // Remove @s.whatsapp.net se estiver presente (o bot Railway adiciona isso)
   cleaned = cleaned.replace(/@s\.whatsapp\.net/gi, '');
   
-  // Se não começar com 55 (Brasil), adiciona
-  if (!cleaned.startsWith('55')) {
-    cleaned = '55' + cleaned;
+  // Se já começar com 55, verificar se tem tamanho válido (mínimo 12: 55 + DDD + número)
+  if (cleaned.startsWith('55')) {
+    if (cleaned.length >= 12) {
+      // Já está formatado corretamente pela migration
+      console.log(`[WhatsApp] Phone já formatado: ${cleaned} (original: ${phone})`);
+      return cleaned;
+    } else {
+      // Tem 55 mas tamanho inválido, tentar corrigir
+      console.warn(`[WhatsApp] Phone com 55 mas tamanho inválido: ${cleaned.length} dígitos (original: ${phone})`);
+    }
   }
   
-  console.log(`[WhatsApp] Phone formatado: ${cleaned} (original: ${phone})`);
+  // Se não começar com 55, adiciona (pode ser número antigo da fila)
+  if (!cleaned.startsWith('55')) {
+    // Se tem 10 ou 11 dígitos, adiciona 55
+    if (cleaned.length === 10 || cleaned.length === 11) {
+      cleaned = '55' + cleaned;
+      console.log(`[WhatsApp] Phone formatado (adicionado 55): ${cleaned} (original: ${phone})`);
+    } else {
+      console.warn(`[WhatsApp] Phone com tamanho inválido: ${cleaned.length} dígitos (original: ${phone})`);
+    }
+  }
   
   return cleaned;
 };
