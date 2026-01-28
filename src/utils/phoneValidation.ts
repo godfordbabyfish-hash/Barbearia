@@ -36,18 +36,18 @@ export const validateBrazilianPhone = (phone: string): { isValid: boolean; error
     };
   }
 
-  // Verifica tamanho: deve ter exatamente 10 dígitos (DDD 2 + número 8, sem o 9)
+// Verifica tamanho: deve ter exatamente 10 dígitos (DDD 2 + número 8)
   if (cleaned.length < 10) {
     return {
       isValid: false,
-      errorMessage: `Formato incorreto. Use: DDD (2 dígitos) + número (8 dígitos, sem o 9). Exemplo: 8200000000`
+      errorMessage: `Formato incorreto. Use: DDD (2 dígitos) + número (8 dígitos). Exemplo: 8200000000`
     };
   }
 
   if (cleaned.length > 10) {
     return {
       isValid: false,
-      errorMessage: `Formato incorreto. Use: DDD (2 dígitos) + número (8 dígitos, sem o 9). Exemplo: 8200000000`
+      errorMessage: `Formato incorreto. Use: DDD (2 dígitos) + número (8 dígitos). Exemplo: 8200000000`
     };
   }
 
@@ -62,20 +62,12 @@ export const validateBrazilianPhone = (phone: string): { isValid: boolean; error
     };
   }
 
-  // Verifica se o número (após DDD) tem exatamente 8 dígitos (sem o 9)
+  // Verifica se o número (após DDD) tem exatamente 8 dígitos
   const numberPart = cleaned.substring(2);
   if (numberPart.length !== 8) {
     return {
       isValid: false,
-      errorMessage: 'Formato incorreto. Use: DDD (2 dígitos) + número (8 dígitos, sem o 9). Exemplo: 8200000000'
-    };
-  }
-  
-  // Verifica se o número começa com 9 (não permitido)
-  if (numberPart[0] === '9') {
-    return {
-      isValid: false,
-      errorMessage: 'Não use o número 9 após o DDD. O cadastro deve ser sem o número 9 após o DDD. Exemplo: 8200000000'
+      errorMessage: 'Formato incorreto. Use: DDD (2 dígitos) + número (8 dígitos). Exemplo: 8200000000'
     };
   }
 

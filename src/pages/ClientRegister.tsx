@@ -256,7 +256,7 @@ const ClientRegister = () => {
                 className="h-12"
               />
               <p className="text-xs text-muted-foreground">
-                Formato: DDD (2 dígitos) + número (8 dígitos, sem o 9). Exemplo: 8200000000
+                Formato: DDD (2 dígitos) + número (8 dígitos). Exemplo: 8200000000
               </p>
             </div>
 
