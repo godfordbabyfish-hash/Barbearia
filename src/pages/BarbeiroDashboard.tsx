@@ -474,10 +474,11 @@ const BarbeiroDashboard = () => {
     // Usar barberId do formulário ou o selectedBarber como fallback
     const barberId = newAppointment.barberId || selectedBarber;
     
-    if (!newAppointment.clientName || !newAppointment.clientPhone || 
+    // Telefone não é obrigatório para agendamentos criados pelo barbeiro
+    if (!newAppointment.clientName || 
         !newAppointment.serviceId || !barberId || 
         !newAppointment.date || !newAppointment.time) {
-      toast.error('Preencha todos os campos');
+      toast.error('Preencha todos os campos obrigatórios');
       console.error('Validation failed:', {
         clientName: newAppointment.clientName,
         clientPhone: newAppointment.clientPhone,
@@ -527,30 +528,36 @@ const BarbeiroDashboard = () => {
     // Buscar ou criar perfil do cliente
     let profileData;
     
-    // Primeiro, tentar encontrar perfil existente pelo telefone
-    const { data: existingProfile } = await (supabase as any)
-      .from('profiles')
-      .select('id, name, phone')
-      .eq('phone', newAppointment.clientPhone)
-      .maybeSingle();
+    // Se telefone foi informado, tentar encontrar perfil existente pelo telefone
+    if (newAppointment.clientPhone && newAppointment.clientPhone.trim()) {
+      const { data: existingProfile } = await (supabase as any)
+        .from('profiles')
+        .select('id, name, phone')
+        .eq('phone', newAppointment.clientPhone.trim())
+        .maybeSingle();
 
-    if (existingProfile) {
-      // Se o perfil já existe, usar ele
-      profileData = existingProfile;
-      // Atualizar o nome se necessário
-      if (existingProfile.name !== newAppointment.clientName) {
-        await (supabase as any)
-          .from('profiles')
-          .update({ name: newAppointment.clientName })
-          .eq('id', existingProfile.id);
+      if (existingProfile) {
+        // Se o perfil já existe, usar ele
+        profileData = existingProfile;
+        // Atualizar o nome se necessário
+        if (existingProfile.name !== newAppointment.clientName) {
+          await (supabase as any)
+            .from('profiles')
+            .update({ name: newAppointment.clientName })
+            .eq('id', existingProfile.id);
+        }
       }
-    } else {
+    }
+    
+    // Se não encontrou perfil pelo telefone (ou telefone não foi informado), criar novo
+    if (!profileData) {
       // Se não existe, criar novo usuário e perfil
       // O perfil precisa de um usuário em auth.users devido à foreign key constraint
-      // Criar um usuário temporário com email baseado no telefone
-      const cleanPhone = newAppointment.clientPhone.replace(/\D/g, '');
-      const tempEmail = `${cleanPhone}@cliente.temp`;
-      const tempPassword = cleanPhone; // Senha temporária baseada no telefone
+      // Criar um usuário temporário com email baseado no telefone (se houver) ou nome
+      const cleanPhone = newAppointment.clientPhone ? newAppointment.clientPhone.replace(/\D/g, '') : '';
+      const clientNameClean = newAppointment.clientName.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
+      const tempEmail = cleanPhone ? `${cleanPhone}@cliente.temp` : `${clientNameClean}@cliente.temp`;
+      const tempPassword = cleanPhone || clientNameClean; // Senha temporária baseada no telefone ou nome
       
       try {
         // Tentar criar o usuário no auth
@@ -560,7 +567,7 @@ const BarbeiroDashboard = () => {
           options: {
             data: {
               name: newAppointment.clientName,
-              phone: newAppointment.clientPhone,
+              phone: newAppointment.clientPhone || null,
             },
             email_redirect_to: undefined, // Não redirecionar email
           },
@@ -591,15 +598,19 @@ const BarbeiroDashboard = () => {
             profileData = existingProfileAfterSignIn;
             // Atualizar nome e telefone se necessário
             if (existingProfileAfterSignIn.name !== newAppointment.clientName || 
-                existingProfileAfterSignIn.phone !== newAppointment.clientPhone) {
+                (newAppointment.clientPhone && existingProfileAfterSignIn.phone !== newAppointment.clientPhone)) {
               await (supabase as any)
                 .from('profiles')
                 .update({ 
                   name: newAppointment.clientName,
-                  phone: newAppointment.clientPhone 
+                  ...(newAppointment.clientPhone && { phone: newAppointment.clientPhone })
                 })
                 .eq('id', signInData.user.id);
-              profileData = { ...existingProfileAfterSignIn, name: newAppointment.clientName, phone: newAppointment.clientPhone };
+              profileData = { 
+                ...existingProfileAfterSignIn, 
+                name: newAppointment.clientName, 
+                phone: newAppointment.clientPhone || existingProfileAfterSignIn.phone 
+              };
             }
           } else {
             // Se o perfil não existe, criar manualmente
@@ -608,7 +619,7 @@ const BarbeiroDashboard = () => {
               .insert([{
                 id: signInData.user.id,
                 name: newAppointment.clientName,
-                phone: newAppointment.clientPhone,
+                phone: newAppointment.clientPhone || null,
               }])
               .select()
               .single();
@@ -652,15 +663,20 @@ const BarbeiroDashboard = () => {
             profileData = manualProfile;
           } else {
             // Atualizar nome e telefone se o trigger criou com valores diferentes
-            if (newProfile.name !== newAppointment.clientName || newProfile.phone !== newAppointment.clientPhone) {
+            if (newProfile.name !== newAppointment.clientName || 
+                (newAppointment.clientPhone && newProfile.phone !== newAppointment.clientPhone)) {
               await (supabase as any)
                 .from('profiles')
                 .update({ 
                   name: newAppointment.clientName,
-                  phone: newAppointment.clientPhone 
+                  ...(newAppointment.clientPhone && { phone: newAppointment.clientPhone })
                 })
                 .eq('id', signUpData.user.id);
-              profileData = { ...newProfile, name: newAppointment.clientName, phone: newAppointment.clientPhone };
+              profileData = { 
+                ...newProfile, 
+                name: newAppointment.clientName, 
+                phone: newAppointment.clientPhone || newProfile.phone 
+              };
             } else {
               profileData = newProfile;
             }
@@ -678,8 +694,8 @@ const BarbeiroDashboard = () => {
       return;
     }
 
-    // Determinar o booking_type baseado se é retroativo
-    const bookingType = (isPastAppointment || newAppointment.isRetroactive) ? 'manual' : 'local';
+    // Agendamentos criados pelo barbeiro sempre são marcados como 'manual'
+    const bookingType = 'manual';
 
     // Criar agendamento
     const { error } = await (supabase as any)
@@ -691,10 +707,10 @@ const BarbeiroDashboard = () => {
         appointment_date: newAppointment.date,
         appointment_time: newAppointment.time,
         status: 'confirmed',
-        booking_type: bookingType, // Marcar como 'manual' se for retroativo
+        booking_type: bookingType, // Sempre 'manual' para agendamentos criados pelo barbeiro
         notes: (isPastAppointment || newAppointment.isRetroactive) 
           ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' 
-          : null,
+          : 'Agendamento criado manualmente pelo barbeiro',
       }]);
 
     if (error) {
@@ -703,7 +719,7 @@ const BarbeiroDashboard = () => {
     } else {
       const message = (isPastAppointment || newAppointment.isRetroactive)
         ? 'Agendamento retroativo criado com sucesso! (Marcado como manual)'
-        : 'Agendamento criado com sucesso!';
+        : 'Agendamento criado com sucesso! (Marcado como manual)';
       toast.success(message);
       setShowNewAppointment(false);
       setNewAppointment({
@@ -1222,12 +1238,15 @@ const BarbeiroDashboard = () => {
                       />
                     </div>
                     <div>
-                      <Label>Telefone</Label>
+                      <Label>Telefone (opcional)</Label>
                       <Input
                         value={newAppointment.clientPhone}
                         onChange={(e) => setNewAppointment({ ...newAppointment, clientPhone: e.target.value })}
                         placeholder="+55 11 99999-9999"
                       />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Opcional. Se não informado, será criado um perfil sem telefone.
+                      </p>
                     </div>
                     <div>
                       <Label>Serviço</Label>
