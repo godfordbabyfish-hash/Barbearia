@@ -11,7 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { validateCPF, formatCPF, cleanCPF } from '@/utils/cpfValidation';
 import { validateBrazilianPhone } from '@/utils/phoneValidation';
 import logoRaimundos from '@/assets/logo-raimundos.png';
-
+// Ajuste: permite data de nascimento digitável (dd/mm/aaaa)
 const ClientRegister = () => {
   const [authLogo, setAuthLogo] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
