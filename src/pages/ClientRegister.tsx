@@ -75,6 +75,53 @@ const ClientRegister = () => {
     }
   };
 
+  // Format birth date as dd/mm/aaaa while typing
+  const handleBirthDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, '');
+
+    if (value.length > 8) {
+      value = value.slice(0, 8);
+    }
+
+    let formatted = value;
+    if (value.length > 4) {
+      formatted = `${value.slice(0, 2)}/${value.slice(2, 4)}/${value.slice(4)}`;
+    } else if (value.length > 2) {
+      formatted = `${value.slice(0, 2)}/${value.slice(2)}`;
+    }
+
+    setFormData({ ...formData, birthDate: formatted });
+  };
+
+  // Convert dd/mm/aaaa to ISO (aaaa-mm-dd)
+  const parseBirthDateToISO = (value: string): string | null => {
+    const cleaned = value.replace(/\D/g, '');
+
+    if (cleaned.length !== 8) return null;
+
+    const day = parseInt(cleaned.slice(0, 2), 10);
+    const month = parseInt(cleaned.slice(2, 4), 10);
+    const year = parseInt(cleaned.slice(4), 10);
+
+    if (month < 1 || month > 12) return null;
+    if (day < 1 || day > 31) return null;
+
+    const date = new Date(year, month - 1, day);
+    if (
+      isNaN(date.getTime()) ||
+      date.getFullYear() !== year ||
+      date.getMonth() !== month - 1 ||
+      date.getDate() !== day
+    ) {
+      return null;
+    }
+
+    const isoMonth = String(month).padStart(2, '0');
+    const isoDay = String(day).padStart(2, '0');
+
+    return `${year}-${isoMonth}-${isoDay}`;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -106,6 +153,13 @@ const ClientRegister = () => {
       return;
     }
 
+    const isoBirthDate = parseBirthDateToISO(formData.birthDate);
+    if (!isoBirthDate) {
+      toast.error('Data de nascimento inválida. Use o formato dd/mm/aaaa');
+      setIsLoading(false);
+      return;
+    }
+
     // Verificar se CPF já está cadastrado
     const cleanedCPF = cleanCPF(formData.cpf);
     const { data: existingProfile } = await supabase
@@ -125,7 +179,7 @@ const ClientRegister = () => {
       cleanedCPF,
       formData.name.trim(),
       formData.whatsapp,
-      formData.birthDate
+      isoBirthDate
     );
 
     if (result.error) {
@@ -210,12 +264,13 @@ const ClientRegister = () => {
               <Label htmlFor="birthDate">Data de Nascimento *</Label>
               <Input
                 id="birthDate"
-                type="date"
+                type="text"
+                placeholder="dd/mm/aaaa"
                 value={formData.birthDate}
-                onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
+                onChange={handleBirthDateChange}
                 required
                 className="h-12"
-                max={new Date().toISOString().split('T')[0]} // Não permite data futura
+                inputMode="numeric"
               />
             </div>
 
