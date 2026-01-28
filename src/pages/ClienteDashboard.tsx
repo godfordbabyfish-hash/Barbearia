@@ -252,7 +252,20 @@ const ClienteDashboard = () => {
                 <ShoppingBag className="mr-2 h-4 w-4" />
                 Shop
               </Button>
-              <Button onClick={() => navigate('/#agendamento')} className="bg-primary">
+              <Button onClick={() => {
+                // Navegar para a página inicial e depois rolar até a seção de agendamento
+                navigate('/');
+                // Aguardar navegação completa e então rolar até a seção de agendamento
+                setTimeout(() => {
+                  const bookingSection = document.getElementById('agendamento');
+                  if (bookingSection) {
+                    // Scroll mais preciso para garantir que vai para a seção correta
+                    const yOffset = -80; // Offset para compensar navbar fixa
+                    const y = bookingSection.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                    window.scrollTo({ top: y, behavior: 'smooth' });
+                  }
+                }, 300);
+              }} className="bg-primary">
                 Novo Agendamento
               </Button>
               <Button onClick={signOut} variant="outline" className="text-destructive hover:text-destructive hover:bg-destructive/10">

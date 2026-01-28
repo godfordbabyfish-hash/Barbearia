@@ -144,6 +144,9 @@ const Booking = () => {
       .eq('id', user.id)
       .single();
 
+    // Tentar pegar telefone também do user_metadata (onde está salvo o WhatsApp no cadastro por CPF)
+    const metaPhone = (user as any)?.user_metadata?.whatsapp || (user as any)?.user_metadata?.phone || '';
+
     if (data && !error) {
       // Preservar dados do agendamento: só atualizar se os campos estiverem vazios
       setFormData(prev => {
@@ -152,9 +155,15 @@ const Booking = () => {
         return {
           ...prev,
           name: prev.name || data.name || '',
-          phone: prev.phone || data.phone || '',
+          phone: prev.phone || data.phone || metaPhone || prev.phone || '',
         };
       });
+    } else if (metaPhone) {
+      // Se não achou profile mas tem telefone no metadata, ainda assim preenche
+      setFormData(prev => ({
+        ...prev,
+        phone: prev.phone || metaPhone,
+      }));
     }
   };
 
@@ -1220,15 +1229,15 @@ const Booking = () => {
                     </div>
                   </div>
                 </div>
+                {/* Etapa de confirmação: exibir nome e telefone apenas como resumo, sem permitir edição */}
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <div className="space-y-2">
                     <Label htmlFor="name">Nome Completo</Label>
                     <Input
                       id="name"
                       value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      required
-                      className="bg-secondary border-border focus:border-primary transition-colors"
+                      readOnly
+                      className="bg-secondary border-border text-muted-foreground"
                     />
                   </div>
 
@@ -1238,9 +1247,8 @@ const Booking = () => {
                       id="phone"
                       type="tel"
                       value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      required
-                      className="bg-secondary border-border focus:border-primary transition-colors"
+                      readOnly
+                      className="bg-secondary border-border text-muted-foreground"
                     />
                   </div>
 
