@@ -52,7 +52,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   const [productSales, setProductSales] = useState<ProductSale[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('week');
-  const [filterType, setFilterType] = useState<'all' | 'local' | 'online'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
   const [filterService, setFilterService] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
 
@@ -259,6 +259,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   const cancelledCount = appointments.filter(apt => apt.status === 'cancelled').length;
   const localCount = appointments.filter(apt => apt.booking_type === 'local').length;
   const onlineCount = appointments.filter(apt => apt.booking_type === 'online').length;
+  const manualCount = appointments.filter(apt => apt.booking_type === 'manual').length;
 
   // Chart data by date (using commissions)
   const chartDataByDate = () => {
@@ -366,6 +367,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="local">Local</SelectItem>
                   <SelectItem value="online">Online</SelectItem>
+                  <SelectItem value="manual">Manual (Barbeiro)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -426,7 +428,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
           <CardContent>
             <div className="text-2xl font-bold text-primary">{totalAppointments}</div>
             <p className="text-xs text-muted-foreground">
-              {localCount} local • {onlineCount} online
+              {localCount} local • {onlineCount} online{manualCount > 0 ? ` • ${manualCount} manual` : ''}
             </p>
           </CardContent>
         </Card>
