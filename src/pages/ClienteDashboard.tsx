@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { LogOut, Calendar, Clock, Scissors, Sparkles, Wind, Home, ShoppingBag, History } from 'lucide-react';
+import { LogOut, Calendar, Clock, Scissors, Sparkles, Wind, Home, ShoppingBag, History, Settings } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -32,6 +32,7 @@ const defaultImages: Record<string, string> = {
 const ClienteDashboard = () => {
   const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
+  const [displayName, setDisplayName] = useState<string>('');
   const [appointments, setAppointments] = useState<any[]>([]);
   const [serviceStats, setServiceStats] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
@@ -47,10 +48,37 @@ const ClienteDashboard = () => {
       navigate('/auth');
       return;
     }
+    loadDisplayName();
     loadAppointments();
     loadServiceStats();
     loadServices();
   }, [user, role]);
+
+  const loadDisplayName = async () => {
+    if (!user) return;
+    try {
+      const { data } = await (supabase as any)
+        .from('profiles')
+        .select('name, cpf')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      const nameFromProfile = data?.name?.trim() || '';
+      const cpfFromProfile = data?.cpf || '';
+      const nameFromMeta = (user as any)?.user_metadata?.name?.trim() || '';
+      const fallbackName = user.email?.split('@')[0] || 'Usuário';
+      const nameLooksLikeCpf =
+        nameFromProfile && nameFromProfile.replace(/\D/g, '') === cpfFromProfile;
+
+      setDisplayName(
+        nameLooksLikeCpf
+          ? (nameFromMeta || fallbackName)
+          : (nameFromProfile || nameFromMeta || fallbackName)
+      );
+    } catch (error) {
+      setDisplayName(user.email?.split('@')[0] || 'Usuário');
+    }
+  };
 
   const loadAppointments = async () => {
     const { data, error } = await (supabase as any)
@@ -236,10 +264,10 @@ const ClienteDashboard = () => {
             {user && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30">
                 <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary text-sm font-bold">
-                  {user.email?.charAt(0).toUpperCase() || 'U'}
+                  {(displayName || user.email || 'U').charAt(0).toUpperCase()}
                 </div>
                 <div className="text-sm font-medium text-foreground">
-                  {user.email || 'Usuário'}
+                  {displayName || 'Usuário'}
                 </div>
               </div>
             )}
@@ -267,6 +295,10 @@ const ClienteDashboard = () => {
                 }, 300);
               }} className="bg-primary">
                 Novo Agendamento
+              </Button>
+              <Button onClick={() => navigate('/configuracoes')} variant="outline">
+                <Settings className="mr-2 h-4 w-4" />
+                Configurações
               </Button>
               <Button onClick={signOut} variant="outline" className="text-destructive hover:text-destructive hover:bg-destructive/10">
                 <LogOut className="mr-2 h-4 w-4" />

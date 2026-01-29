@@ -14,6 +14,8 @@ import ClienteDashboard from "./pages/ClienteDashboard";
 import BarbeiroDashboard from "./pages/BarbeiroDashboard";
 import FilaDaBarbearia from "./pages/FilaDaBarbearia";
 import Servicos from "./pages/Servicos";
+import Equipe from "./pages/Equipe";
+import Configuracoes from "./pages/Configuracoes";
 import ClientRegister from "./pages/ClientRegister";
 import NotFound from "./pages/NotFound";
 
@@ -45,6 +47,8 @@ const App = () => (
               <Route path="/barbeiro" element={<BarbeiroDashboard />} />
               <Route path="/fila" element={<FilaDaBarbearia />} />
               <Route path="/servicos" element={<Servicos />} />
+              <Route path="/equipe" element={<Equipe />} />
+              <Route path="/configuracoes" element={<Configuracoes />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>

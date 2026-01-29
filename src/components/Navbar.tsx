@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Scissors, Menu, X, LogOut, Home, ShoppingBag, Users, Calendar, Wifi, Star, Instagram, Facebook } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -14,6 +15,7 @@ const Navbar = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [socialMenuOpen, setSocialMenuOpen] = useState(false);
   const [wifiCredentials, setWifiCredentials] = useState({ username: '', password: '' });
+  const [userProfile, setUserProfile] = useState<{ name: string; photo_url: string | null } | null>(null);
   const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -30,6 +32,26 @@ const Navbar = () => {
     loadSocialConfig();
   }, []);
 
+  useEffect(() => {
+    if (user) {
+      loadUserProfile();
+    } else {
+      setUserProfile(null);
+    }
+  }, [user, role]);
+
+  useEffect(() => {
+    const handleProfileUpdated = () => {
+      if (user) {
+        loadUserProfile();
+      }
+    };
+    window.addEventListener("profile-updated", handleProfileUpdated);
+    return () => {
+      window.removeEventListener("profile-updated", handleProfileUpdated);
+    };
+  }, [user, role]);
+
   const loadSocialConfig = async () => {
     const { data, error } = await supabase
       .from('site_config')
@@ -43,6 +65,47 @@ const Navbar = () => {
         username: config?.wifi?.username || '',
         password: config?.wifi?.password || '',
       });
+    }
+  };
+
+  const loadUserProfile = async () => {
+    if (!user) return;
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("name, cpf, photo_url")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      const nameFromProfile = profile?.name?.trim() || "";
+      const cpfFromProfile = profile?.cpf || "";
+      const nameFromMeta = (user as any)?.user_metadata?.name?.trim() || "";
+      const fallbackName = user.email?.split("@")[0] || "Usuário";
+      const nameLooksLikeCpf =
+        nameFromProfile && nameFromProfile.replace(/\D/g, "") === cpfFromProfile;
+
+      let name = nameLooksLikeCpf
+        ? (nameFromMeta || fallbackName)
+        : (nameFromProfile || nameFromMeta || fallbackName);
+      let photoUrl = profile?.photo_url || null;
+
+      if (role === "barbeiro") {
+        const { data: barber } = await supabase
+          .from("barbers")
+          .select("name, image_url")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (barber) {
+          name = barber.name || name;
+          photoUrl = barber.image_url || photoUrl;
+        }
+      }
+
+      setUserProfile({ name, photo_url: photoUrl });
+    } catch (error) {
+      console.error("Error loading user profile:", error);
+      setUserProfile({ name: user.email?.split("@")[0] || "Usuário", photo_url: null });
     }
   };
 
@@ -223,7 +286,7 @@ const Navbar = () => {
             <button onClick={() => navigate('/shop')} className="text-muted-foreground hover:text-primary transition-colors">
               Shop
             </button>
-            <button onClick={() => scrollToSection('equipe')} className="text-muted-foreground hover:text-primary transition-colors">
+            <button onClick={() => navigate('/equipe')} className="text-muted-foreground hover:text-primary transition-colors">
               Equipe
             </button>
             {user ? (
@@ -234,6 +297,23 @@ const Navbar = () => {
                 >
                   Meu Painel
                 </Button>
+                {userProfile && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30 border border-border/50">
+                    <Avatar className="h-8 w-8">
+                      {userProfile.photo_url ? (
+                        <AvatarImage src={userProfile.photo_url} alt={userProfile.name} />
+                      ) : null}
+                      <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
+                        {userProfile.name.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    {!isMobile && (
+                      <span className="text-sm font-medium text-foreground max-w-[120px] truncate">
+                        {userProfile.name}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <Button 
                   onClick={signOut}
                   variant="outline"
@@ -262,14 +342,26 @@ const Navbar = () => {
             )}
           </div>
 
-          {/* Mobile/Tablet Menu Button */}
-          <button 
-            className="md:hidden text-foreground hover:text-primary transition-colors p-2 rounded-lg hover:bg-primary/10"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            aria-label="Menu"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
+          {/* Mobile/Tablet User + Menu */}
+          <div className="md:hidden flex items-center gap-2">
+            {userProfile && (
+              <Avatar className="h-9 w-9">
+                {userProfile.photo_url ? (
+                  <AvatarImage src={userProfile.photo_url} alt={userProfile.name} />
+                ) : null}
+                <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
+                  {userProfile.name.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+            )}
+            <button 
+              className="text-foreground hover:text-primary transition-colors p-2 rounded-lg hover:bg-primary/10"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-label="Menu"
+            >
+              <Menu className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
         {/* Mobile/Tablet Sidebar Menu */}
@@ -341,7 +433,7 @@ const Navbar = () => {
 
               <button 
                 onClick={() => {
-                  scrollToSection('equipe');
+                  navigate('/equipe');
                   setIsMobileMenuOpen(false);
                 }}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg text-left text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all duration-200 group"

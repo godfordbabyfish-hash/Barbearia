@@ -3,9 +3,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { DollarSign, TrendingUp, Calendar, Users, Filter } from 'lucide-react';
-import { format, subDays, subMonths, subYears, startOfDay, endOfDay, startOfWeek, startOfMonth, startOfYear } from 'date-fns';
+import { format, subDays, subMonths, subYears, startOfDay, endOfDay, endOfMonth, startOfWeek, startOfMonth, startOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import { IndividualCommissionManager } from '@/components/IndividualCommissionManager';
@@ -57,7 +58,9 @@ const FinancialDashboard = () => {
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('week');
+  const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year' | 'custom'>('week');
+  const [dateFrom, setDateFrom] = useState<string>(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [dateTo, setDateTo] = useState<string>(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
   const [filterBarber, setFilterBarber] = useState<string>('all');
   const [filterService, setFilterService] = useState<string>('all');
@@ -112,7 +115,7 @@ const FinancialDashboard = () => {
       supabase.removeChannel(appointmentsChannel);
       supabase.removeChannel(productSalesChannel);
     };
-  }, [period, filterType, filterBarber, filterService, filterProduct, filterStatus]);
+  }, [period, dateFrom, dateTo, filterType, filterBarber, filterService, filterProduct, filterStatus]);
 
   const loadBarbers = async () => {
     const { data } = await supabase
@@ -140,6 +143,9 @@ const FinancialDashboard = () => {
 
   const getDateRange = () => {
     const today = new Date();
+    if (period === 'custom' && dateFrom && dateTo) {
+      return { start: startOfDay(new Date(dateFrom)), end: endOfDay(new Date(dateTo)) };
+    }
     switch (period) {
       case 'day':
         return { start: startOfDay(today), end: endOfDay(today) };
@@ -149,6 +155,8 @@ const FinancialDashboard = () => {
         return { start: startOfMonth(today), end: today };
       case 'year':
         return { start: startOfYear(today), end: today };
+      default:
+        return { start: startOfWeek(today, { weekStartsOn: 0 }), end: today };
     }
   };
 
@@ -371,11 +379,15 @@ const FinancialDashboard = () => {
   };
 
   const getPeriodLabel = () => {
+    if (period === 'custom' && dateFrom && dateTo) {
+      return `${format(new Date(dateFrom), 'dd/MM/yyyy', { locale: ptBR })} até ${format(new Date(dateTo), 'dd/MM/yyyy', { locale: ptBR })}`;
+    }
     switch (period) {
       case 'day': return 'Hoje';
       case 'week': return 'Esta Semana';
       case 'month': return 'Este Mês';
       case 'year': return 'Este Ano';
+      default: return 'Período';
     }
   };
 
@@ -402,9 +414,30 @@ const FinancialDashboard = () => {
                   <SelectItem value="week">Semanal</SelectItem>
                   <SelectItem value="month">Mensal</SelectItem>
                   <SelectItem value="year">Anual</SelectItem>
+                  <SelectItem value="custom">Personalizado</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {period === 'custom' && (
+              <>
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1 block">Data inicial</label>
+                  <Input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1 block">Data final</label>
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">Tipo</label>
               <Select value={filterType} onValueChange={(v) => setFilterType(v as any)}>
@@ -813,49 +846,6 @@ const FinancialDashboard = () => {
           </div>
         </CardContent>
       </Card>
-
-      {/* Product Sales table */}
-      {productSales.length > 0 && (
-        <Card className="bg-card border-border">
-          <CardHeader>
-            <CardTitle>Vendas de Produtos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-3 px-2">Data</th>
-                    <th className="text-left py-3 px-2">Horário</th>
-                    <th className="text-left py-3 px-2">Produto</th>
-                    <th className="text-left py-3 px-2">Barbeiro</th>
-                    <th className="text-right py-3 px-2">Valor Total</th>
-                    <th className="text-right py-3 px-2">Comissão</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {productSales.slice(0, 10).map((sale) => (
-                    <tr key={sale.id} className="border-b border-border/50 hover:bg-muted/50">
-                      <td className="py-3 px-2">
-                        {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy')}
-                      </td>
-                      <td className="py-3 px-2">{sale.sale_time}</td>
-                      <td className="py-3 px-2">{(sale.product as any)?.name || '-'}</td>
-                      <td className="py-3 px-2">{(sale.barber as any)?.name || '-'}</td>
-                      <td className="py-3 px-2 text-right font-medium text-primary">
-                        R$ {sale.total_price.toFixed(2)}
-                      </td>
-                      <td className="py-3 px-2 text-right font-medium text-green-400">
-                        R$ {sale.commission_value.toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </>
   );
 
