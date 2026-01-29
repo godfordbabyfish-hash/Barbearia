@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Textarea } from '@/components/ui/textarea';
 import FinancialDashboard from '@/components/FinancialDashboard';
+import BarberAdvancesManager from '@/components/admin/BarberAdvancesManager';
+import HistoricoCP from '@/components/admin/HistoricoCP';
 import SiteConfigEditor from '@/components/admin/SiteConfigEditor';
 import ImageManager from '@/components/admin/ImageManager';
 import OperatingHoursEditor from '@/components/admin/OperatingHoursEditor';
@@ -746,6 +748,19 @@ const AdminDashboard = () => {
               <div className="space-y-6">
                 <h2 className="text-2xl font-bold pl-12 lg:pl-0">Financeiro</h2>
                 <FinancialDashboard />
+              </div>
+            )}
+
+            {activeTab === 'advances' && (
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold pl-12 lg:pl-0">Vales de Barbeiros</h2>
+                <BarberAdvancesManager />
+              </div>
+            )}
+
+            {activeTab === 'historico-cp' && (
+              <div className="space-y-6">
+                <HistoricoCP />
               </div>
             )}
 

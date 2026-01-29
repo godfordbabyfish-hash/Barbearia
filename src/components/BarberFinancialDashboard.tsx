@@ -3,9 +3,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { DollarSign, TrendingUp, Calendar, Users } from 'lucide-react';
-import { format, startOfDay, endOfDay, startOfWeek, startOfMonth, startOfYear } from 'date-fns';
+import { format, startOfDay, endOfDay, startOfWeek, startOfMonth, endOfMonth, startOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
@@ -51,10 +52,13 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [productSales, setProductSales] = useState<ProductSale[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('week');
+  const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year' | 'custom'>('week');
+  const [dateFrom, setDateFrom] = useState<string>(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [dateTo, setDateTo] = useState<string>(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
   const [filterService, setFilterService] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
+  const [totalAdvances, setTotalAdvances] = useState(0);
 
   // Helper function to calculate commission for an appointment
   // Priority: 1) Individual commission per service, 2) Fixed commission
@@ -80,8 +84,9 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
     if (barberId) {
       loadAppointments();
       loadProductSales();
+      loadAdvances();
     }
-  }, [barberId, period, filterType, filterService, filterStatus]);
+  }, [barberId, period, dateFrom, dateTo, filterType, filterService, filterStatus]);
 
   // Realtime subscription - separate effect to avoid re-subscribing on filter changes
   useEffect(() => {
@@ -137,8 +142,14 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   const getDateRange = () => {
     const today = new Date();
     let start: Date;
-    let end: Date = today;
-    
+    let end: Date;
+
+    if (period === 'custom' && dateFrom && dateTo) {
+      start = startOfDay(new Date(dateFrom));
+      end = endOfDay(new Date(dateTo));
+      return { start, end };
+    }
+
     switch (period) {
       case 'day':
         start = startOfDay(today);
@@ -160,7 +171,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
         start = startOfWeek(today, { weekStartsOn: 0 });
         end = today;
     }
-    
+
     return { start, end };
   };
 
@@ -243,6 +254,34 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
     setProductSales((data as any) || []);
   };
 
+  const loadAdvances = async () => {
+    if (!barberId) return;
+
+    const { start, end } = getDateRange();
+    const startDate = format(start, 'yyyy-MM-dd');
+    const endDate = format(end, 'yyyy-MM-dd');
+
+    let query = supabase
+      .from('barber_advances')
+      .select('amount, status, effective_date')
+      .eq('barber_id', barberId)
+      .eq('status', 'approved');
+
+    if (startDate && endDate) {
+      query = query.gte('effective_date', startDate).lte('effective_date', endDate);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Error loading advances:', error);
+      return;
+    }
+
+    const total = (data || []).reduce((sum, adv: any) => sum + Number(adv.amount || 0), 0);
+    setTotalAdvances(total);
+  };
+
   // Calculate stats (using commissions instead of full price)
   const completedAndConfirmed = appointments.filter(apt => apt.status === 'completed' || apt.status === 'confirmed');
   const serviceCommission = completedAndConfirmed.reduce((sum, apt) => {
@@ -252,6 +291,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   
   const productCommission = productSales.reduce((sum, sale) => sum + sale.commission_value, 0);
   const totalCommission = serviceCommission + productCommission;
+  const netCommission = totalCommission - totalAdvances;
   
   const totalAppointments = appointments.length;
   const completedCount = appointments.filter(apt => apt.status === 'completed').length;
@@ -316,11 +356,15 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   };
 
   const getPeriodLabel = () => {
+    if (period === 'custom' && dateFrom && dateTo) {
+      return `${format(new Date(dateFrom), 'dd/MM/yyyy', { locale: ptBR })} até ${format(new Date(dateTo), 'dd/MM/yyyy', { locale: ptBR })}`;
+    }
     switch (period) {
       case 'day': return 'Hoje';
       case 'week': return 'Esta Semana';
       case 'month': return 'Este Mês';
       case 'year': return 'Este Ano';
+      default: return 'Período';
     }
   };
 
@@ -354,9 +398,30 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
                   <SelectItem value="week">Semanal</SelectItem>
                   <SelectItem value="month">Mensal</SelectItem>
                   <SelectItem value="year">Anual</SelectItem>
+                  <SelectItem value="custom">Personalizado</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {period === 'custom' && (
+              <>
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1 block">Data inicial</label>
+                  <Input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1 block">Data final</label>
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">Tipo</label>
               <Select value={filterType} onValueChange={(v) => setFilterType(v as any)}>
@@ -407,12 +472,12 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="bg-card border-border">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Minha Comissão ({getPeriodLabel()})</CardTitle>
+            <CardTitle className="text-sm font-medium">Minha Comissão Líquida ({getPeriodLabel()})</CardTitle>
             <DollarSign className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">
-              R$ {totalCommission.toFixed(2)}
+              R$ {netCommission.toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground">
               {confirmedCount + completedCount} serviços + {productSales.length} vendas
@@ -432,6 +497,21 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
             </p>
           </CardContent>
         </Card>
+
+      <Card className="bg-card border-border">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle className="text-sm font-medium">Vales no Período</CardTitle>
+          <DollarSign className="h-4 w-4 text-primary" />
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold text-primary">
+            R$ {totalAdvances.toFixed(2)}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Descontados da sua comissão neste período.
+          </p>
+        </CardContent>
+      </Card>
 
         <Card className="bg-card border-border">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -660,47 +740,6 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
           </div>
         </CardContent>
       </Card>
-
-      {/* Product Sales table */}
-      {productSales.length > 0 && (
-        <Card className="bg-card border-border">
-          <CardHeader>
-            <CardTitle>Vendas de Produtos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-3 px-2">Data</th>
-                    <th className="text-left py-3 px-2">Horário</th>
-                    <th className="text-left py-3 px-2">Produto</th>
-                    <th className="text-right py-3 px-2">Valor Total</th>
-                    <th className="text-right py-3 px-2">Comissão</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {productSales.slice(0, 10).map((sale) => (
-                    <tr key={sale.id} className="border-b border-border/50 hover:bg-muted/50">
-                      <td className="py-3 px-2">
-                        {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
-                      </td>
-                      <td className="py-3 px-2">{sale.sale_time}</td>
-                      <td className="py-3 px-2">{(sale.product as any)?.name || '-'}</td>
-                      <td className="py-3 px-2 text-right font-medium text-primary">
-                        R$ {sale.total_price.toFixed(2)}
-                      </td>
-                      <td className="py-3 px-2 text-right font-medium text-green-400">
-                        R$ {sale.commission_value.toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 };

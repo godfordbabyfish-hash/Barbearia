@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { ArrowLeft, Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
@@ -15,20 +15,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useQueryClient } from '@tanstack/react-query';
-import { NotificationTester } from '@/components/NotificationTester';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import BarberFinancialDashboard from '@/components/BarberFinancialDashboard';
 import { BarberBreakManager } from '@/components/admin/BarberBreakManager';
-import { ProductSalesManager } from '@/components/ProductSalesManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
+import { listAdvancesByBarber, approveAdvance, rejectAdvance } from '@/integrations/supabase/barberAdvances';
 
 const BarbeiroDashboard = () => {
   const navigate = useNavigate();
   const { role: userRole, user, signOut } = useAuth();
   const queryClient = useQueryClient();
+  const [displayName, setDisplayName] = useState<string>('');
   const [appointments, setAppointments] = useState<any[]>([]);
   const [barbers, setBarbers] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
@@ -53,6 +53,18 @@ const BarbeiroDashboard = () => {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
   const [cancellationReason, setCancellationReason] = useState('');
+  const [advances, setAdvances] = useState<any[]>([]);
+  const [actionDialogOpen, setActionDialogOpen] = useState(false);
+  const [selectedAppointmentForAction, setSelectedAppointmentForAction] = useState<any | null>(null);
+  const [loadingAdvances, setLoadingAdvances] = useState(false);
+  
+  // Estados para edição de agendamento
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [appointmentToEdit, setAppointmentToEdit] = useState<any | null>(null);
+  const [editAppointment, setEditAppointment] = useState({
+    date: '',
+    time: '',
+  });
   const [historyFilterPeriod, setHistoryFilterPeriod] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
   const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'completed' | 'cancelled' | 'confirmed'>('all');
   const [historyFilterService, setHistoryFilterService] = useState<string>('all');
@@ -77,6 +89,39 @@ const BarbeiroDashboard = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userRole]);
+
+  useEffect(() => {
+    const resolveName = async () => {
+      if (!user) return;
+      if (currentUserBarber?.name) {
+        setDisplayName(currentUserBarber.name);
+        return;
+      }
+      try {
+        const { data } = await (supabase as any)
+          .from('profiles')
+          .select('name, cpf')
+          .eq('id', user.id)
+          .maybeSingle();
+        const nameFromProfile = data?.name?.trim() || '';
+        const cpfFromProfile = data?.cpf || '';
+        const nameFromMeta = (user as any)?.user_metadata?.name?.trim() || '';
+        const fallbackName = user.email?.split('@')[0] || 'Usuário';
+        const nameLooksLikeCpf =
+          nameFromProfile && nameFromProfile.replace(/\D/g, '') === cpfFromProfile;
+
+        setDisplayName(
+          nameLooksLikeCpf
+            ? (nameFromMeta || fallbackName)
+            : (nameFromProfile || nameFromMeta || fallbackName)
+        );
+      } catch (error) {
+        setDisplayName(user.email?.split('@')[0] || 'Usuário');
+      }
+    };
+
+    resolveName();
+  }, [user, currentUserBarber]);
 
   const loadData = async () => {
     try {
@@ -135,7 +180,11 @@ const BarbeiroDashboard = () => {
             setBarbers(barbersData);
           }
         }
-        toast.success(`Bem-vindo, ${userBarber.name}!`);
+        toast.success(`Bem-vindo, ${userBarber.name}!`, {
+          duration: 2000, // 2 segundos
+        });
+        // Carregar vales do barbeiro
+        loadAdvances();
       } else {
         console.log('User is not a barber');
         if (userRole === 'admin') {
@@ -271,6 +320,7 @@ const BarbeiroDashboard = () => {
 
       toast.success('Venda registrada com sucesso!', {
         description: `Produto: ${product.name} - Total: R$ ${totalPrice.toFixed(2)} - Comissão: R$ ${commissionValue.toFixed(2)}`,
+        duration: 3000, // 3 segundos
       });
       
       setProductSaleDialogOpen(false);
@@ -366,7 +416,7 @@ const BarbeiroDashboard = () => {
               // Toast na interface
               toast.success('📅 Novo Agendamento!', {
                 description: notificationMessage,
-                duration: 10000,
+                duration: 3000, // Reduzido de 10000 para 3000ms (3 segundos)
               });
               
               // Notificação via Service Worker (funciona com tela bloqueada)
@@ -403,6 +453,7 @@ const BarbeiroDashboard = () => {
           console.log('✅ Successfully subscribed to appointments channel!');
           toast.success('Sistema de notificações ativo', {
             description: 'Você será notificado de novos agendamentos',
+            duration: 2000, // 2 segundos
           });
         } else if (status === 'CHANNEL_ERROR') {
           console.error('❌ Error subscribing to channel!');
@@ -451,7 +502,7 @@ const BarbeiroDashboard = () => {
       const clientIds = [...new Set(appointmentsData.map(a => a.client_id))];
       const { data: clientsData } = await supabase
         .from('profiles')
-        .select('id, name, phone')
+        .select('id, name, phone, photo_url')
         .in('id', clientIds);
       
       console.log('Loaded clients:', clientsData);
@@ -463,12 +514,123 @@ const BarbeiroDashboard = () => {
       }));
       
       setAppointments(appointmentsWithClients);
-      toast.success(`${appointmentsWithClients.length} agendamento(s) carregado(s)`);
+      toast.success(`${appointmentsWithClients.length} agendamento(s) carregado(s)`, {
+        duration: 2000, // 2 segundos
+      });
     } else {
       setAppointments([]);
-      toast.info('Nenhum agendamento encontrado');
+      toast.info('Nenhum agendamento encontrado', {
+        duration: 2000, // 2 segundos
+      });
     }
   };
+
+  const loadAdvances = async () => {
+    if (!currentUserBarber?.id) return;
+    setLoadingAdvances(true);
+    const { data, error } = await listAdvancesByBarber(currentUserBarber.id);
+    setLoadingAdvances(false);
+
+    if (error) {
+      console.error("Error loading advances for barber:", error);
+      return;
+    }
+
+    setAdvances(data || []);
+  };
+
+  const handleAppointmentClick = (appointment: any) => {
+    setSelectedAppointmentForAction(appointment);
+    setActionDialogOpen(true);
+  };
+
+  // Função para abrir o modal de edição
+  const handleEditClick = (appointment: any) => {
+    setAppointmentToEdit(appointment);
+    setEditAppointment({
+      date: appointment.appointment_date,
+      time: appointment.appointment_time,
+    });
+    setActionDialogOpen(false);
+    setEditDialogOpen(true);
+  };
+
+  // Função para salvar as alterações do agendamento
+  const handleSaveEdit = async () => {
+    if (!appointmentToEdit || !editAppointment.date || !editAppointment.time) {
+      toast.error('Preencha todos os campos obrigatórios');
+      return;
+    }
+
+    // Verificar se é um agendamento futuro para validar conflitos
+    const appointmentDateTime = new Date(`${editAppointment.date}T${editAppointment.time}:00`);
+    const now = new Date();
+    const isPastAppointment = appointmentDateTime < now;
+
+    // Se não for retroativo, verificar conflitos de horário
+    if (!isPastAppointment) {
+      const selectedService = services.find(s => s.id === appointmentToEdit.service_id);
+      const serviceDuration = selectedService?.duration || 30;
+
+      const { data: existingAppointments } = await (supabase as any)
+        .from('appointments')
+        .select('id, appointment_time, service:services(duration)')
+        .eq('barber_id', appointmentToEdit.barber_id)
+        .eq('appointment_date', editAppointment.date)
+        .neq('status', 'cancelled')
+        .neq('id', appointmentToEdit.id); // Excluir o próprio agendamento
+
+      // Check for time conflicts
+      const hasConflict = existingAppointments?.some((apt: any) => {
+        const aptDuration = apt.service?.duration || 30;
+        const newEndTime = addMinutesToTime(editAppointment.time, serviceDuration);
+        const aptEndTime = addMinutesToTime(apt.appointment_time, aptDuration);
+        return (editAppointment.time < aptEndTime && newEndTime > apt.appointment_time);
+      });
+
+      if (hasConflict) {
+        toast.error('Horário indisponível! Já existe um agendamento neste horário.');
+        return;
+      }
+    }
+
+    try {
+      const { error } = await (supabase as any)
+        .from('appointments')
+        .update({
+          appointment_date: editAppointment.date,
+          appointment_time: editAppointment.time,
+          notes: appointmentToEdit.notes 
+            ? `${appointmentToEdit.notes} [Editado pelo barbeiro]`
+            : '[Editado pelo barbeiro]'
+        })
+        .eq('id', appointmentToEdit.id);
+
+      if (error) {
+        console.error('Error updating appointment:', error);
+        toast.error('Erro ao atualizar agendamento: ' + error.message);
+      } else {
+        toast.success('Agendamento atualizado com sucesso!', {
+          duration: 2000, // 2 segundos
+        });
+        setEditDialogOpen(false);
+        setAppointmentToEdit(null);
+        setEditAppointment({ date: '', time: '' });
+        loadAppointments();
+      }
+    } catch (error: any) {
+      console.error('Error updating appointment:', error);
+      toast.error('Erro ao atualizar agendamento: ' + error.message);
+    }
+  };
+
+  // Sempre que o barbeiro logado for carregado/alterado, recarregar os vales
+  useEffect(() => {
+    if (currentUserBarber?.id) {
+      loadAdvances();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserBarber?.id]);
 
   const handleCreateAppointment = async () => {
     // Usar barberId do formulário ou o selectedBarber como fallback
@@ -720,7 +882,9 @@ const BarbeiroDashboard = () => {
       const message = (isPastAppointment || newAppointment.isRetroactive)
         ? 'Agendamento retroativo criado com sucesso! (Marcado como manual)'
         : 'Agendamento criado com sucesso! (Marcado como manual)';
-      toast.success(message);
+      toast.success(message, {
+        duration: 2000, // 2 segundos
+      });
       setShowNewAppointment(false);
       setNewAppointment({
         clientName: '',
@@ -760,7 +924,9 @@ const BarbeiroDashboard = () => {
     if (error) {
       toast.error('Erro ao atualizar status');
     } else {
-      toast.success('Status atualizado');
+      toast.success('Status atualizado', {
+        duration: 2000, // 2 segundos
+      });
       loadAppointments();
     }
   };
@@ -818,7 +984,9 @@ const BarbeiroDashboard = () => {
         // Não bloquear o fluxo do usuário se a fila falhar
       }
 
-      toast.success('Agendamento cancelado com sucesso');
+      toast.success('Agendamento cancelado com sucesso', {
+        duration: 2000, // 2 segundos
+      });
       setCancelDialogOpen(false);
       setAppointmentToCancel(null);
       setCancellationReason('');
@@ -856,8 +1024,8 @@ const BarbeiroDashboard = () => {
     if (!appointmentToComplete) return;
 
     // Validar forma de pagamento
-    if (!paymentMethod || (paymentMethod !== 'pix' && paymentMethod !== 'dinheiro')) {
-      toast.error('Selecione a forma de pagamento (Pix ou Dinheiro)');
+    if (!paymentMethod || (paymentMethod !== 'pix' && paymentMethod !== 'dinheiro' && paymentMethod !== 'cartao')) {
+      toast.error('Selecione a forma de pagamento (Pix, Dinheiro ou Cartão)');
       return;
     }
 
@@ -907,7 +1075,9 @@ const BarbeiroDashboard = () => {
       if (error) {
         toast.error('Erro ao concluir agendamento');
       } else {
-        toast.success(photoUrl ? 'Agendamento concluído com foto!' : 'Agendamento concluído!');
+        toast.success(photoUrl ? 'Agendamento concluído com foto!' : 'Agendamento concluído!', {
+          duration: 2000, // 2 segundos
+        });
         setCompleteDialogOpen(false);
         setAppointmentToComplete(null);
         setPhotoFile(null);
@@ -928,8 +1098,8 @@ const BarbeiroDashboard = () => {
     if (!appointmentToComplete) return;
 
     // Validar forma de pagamento
-    if (!paymentMethod || (paymentMethod !== 'pix' && paymentMethod !== 'dinheiro')) {
-      toast.error('Selecione a forma de pagamento (Pix ou Dinheiro)');
+    if (!paymentMethod || (paymentMethod !== 'pix' && paymentMethod !== 'dinheiro' && paymentMethod !== 'cartao')) {
+      toast.error('Selecione a forma de pagamento (Pix, Dinheiro ou Cartão)');
       return;
     }
 
@@ -944,7 +1114,9 @@ const BarbeiroDashboard = () => {
     if (error) {
       toast.error('Erro ao concluir agendamento');
     } else {
-      toast.success('Agendamento concluído!');
+      toast.success('Agendamento concluído!', {
+        duration: 2000, // 2 segundos
+      });
       setCompleteDialogOpen(false);
       setAppointmentToComplete(null);
       setPhotoFile(null);
@@ -1122,10 +1294,10 @@ const BarbeiroDashboard = () => {
             {user && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30">
                 <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary text-sm font-bold">
-                  {user.email?.charAt(0).toUpperCase() || 'U'}
+                  {(displayName || user.email || 'U').charAt(0).toUpperCase()}
                 </div>
                 <div className="text-sm font-medium text-foreground">
-                  {user.email || 'Usuário'}
+                  {displayName || 'Usuário'}
                 </div>
               </div>
             )}
@@ -1133,6 +1305,10 @@ const BarbeiroDashboard = () => {
               <Button onClick={() => navigate('/')} variant="outline" className="w-full md:w-auto">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Voltar ao Site
+              </Button>
+              <Button onClick={() => navigate('/configuracoes')} variant="outline" className="w-full md:w-auto">
+                <Settings className="mr-2 h-4 w-4" />
+                Configurações
               </Button>
               <Button onClick={async () => {
                 await signOut();
@@ -1156,65 +1332,38 @@ const BarbeiroDashboard = () => {
               </TabsList>
 
               <TabsContent value="agendamentos" className="space-y-6">
-              <div className="grid md:grid-cols-4 gap-6 mb-8">
-              <Card className="bg-card border-border">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Calendar className="h-5 w-5 text-primary" />
-                    Hoje
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-bold text-primary">{todayAppointments.length}</p>
-                  <p className="text-sm text-muted-foreground">pendentes</p>
-                  <p className="text-xl font-bold text-green-500 mt-2">{todayCompleted.length}</p>
-                  <p className="text-xs text-muted-foreground">finalizados</p>
-                </CardContent>
-              </Card>
+              <div className="mb-8">
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <Calendar className="h-5 w-5 text-primary" />
+                      Resumo de Agendamentos
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-3 text-center text-xs uppercase tracking-wide text-muted-foreground">
+                        <div>Hoje</div>
+                        <div>Semana</div>
+                        <div>Mês</div>
+                      </div>
+                      <div className="grid grid-cols-3 text-center">
+                        <div className="text-3xl font-bold text-primary">
+                          {todayCompleted.length}
+                        </div>
+                        <div className="text-3xl font-bold text-green-500">
+                          {weekCompleted.length}
+                        </div>
+                        <div className="text-3xl font-bold text-green-500">
+                          {monthCompleted.length}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
 
-              <Card className="bg-card border-border">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Calendar className="h-5 w-5 text-primary" />
-                    Semana
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-bold text-green-500">{weekCompleted.length}</p>
-                  <p className="text-sm text-muted-foreground">finalizados</p>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-card border-border">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Calendar className="h-5 w-5 text-primary" />
-                    Mês
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-bold text-green-500">{monthCompleted.length}</p>
-                  <p className="text-sm text-muted-foreground">finalizados</p>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-card border-border">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <User className="h-5 w-5 text-primary" />
-                    Avaliação
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-bold text-primary">⭐ {currentBarber.rating}</p>
-                  <p className="text-sm text-muted-foreground">nota atual</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="mb-6">
-              <NotificationTester />
-            </div>
+            
 
             <div className="mb-6 flex flex-col sm:flex-row gap-3">
               <Dialog open={showNewAppointment} onOpenChange={setShowNewAppointment}>
@@ -1467,238 +1616,137 @@ const BarbeiroDashboard = () => {
               </Dialog>
             </div>
 
-            <Card className="bg-card border-border mb-6">
-              <CardHeader>
-                <CardTitle>Agendamentos de Hoje</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {todayAppointments.length > 0 ? (
-                  <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4">
-                    {todayAppointments.map((appointment) => {
-                      const clientName = appointment.client?.name ?? 'Cliente';
-                      const clientInitial = clientName.charAt(0).toUpperCase();
-                      const appointmentTime = appointment.appointment_time.slice(0, 5);
-                      
-                      return (
-                        <div
-                          key={appointment.id}
-                          className="relative group bg-secondary/50 border border-border rounded-lg p-3 hover:border-primary/50 hover:bg-secondary transition-all duration-200 cursor-pointer"
-                        >
-                          <div className="flex flex-col items-center text-center space-y-2">
-                            {/* Avatar/Foto do Cliente */}
-                            <Avatar className="h-12 w-12 md:h-14 md:w-14 border-2 border-primary/30">
-                              <AvatarImage src={appointment.client?.image_url} alt={clientName} />
-                              <AvatarFallback className="bg-primary/20 text-primary font-bold text-lg">
-                                {clientInitial}
-                              </AvatarFallback>
-                            </Avatar>
-                            
-                            {/* Nome do Cliente */}
-                            <div className="w-full min-w-0">
-                              <p className="font-semibold text-sm md:text-base text-foreground truncate" title={clientName}>
-                                {clientName}
-                              </p>
-                            </div>
-                            
-                            {/* Horário */}
-                            <div className="flex items-center gap-1 text-primary">
-                              <Clock className="h-3 w-3 md:h-4 md:w-4" />
-                              <span className="font-bold text-xs md:text-sm">{appointmentTime}</span>
-                            </div>
-                            
-                            {/* Status Badge */}
-                            <div className="absolute top-1 right-1 flex flex-col gap-1 items-end">
-                              {appointment.status === 'pending' && (
-                                <span className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs font-semibold rounded">
-                                  Pendente
-                                </span>
-                              )}
-                              {appointment.status === 'confirmed' && (
-                                <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-xs font-semibold rounded">
-                                  Confirmado
-                                </span>
-                              )}
-                              {/* Badge para agendamentos manuais/retroativos */}
-                              {appointment.booking_type === 'manual' && (
-                                <span className="px-1.5 py-0.5 bg-orange-500/20 text-orange-400 text-xs font-semibold rounded border border-orange-500/30" title="Agendamento criado manualmente pelo barbeiro">
-                                  📝 Manual
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          
-                          {/* Botões de ação no hover */}
-                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg flex items-center justify-center gap-2">
-                            {appointment.status === 'pending' && (
-                              <Button 
-                                size="sm" 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleUpdateStatus(appointment.id, 'confirmed');
-                                }}
-                                className="bg-primary text-xs"
-                              >
-                                Confirmar
-                              </Button>
-                            )}
-                            {appointment.status === 'confirmed' && (
-                              <>
-                                <Button 
-                                  size="sm" 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleUpdateStatus(appointment.id, 'completed');
-                                  }}
-                                  className="bg-green-600 hover:bg-green-700 text-xs"
-                                >
-                                  Concluir
-                                </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="destructive"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleCancelClick(appointment.id);
-                                  }}
-                                  className="text-xs"
-                                >
-                                  Cancelar
-                                </Button>
-                              </>
-                            )}
-                            {(appointment.status === 'pending') && (
-                              <Button 
-                                size="sm" 
-                                variant="destructive"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCancelClick(appointment.id);
-                                }}
-                                className="text-xs"
-                              >
-                                Cancelar
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-center text-muted-foreground py-8">
-                    Nenhum agendamento para hoje
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
             <Card className="bg-card border-border">
               <CardHeader>
-                <CardTitle>Próximos Agendamentos</CardTitle>
+                <CardTitle>Agendamentos</CardTitle>
               </CardHeader>
-              <CardContent>
-                {upcomingAppointments.length > 0 ? (
-                  <div className="space-y-3">
-                   {upcomingAppointments.map((appointment) => (
-                     <div key={appointment.id} className="p-4 bg-secondary rounded-lg relative group">
-                       <div className="flex justify-between items-start">
-                         <div className="space-y-1 flex-1">
-                           <div className="flex items-center gap-2 flex-wrap">
-                             <p className="font-bold text-lg">{appointment.service?.title || 'Serviço'}</p>
-                             <span className={`px-2 py-1 rounded text-xs font-medium ${
-                               appointment.status === 'confirmed' 
-                                 ? 'bg-green-500/20 text-green-400' 
-                                 : 'bg-yellow-500/20 text-yellow-400'
-                             }`}>
-                               {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
-                             </span>
-                             {/* Badge para agendamentos manuais/retroativos */}
-                             {appointment.booking_type === 'manual' && (
-                               <span className="px-2 py-1 rounded text-xs font-medium bg-orange-500/20 text-orange-400 border border-orange-500/30" title="Agendamento criado manualmente pelo barbeiro">
-                                 📝 Manual
-                               </span>
-                             )}
-                           </div>
-                           <p className="text-sm font-medium">Cliente: {appointment.client?.name ?? 'Cliente'}</p>
-                           <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
-                             <div className="flex items-center gap-2">
-                               <Calendar className="h-4 w-4" />
-                               <span>{new Date(appointment.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
-                             </div>
-                             <div className="flex items-center gap-2">
-                               <Clock className="h-4 w-4" />
-                               <span className="font-bold text-primary">{appointment.appointment_time.slice(0, 5)}</span>
-                             </div>
-                             {appointment.service?.price && (
-                               <div className="text-primary font-bold">
-                                 R$ {appointment.service.price.toFixed(2)}
-                               </div>
-                             )}
-                           </div>
-                         </div>
-                       </div>
-                       
-                       {/* Botões de ação no hover */}
-                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg flex items-center justify-center gap-2">
-                         {appointment.status === 'pending' && (
-                           <Button 
-                             size="sm" 
-                             onClick={(e) => {
-                               e.stopPropagation();
-                               handleUpdateStatus(appointment.id, 'confirmed');
-                             }}
-                             className="bg-primary text-xs"
-                           >
-                             Confirmar
-                           </Button>
-                         )}
-                         {appointment.status === 'confirmed' && (
-                           <>
-                             <Button 
-                               size="sm" 
-                               onClick={(e) => {
-                                 e.stopPropagation();
-                                 handleUpdateStatus(appointment.id, 'completed');
-                               }}
-                               className="bg-green-600 hover:bg-green-700 text-xs"
-                             >
-                               Concluir
-                             </Button>
-                             <Button 
-                               size="sm" 
-                               variant="destructive"
-                               onClick={(e) => {
-                                 e.stopPropagation();
-                                 handleCancelClick(appointment.id);
-                               }}
-                               className="text-xs"
-                             >
-                               Cancelar
-                             </Button>
-                           </>
-                         )}
-                         {(appointment.status === 'pending') && (
-                           <Button 
-                             size="sm" 
-                             variant="destructive"
-                             onClick={(e) => {
-                               e.stopPropagation();
-                               handleCancelClick(appointment.id);
-                             }}
-                             className="text-xs"
-                           >
-                             Cancelar
-                           </Button>
-                         )}
-                       </div>
-                     </div>
-                   ))}
+              <CardContent className="p-4 sm:p-6">
+                <div className="grid grid-cols-2 text-center text-[10px] sm:text-xs uppercase tracking-wide text-muted-foreground">
+                  <div>Agendamentos de Hoje</div>
+                  <div>Próximos Agendamentos</div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:gap-6">
+                  <div>
+                    {todayAppointments.length > 0 ? (
+                      <div className="space-y-2">
+                        {todayAppointments.map((appointment) => {
+                          const clientName = appointment.client?.name ?? 'Cliente';
+                          const clientInitial = clientName.charAt(0).toUpperCase();
+                          const appointmentTime = appointment.appointment_time.slice(0, 5);
+
+                          return (
+                            <div 
+                              key={appointment.id} 
+                              className="p-3 sm:p-4 bg-secondary rounded-lg relative group cursor-pointer"
+                              onClick={() => handleAppointmentClick(appointment)}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className="flex flex-col items-center gap-1">
+                                  <Avatar className="h-8 w-8 sm:h-11 sm:w-11 border border-border">
+                                    <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
+                                    <AvatarFallback className="bg-primary/20 text-primary font-semibold">
+                                      {clientInitial}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] sm:text-xs font-medium ${
+                                      appointment.status === 'confirmed'
+                                        ? 'bg-green-500/20 text-green-400'
+                                        : 'bg-yellow-500/20 text-yellow-400'
+                                    }`}
+                                  >
+                                    {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
+                                  </span>
+                                  <div className="flex items-center gap-1 text-[11px] sm:text-xs text-muted-foreground">
+                                    <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    <span className="font-bold text-primary text-xs sm:text-sm">{appointmentTime}</span>
+                                  </div>
+                                  {appointment.booking_type === 'manual' && (
+                                    <span className="px-2 py-0.5 rounded text-[10px] sm:text-xs font-medium bg-orange-500/20 text-orange-400 border border-orange-500/30" title="Agendamento criado manualmente pelo barbeiro">
+                                      📝 Manual
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="space-y-1 flex-1">
+                                  <p className="font-bold text-sm sm:text-base">{appointment.service?.title || 'Serviço'}</p>
+                                  <p className="text-[11px] sm:text-sm font-medium">Cliente: {clientName}</p>
+                                  {/* horário já está abaixo do avatar; valor não exibido aqui */}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-center text-muted-foreground py-8">
+                        Nenhum agendamento para hoje
+                      </p>
+                    )}
                   </div>
-                ) : (
-                  <p className="text-center text-muted-foreground py-8">
-                    Nenhum agendamento futuro
-                  </p>
-                )}
+                  <div>
+                    {upcomingAppointments.length > 0 ? (
+                      <div className="space-y-2">
+                        {upcomingAppointments.map((appointment) => {
+                          const clientName = appointment.client?.name ?? 'Cliente';
+                          const clientInitial = clientName.charAt(0).toUpperCase();
+                          const appointmentTime = appointment.appointment_time.slice(0, 5);
+
+                          return (
+                            <div 
+                              key={appointment.id} 
+                              className="p-3 sm:p-4 bg-secondary rounded-lg relative group cursor-pointer"
+                              onClick={() => handleAppointmentClick(appointment)}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className="flex flex-col items-center gap-1">
+                                  <Avatar className="h-8 w-8 sm:h-11 sm:w-11 border border-border">
+                                    <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
+                                    <AvatarFallback className="bg-primary/20 text-primary font-semibold">
+                                      {clientInitial}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] sm:text-xs font-medium ${
+                                      appointment.status === 'confirmed'
+                                        ? 'bg-green-500/20 text-green-400'
+                                        : 'bg-yellow-500/20 text-yellow-400'
+                                    }`}
+                                  >
+                                    {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
+                                  </span>
+                                  <div className="flex items-center gap-1 text-[11px] sm:text-xs text-muted-foreground">
+                                    <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    <span className="font-bold text-primary text-xs sm:text-sm">{appointmentTime}</span>
+                                  </div>
+                                  {appointment.booking_type === 'manual' && (
+                                    <span className="px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium bg-orange-500/20 text-orange-400 border border-orange-500/30" title="Agendamento criado manualmente pelo barbeiro">
+                                      📝 Manual
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="space-y-1 flex-1">
+                                  <p className="font-bold text-sm sm:text-base">{appointment.service?.title || 'Serviço'}</p>
+                                  <p className="text-[11px] sm:text-sm font-medium">Cliente: {clientName}</p>
+                                  <div className="flex items-center gap-3 text-[11px] sm:text-sm text-muted-foreground mt-1">
+                                    <div className="flex items-center gap-1">
+                                      <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
+                                      <span>{new Date(appointment.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                                    </div>
+                                    {/* horário já está abaixo do avatar; valor não exibido aqui */}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-center text-muted-foreground py-8">
+                        Nenhum agendamento futuro
+                      </p>
+                    )}
+                  </div>
+                </div>
               </CardContent>
             </Card>
               </TabsContent>
@@ -1709,7 +1757,121 @@ const BarbeiroDashboard = () => {
 
               <TabsContent value="financeiro" className="space-y-6">
                 <BarberFinancialDashboard barberId={selectedBarber} />
-                <ProductSalesManager barberId={selectedBarber} />
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center justify-between">
+                      <span>Meus Vales</span>
+                      {loadingAdvances ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      ) : null}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {advances.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        Nenhum vale registrado.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="text-sm text-muted-foreground">
+                          Pendentes:{" "}
+                          <span className="font-semibold">
+                            {advances.filter((a) => a.status === "pending").length}
+                          </span>{" "}
+                          • Aprovados:{" "}
+                          <span className="font-semibold">
+                            {advances.filter((a) => a.status === "approved").length}
+                          </span>
+                        </p>
+                        <div className="max-h-40 overflow-y-auto space-y-2 text-sm">
+                          {advances.slice(0, 5).map((adv) => (
+                            <div
+                              key={adv.id}
+                              className="flex items-center justify-between border border-border/60 rounded-md px-3 py-2"
+                            >
+                              <div className="space-y-1">
+                                <p className="font-medium">
+                                  R${" "}
+                                  {Number(adv.amount).toLocaleString("pt-BR", {
+                                    minimumFractionDigits: 2,
+                                  })}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {new Date(
+                                    adv.effective_date
+                                  ).toLocaleDateString("pt-BR")}
+                                  {adv.description
+                                    ? ` • ${adv.description.slice(0, 40)}${
+                                        adv.description.length > 40 ? "..." : ""
+                                      }`
+                                    : ""}
+                                </p>
+                              </div>
+                              {adv.status === "pending" && currentBarber && (
+                                <div className="flex flex-col gap-1 items-end">
+                                  <Button
+                                    size="sm"
+                                    onClick={async () => {
+                                      const signatureMeta = {
+                                        barber_id: currentBarber.id,
+                                        barber_name: currentBarber.name,
+                                      };
+                                      const { error } = await approveAdvance(
+                                        adv.id,
+                                        signatureMeta
+                                      );
+                                      if (error) {
+                                        toast.error(
+                                          "Erro ao aprovar vale: " + error.message
+                                        );
+                                      } else {
+                                        toast.success(
+                                          "Vale aprovado. O valor será descontado da sua comissão."
+                                        );
+                                        loadAdvances();
+                                      }
+                                    }}
+                                  >
+                                    Aprovar
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-xs h-7 px-2"
+                                    onClick={async () => {
+                                      const { error } = await rejectAdvance(adv.id);
+                                      if (error) {
+                                        toast.error(
+                                          "Erro ao rejeitar/cancelar vale: " +
+                                            error.message
+                                        );
+                                      } else {
+                                        toast.success("Vale rejeitado/cancelado.");
+                                        loadAdvances();
+                                      }
+                                    }}
+                                  >
+                                    Rejeitar
+                                  </Button>
+                                </div>
+                              )}
+                              {adv.status === "approved" && (
+                                <span className="text-xs text-green-500 font-medium">
+                                  Aprovado
+                                </span>
+                              )}
+                              {adv.status === "rejected" && (
+                                <span className="text-xs text-red-500 font-medium">
+                                  Rejeitado
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
               </TabsContent>
 
               <TabsContent value="historico" className="space-y-6">
@@ -1875,6 +2037,73 @@ const BarbeiroDashboard = () => {
         )}
 
 
+        {/* Dialog de ação ao clicar no agendamento (Concluir ou Cancelar) */}
+        <Dialog 
+          open={actionDialogOpen} 
+          onOpenChange={(open) => {
+            setActionDialogOpen(open);
+            if (!open) {
+              setSelectedAppointmentForAction(null);
+            }
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>O que deseja fazer?</DialogTitle>
+              {selectedAppointmentForAction && (
+                <DialogDescription>
+                  Serviço: <span className="font-semibold">{selectedAppointmentForAction.service?.title || 'Serviço'}</span><br />
+                  Cliente: <span className="font-semibold">{selectedAppointmentForAction.client?.name ?? 'Cliente'}</span><br />
+                  Data: {new Date(selectedAppointmentForAction.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR')} às{' '}
+                  {selectedAppointmentForAction.appointment_time.slice(0, 5)}
+                </DialogDescription>
+              )}
+            </DialogHeader>
+            <div className="space-y-3 pt-2">
+              <Button
+                className="w-full bg-green-600 hover:bg-green-700"
+                onClick={() => {
+                  if (!selectedAppointmentForAction) return;
+                  setAppointmentToComplete(selectedAppointmentForAction.id);
+                  setActionDialogOpen(false);
+                  setCompleteDialogOpen(true);
+                }}
+              >
+                Concluir atendimento
+              </Button>
+              <Button
+                className="w-full bg-blue-600 hover:bg-blue-700"
+                onClick={() => {
+                  if (!selectedAppointmentForAction) return;
+                  handleEditClick(selectedAppointmentForAction);
+                }}
+              >
+                Alterar Data/Hora
+              </Button>
+              <Button
+                className="w-full"
+                variant="destructive"
+                onClick={() => {
+                  if (!selectedAppointmentForAction) return;
+                  setAppointmentToCancel(selectedAppointmentForAction.id);
+                  setCancellationReason('');
+                  setActionDialogOpen(false);
+                  setCancelDialogOpen(true);
+                }}
+              >
+                Cancelar agendamento
+              </Button>
+              <Button
+                className="w-full"
+                variant="outline"
+                onClick={() => setActionDialogOpen(false)}
+              >
+                Fechar
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         {/* Dialog para adicionar foto ao concluir */}
         <Dialog 
           open={completeDialogOpen} 
@@ -1939,14 +2168,30 @@ const BarbeiroDashboard = () => {
                 </Label>
                 <Select
                   value={paymentMethod}
-                  onValueChange={(value) => setPaymentMethod(value as 'pix' | 'dinheiro')}
+                  onValueChange={(value) => setPaymentMethod(value as 'pix' | 'dinheiro' | 'cartao')}
                 >
                   <SelectTrigger id="payment-method">
                     <SelectValue placeholder="Selecione a forma de pagamento" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="pix">Pix</SelectItem>
-                    <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                    <SelectItem value="pix">
+                      <div className="flex items-center gap-2">
+                        <Smartphone className="h-4 w-4 text-primary" />
+                        <span>Pix</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="dinheiro">
+                      <div className="flex items-center gap-2">
+                        <Banknote className="h-4 w-4 text-green-500" />
+                        <span>Dinheiro</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="cartao">
+                      <div className="flex items-center gap-2">
+                        <CreditCard className="h-4 w-4 text-blue-500" />
+                        <span>Cartão</span>
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
@@ -2034,6 +2279,75 @@ const BarbeiroDashboard = () => {
                   className="flex-1"
                 >
                   Confirmar Cancelamento
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog para editar agendamento */}
+        <Dialog 
+          open={editDialogOpen} 
+          onOpenChange={(open) => {
+            setEditDialogOpen(open);
+            if (!open) {
+              setAppointmentToEdit(null);
+              setEditAppointment({ date: '', time: '' });
+            }
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Alterar Data e Hora</DialogTitle>
+              {appointmentToEdit && (
+                <DialogDescription>
+                  Serviço: <span className="font-semibold">{appointmentToEdit.service?.title || 'Serviço'}</span><br />
+                  Cliente: <span className="font-semibold">{appointmentToEdit.client?.name ?? 'Cliente'}</span>
+                </DialogDescription>
+              )}
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <Label htmlFor="edit-date">Nova Data *</Label>
+                <Input
+                  id="edit-date"
+                  type="date"
+                  value={editAppointment.date}
+                  onChange={(e) => setEditAppointment({ ...editAppointment, date: e.target.value })}
+                  className="mt-2"
+                  required
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="edit-time">Novo Horário *</Label>
+                <Input
+                  id="edit-time"
+                  type="time"
+                  value={editAppointment.time}
+                  onChange={(e) => setEditAppointment({ ...editAppointment, time: e.target.value })}
+                  className="mt-2"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  onClick={() => {
+                    setEditDialogOpen(false);
+                    setAppointmentToEdit(null);
+                    setEditAppointment({ date: '', time: '' });
+                  }}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleSaveEdit}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                >
+                  Salvar Alterações
                 </Button>
               </div>
             </div>
