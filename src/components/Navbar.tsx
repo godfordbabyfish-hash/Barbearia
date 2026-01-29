@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Scissors, Menu, X, LogOut, Home, ShoppingBag, Users, Calendar, Wifi, Star, Instagram, Facebook } from "lucide-react";
+import { Scissors, Menu, X, LogOut, Home, ShoppingBag, Users, Calendar, Wifi, Star, Instagram, Facebook, QrCode, Copy, Smartphone } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/contexts/AuthContext";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -15,6 +16,8 @@ const Navbar = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [socialMenuOpen, setSocialMenuOpen] = useState(false);
   const [wifiCredentials, setWifiCredentials] = useState({ username: '', password: '' });
+  const [wifiDialogOpen, setWifiDialogOpen] = useState(false);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
   const [userProfile, setUserProfile] = useState<{ name: string; photo_url: string | null } | null>(null);
   const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
@@ -118,52 +121,103 @@ const Navbar = () => {
       return;
     }
 
-    try {
-      // Formato WPA WiFi connection string (padrão para QR codes e conexão automática)
-      const wifiString = `WIFI:T:WPA;S:${wifiCredentials.username};P:${wifiCredentials.password};;`;
-      
-      // Tentar usar Web Share API (funciona melhor em mobile)
-      if (navigator.share) {
-        try {
-          await navigator.share({
-            title: 'Conectar ao WiFi',
-            text: wifiString, // String formatada que alguns sistemas reconhecem
-          });
-          toast.success('✅ Conectando ao WiFi...');
-          return;
-        } catch (shareError: any) {
-          // Se o usuário cancelar o share, não é um erro
-          if (shareError.name === 'AbortError') {
-            return; // Usuário cancelou
-          }
-        }
-      }
+    // Gerar QR Code
+    await generateWifiQRCode();
+    setWifiDialogOpen(true);
+  };
 
-      // Alternativa: Copiar string WiFi formatada para clipboard
-      // Alguns sistemas reconhecem este formato automaticamente
+  const generateWifiQRCode = async () => {
+    try {
+      // Formato padrão WiFi para QR Code (funciona em Android e iOS)
+      const wifiString = `WIFI:T:WPA;S:${wifiCredentials.username};P:${wifiCredentials.password};H:false;;`;
+      
+      // Gerar QR Code usando API pública (alternativa simples)
+      const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(wifiString)}`;
+      setQrCodeDataUrl(qrApiUrl);
+    } catch (error) {
+      console.error('Erro ao gerar QR Code:', error);
+      toast.error('Erro ao gerar QR Code WiFi');
+    }
+  };
+
+  const copyWifiCredentials = async () => {
+    try {
+      const wifiString = `WIFI:T:WPA;S:${wifiCredentials.username};P:${wifiCredentials.password};H:false;;`;
       await navigator.clipboard.writeText(wifiString);
       
-      // Mostrar mensagem de sucesso sem exibir credenciais
-      toast.success('✅ Conectando ao WiFi...', {
-        description: 'As credenciais foram processadas. Verifique as configurações de WiFi do seu dispositivo.',
-        duration: 4000,
+      toast.success('✅ Credenciais copiadas!', {
+        description: 'Cole em um leitor de QR Code ou configurações WiFi',
+        duration: 3000,
       });
-      
-      // Em mobile, tentar abrir configurações de WiFi
-      if (navigator.userAgent.match(/Android/i)) {
-        // Android pode abrir configurações via intent (não funciona via web, mas tentamos)
-        setTimeout(() => {
-          toast.info('Abra as configurações de WiFi do seu dispositivo para concluir a conexão');
-        }, 2000);
-      } else if (navigator.userAgent.match(/iPhone|iPad|iPod/i)) {
-        // iOS - mostrar instrução
-        setTimeout(() => {
-          toast.info('Vá em Configurações > WiFi e selecione a rede');
-        }, 2000);
-      }
     } catch (error) {
-      console.error('Erro ao conectar WiFi:', error);
-      toast.error('Erro ao processar conexão WiFi');
+      // Fallback para dispositivos que não suportam clipboard
+      toast.info('📋 Credenciais WiFi', {
+        description: `Rede: ${wifiCredentials.username}`,
+        duration: 5000,
+      });
+    }
+  };
+
+  const connectToWifi = async () => {
+    const wifiString = `WIFI:T:WPA;S:${wifiCredentials.username};P:${wifiCredentials.password};H:false;;`;
+    
+    // Detectar dispositivo
+    const isAndroid = navigator.userAgent.match(/Android/i);
+    const isIOS = navigator.userAgent.match(/iPhone|iPad|iPod/i);
+    
+    try {
+      // Copiar para clipboard primeiro
+      await navigator.clipboard.writeText(wifiString);
+      
+      if (isAndroid) {
+        // Android: Tentar abrir configurações WiFi (funciona em alguns navegadores)
+        try {
+          // Tentar abrir configurações WiFi diretamente
+          window.open('intent://wifi#Intent;scheme=android.settings;package=com.android.settings;end');
+        } catch (error) {
+          // Fallback: Instruções
+        }
+        
+        toast.success('📱 Android - Próximos Passos:', {
+          description: '1. Abra Configurações > WiFi\n2. Cole os dados copiados\n3. Ou escaneie o QR Code com a câmera',
+          duration: 6000,
+        });
+        
+      } else if (isIOS) {
+        // iOS: Tentar abrir configurações WiFi
+        try {
+          window.open('App-Prefs:root=WIFI');
+        } catch (error) {
+          // Fallback: Instruções
+        }
+        
+        toast.success('📱 iPhone - Próximos Passos:', {
+          description: '1. Abra Configurações > WiFi\n2. Ou escaneie o QR Code com a câmera (mais fácil)',
+          duration: 6000,
+        });
+        
+      } else {
+        // Desktop
+        toast.info('💻 Desktop - Use seu celular:', {
+          description: 'Escaneie o QR Code com a câmera do seu celular para conectar automaticamente',
+          duration: 5000,
+        });
+      }
+      
+      // Mostrar toast adicional sobre QR Code
+      setTimeout(() => {
+        toast.info('💡 Dica:', {
+          description: 'Escanear o QR Code é mais rápido e conecta automaticamente!',
+          duration: 4000,
+        });
+      }, 2000);
+      
+    } catch (error) {
+      // Se não conseguir copiar, mostrar credenciais
+      toast.info('📶 Credenciais WiFi:', {
+        description: `Rede: ${wifiCredentials.username}\nEscaneie o QR Code para conectar automaticamente`,
+        duration: 8000,
+      });
     }
   };
 
@@ -522,6 +576,106 @@ const Navbar = () => {
           </SheetContent>
         </Sheet>
       </div>
+
+      {/* Modal WiFi */}
+      <Dialog open={wifiDialogOpen} onOpenChange={setWifiDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wifi className="w-5 h-5 text-primary" />
+              Conectar ao WiFi
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            {/* QR Code */}
+            <div className="flex flex-col items-center space-y-4">
+              <div className="p-4 bg-white rounded-lg border-2 border-border">
+                {qrCodeDataUrl ? (
+                  <img 
+                    src={qrCodeDataUrl} 
+                    alt="QR Code WiFi" 
+                    className="w-48 h-48"
+                  />
+                ) : (
+                  <div className="w-48 h-48 flex items-center justify-center bg-secondary rounded">
+                    <QrCode className="w-12 h-12 text-muted-foreground" />
+                  </div>
+                )}
+              </div>
+              
+              <div className="text-center space-y-2">
+                <h3 className="font-semibold text-lg">Escaneie para Conectar</h3>
+                <p className="text-sm text-muted-foreground">
+                  Use a câmera do seu celular para escanear o QR Code
+                </p>
+              </div>
+            </div>
+
+            {/* Instruções por dispositivo */}
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 p-3 bg-green-500/10 rounded-lg border border-green-500/20">
+                <Smartphone className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-medium text-green-700 dark:text-green-400">Android</p>
+                  <p className="text-sm text-green-600 dark:text-green-300">
+                    Abra a câmera e aponte para o QR Code. Toque na notificação para conectar automaticamente.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                <Smartphone className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-medium text-blue-700 dark:text-blue-400">iPhone/iPad</p>
+                  <p className="text-sm text-blue-600 dark:text-blue-300">
+                    Abra a câmera e aponte para o QR Code. Toque no banner que aparece para conectar.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Botões de ação */}
+            <div className="flex gap-3">
+              <Button
+                onClick={connectToWifi}
+                className="flex-1 bg-blue-600 hover:bg-blue-700"
+              >
+                <Smartphone className="w-4 h-4 mr-2" />
+                Abrir Configurações
+              </Button>
+              <Button
+                onClick={copyWifiCredentials}
+                variant="outline"
+                className="flex-1"
+              >
+                <Copy className="w-4 h-4 mr-2" />
+                Copiar Dados
+              </Button>
+            </div>
+
+            {/* Destaque para QR Code */}
+            <div className="text-center p-4 bg-primary/10 rounded-lg border border-primary/20">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <QrCode className="w-5 h-5 text-primary" />
+                <span className="font-semibold text-primary">Conexão Automática</span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                <strong>Mais fácil:</strong> Escaneie o QR Code com a câmera do celular para conectar automaticamente sem digitar senha!
+              </p>
+            </div>
+
+            {/* Informações da rede */}
+            <div className="text-center p-3 bg-secondary/50 rounded-lg">
+              <p className="text-sm text-muted-foreground">
+                Rede: <span className="font-medium text-foreground">{wifiCredentials.username}</span>
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Conexão segura WPA/WPA2
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </nav>
   );
