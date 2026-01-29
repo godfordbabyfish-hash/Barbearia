@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Calendar, Clock, Scissors, Wind, Sparkles, User, Star, MapPin, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -78,6 +79,10 @@ const Booking = () => {
     date: "",
     time: "",
   });
+
+  // Estados para o modal de confirmação de barbeiro indisponível
+  const [unavailableBarberDialogOpen, setUnavailableBarberDialogOpen] = useState(false);
+  const [selectedUnavailableBarber, setSelectedUnavailableBarber] = useState<any>(null);
 
   // Carregar dados iniciais apenas uma vez (não quando estiver no step success)
   useEffect(() => {
@@ -307,22 +312,169 @@ const Booking = () => {
     setStep("barber");
   };
 
-  const handleBarberSelect = (barber: typeof barbers[0]) => {
+  const handleBarberSelect = async (barber: typeof barbers[0]) => {
+    // Verificar se o barbeiro tem horários disponíveis hoje
+    const today = new Date();
+    const todayStr = formatLocalDate(today);
+    
+    // Verificar se hoje está dentro do horário de funcionamento
+    const isTodayOpen = isDateOpen(today);
+    
+    // Verificar se o barbeiro está disponível hoje
+    let barberAvailableToday = true;
+    if (barber.availability) {
+      try {
+        const availability = typeof barber.availability === 'string' 
+          ? JSON.parse(barber.availability) 
+          : barber.availability;
+        
+        const dayKey = getDayKey(today);
+        const dayAvailability = availability[dayKey];
+        barberAvailableToday = !dayAvailability?.closed;
+      } catch (error) {
+        console.error('Error parsing barber availability:', error);
+      }
+    }
+
+    // Se a barbearia está fechada hoje, pular verificação (não há horários mesmo)
+    if (!isTodayOpen) {
+      const newFormData = {
+        ...formData,
+        barber: barber.id,
+        barberName: barber.name,
+      };
+      setFormData(newFormData);
+      setStep("time");
+      findNextAvailableDateTime(newFormData).catch((error) => {
+        console.error('Error finding next available date/time:', error);
+      });
+      return;
+    }
+
+    // Se o barbeiro não está disponível hoje, mostrar modal de confirmação
+    if (!barberAvailableToday) {
+      setSelectedUnavailableBarber(barber);
+      setUnavailableBarberDialogOpen(true);
+      return;
+    }
+
+    // Verificar se há horários disponíveis hoje
+    try {
+      const todayTimeSlots = getTimeSlotsForDate(today);
+      const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
+
+      // Buscar agendamentos existentes para hoje
+      const { data: appointments } = await (supabase as any)
+        .from('appointments')
+        .select('appointment_time, service:services(duration)')
+        .eq('barber_id', barber.id)
+        .eq('appointment_date', todayStr)
+        .neq('status', 'cancelled');
+
+      // Buscar pausas do barbeiro para hoje
+      const { data: breaks } = await (supabase as any)
+        .from('barber_breaks')
+        .select('start_time, end_time')
+        .eq('barber_id', barber.id)
+        .eq('date', todayStr);
+
+      const serviceDuration = getServiceDuration(formData.service, services);
+
+      // Helper function to check if a slot overlaps with a break
+      const isSlotInBreak = (slotTime: string, slotDuration: number): boolean => {
+        if (!breaks || breaks.length === 0) return false;
+
+        const timeToMinutes = (time: string): number => {
+          const [hours, minutes] = time.split(':').map(Number);
+          return hours * 60 + minutes;
+        };
+
+        const slotStartMinutes = timeToMinutes(slotTime);
+        const slotEndMinutes = slotStartMinutes + slotDuration;
+
+        return breaks.some((breakItem: any) => {
+          const breakStartMinutes = timeToMinutes(breakItem.start_time);
+          const breakEndMinutes = timeToMinutes(breakItem.end_time);
+          return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;
+        });
+      };
+
+      // Verificar se há horários disponíveis hoje
+      const availableTodaySlots = todayTimeSlots.filter(slot => {
+        // Filtrar horários passados
+        if (slot < currentTime) {
+          return false;
+        }
+
+        // Filtrar horários em pausa
+        if (isSlotInBreak(slot, serviceDuration)) {
+          return false;
+        }
+
+        // Verificar conflitos com agendamentos existentes
+        const hasConflict = isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === formData.service));
+        return !hasConflict;
+      });
+
+      // Se não há horários disponíveis hoje, mostrar modal de confirmação
+      if (availableTodaySlots.length === 0) {
+        setSelectedUnavailableBarber(barber);
+        setUnavailableBarberDialogOpen(true);
+        return;
+      }
+
+      // Se há horários disponíveis hoje, continuar normalmente
+      const newFormData = {
+        ...formData,
+        barber: barber.id,
+        barberName: barber.name,
+      };
+      setFormData(newFormData);
+      setStep("time");
+      findNextAvailableDateTime(newFormData).catch((error) => {
+        console.error('Error finding next available date/time:', error);
+      });
+
+    } catch (error) {
+      console.error('Error checking barber availability for today:', error);
+      // Em caso de erro, continuar normalmente
+      const newFormData = {
+        ...formData,
+        barber: barber.id,
+        barberName: barber.name,
+      };
+      setFormData(newFormData);
+      setStep("time");
+      findNextAvailableDateTime(newFormData).catch((error) => {
+        console.error('Error finding next available date/time:', error);
+      });
+    }
+  };
+
+  // Função para confirmar agendamento com barbeiro indisponível hoje
+  const handleConfirmUnavailableBarber = () => {
+    if (!selectedUnavailableBarber) return;
+    
     const newFormData = {
       ...formData,
-      barber: barber.id,
-      barberName: barber.name,
+      barber: selectedUnavailableBarber.id,
+      barberName: selectedUnavailableBarber.name,
     };
     setFormData(newFormData);
-    
-    // Ir imediatamente para a etapa de seleção de horário
+    setUnavailableBarberDialogOpen(false);
+    setSelectedUnavailableBarber(null);
     setStep("time");
-
-    // Em segundo plano, tentar encontrar automaticamente a próxima data/horário disponível.
-    // Qualquer erro aqui é apenas logado e não bloqueia a navegação.
+    
     findNextAvailableDateTime(newFormData).catch((error) => {
       console.error('Error finding next available date/time:', error);
     });
+  };
+
+  // Função para cancelar e voltar à seleção de barbeiro
+  const handleCancelUnavailableBarber = () => {
+    setUnavailableBarberDialogOpen(false);
+    setSelectedUnavailableBarber(null);
+    // Permanecer na tela de seleção de barbeiro
   };
 
   // Helper function to format date in local timezone (not UTC)
@@ -1275,6 +1427,39 @@ const Booking = () => {
           </div>
         )}
       </div>
+
+      {/* Modal de confirmação para barbeiro indisponível hoje */}
+      <Dialog open={unavailableBarberDialogOpen} onOpenChange={setUnavailableBarberDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Barbeiro Indisponível Hoje</DialogTitle>
+            <DialogDescription>
+              {selectedUnavailableBarber && (
+                <>
+                  O barbeiro <strong>{selectedUnavailableBarber.name}</strong> não possui horários disponíveis para hoje.
+                  <br /><br />
+                  Deseja agendar com este barbeiro mesmo assim? Você será direcionado para selecionar uma data futura disponível.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 pt-4">
+            <Button
+              variant="outline"
+              onClick={handleCancelUnavailableBarber}
+              className="flex-1"
+            >
+              Não, escolher outro barbeiro
+            </Button>
+            <Button
+              onClick={handleConfirmUnavailableBarber}
+              className="flex-1 bg-primary hover:bg-primary/90"
+            >
+              Sim, agendar mesmo assim
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 };

@@ -60,20 +60,18 @@ echo ========================================
 echo   SERVIDOR DE DESENVOLVIMENTO
 echo ========================================
 echo.
-echo O servidor estara disponivel em:
-echo   - Local: http://localhost:8080
-echo.
-echo Pressione Ctrl+C para parar o servidor
-echo.
-echo ========================================
-echo.
 
 REM Verificar se a porta 8080 está em uso
 echo [INFO] Verificando porta 8080...
 netstat -ano | findstr :8080 >nul 2>&1
 if %errorlevel% equ 0 (
     echo [AVISO] Porta 8080 ja esta em uso!
-    echo [INFO] Tentando iniciar mesmo assim...
+    echo [INFO] Tentando parar processos na porta 8080...
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8080') do (
+        echo [INFO] Parando processo %%a...
+        taskkill /PID %%a /F >nul 2>&1
+    )
+    timeout /t 2 >nul
     echo.
 )
 
@@ -99,9 +97,22 @@ echo O servidor estara disponivel em:
 echo   - Local: http://localhost:8080
 if defined LOCAL_IP (
     echo   - Rede: http://!LOCAL_IP!:8080
+    echo   - Mobile: http://!LOCAL_IP!:8080
 ) else (
     echo   - Rede: http://SEU_IP_LOCAL:8080
 )
+echo.
+echo ========================================
+echo   FUNCIONALIDADES IMPLEMENTADAS:
+echo ========================================
+echo.
+echo [NOVO] Dashboard do Barbeiro:
+echo   - Alterar data/hora dos agendamentos
+echo   - Notificacoes otimizadas (2-3 segundos)
+echo.
+echo [NOVO] Sistema de Agendamento:
+echo   - Verificacao de disponibilidade do barbeiro
+echo   - Modal de confirmacao quando barbeiro indisponivel
 echo.
 echo Pressione Ctrl+C para parar o servidor
 echo.
