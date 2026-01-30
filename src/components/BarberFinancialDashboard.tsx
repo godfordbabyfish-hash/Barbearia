@@ -69,6 +69,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   const [advanceDialogOpen, setAdvanceDialogOpen] = useState(false);
   const [advanceAmount, setAdvanceAmount] = useState('');
   const [advanceReason, setAdvanceReason] = useState('');
+  const [advanceRequestDate, setAdvanceRequestDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [submittingAdvance, setSubmittingAdvance] = useState(false);
 
   // Helper function to calculate commission for an appointment
@@ -295,14 +296,24 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
 
   // Função para solicitar vale
   const handleAdvanceRequest = async () => {
-    if (!advanceAmount || !advanceReason.trim()) {
-      toast.error('Preencha o valor e o motivo do vale');
+    if (!advanceAmount || !advanceReason.trim() || !advanceRequestDate) {
+      toast.error('Preencha o valor, motivo e data da solicitação');
       return;
     }
 
     const amount = parseFloat(advanceAmount);
     if (isNaN(amount) || amount <= 0) {
       toast.error('Valor deve ser um número positivo');
+      return;
+    }
+
+    // Verificar se a data não é futura
+    const requestDate = new Date(advanceRequestDate);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999); // Fim do dia de hoje
+    
+    if (requestDate > today) {
+      toast.error('Data da solicitação não pode ser futura');
       return;
     }
 
@@ -323,8 +334,8 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
           amount: amount,
           reason: advanceReason.trim(),
           status: 'pending',
-          request_date: format(new Date(), 'yyyy-MM-dd'),
-          effective_date: format(new Date(), 'yyyy-MM-dd'),
+          request_date: advanceRequestDate, // Usar a data informada pelo barbeiro
+          effective_date: advanceRequestDate, // Data efetiva também será a data da solicitação
         });
 
       if (error) {
@@ -332,12 +343,13 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
         toast.error('Erro ao solicitar vale: ' + error.message);
       } else {
         toast.success('Vale solicitado com sucesso!', {
-          description: 'Aguarde a aprovação do gestor',
+          description: `Data da solicitação: ${format(new Date(advanceRequestDate), 'dd/MM/yyyy', { locale: ptBR })}`,
           duration: 3000,
         });
         setAdvanceDialogOpen(false);
         setAdvanceAmount('');
         setAdvanceReason('');
+        setAdvanceRequestDate(format(new Date(), 'yyyy-MM-dd')); // Reset para hoje
         // Não recarregar advances aqui pois ainda está pendente
       }
     } catch (error: any) {
@@ -607,6 +619,21 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
                   </div>
 
                   <div>
+                    <Label htmlFor="advance-request-date">Data da Solicitação *</Label>
+                    <Input
+                      id="advance-request-date"
+                      type="date"
+                      value={advanceRequestDate}
+                      onChange={(e) => setAdvanceRequestDate(e.target.value)}
+                      max={format(new Date(), 'yyyy-MM-dd')} // Não permitir datas futuras
+                      className="mt-2"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Data em que você realmente pegou o vale (não pode ser futura)
+                    </p>
+                  </div>
+
+                  <div>
                     <Label htmlFor="advance-reason">Motivo *</Label>
                     <Textarea
                       id="advance-reason"
@@ -624,6 +651,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
                         setAdvanceDialogOpen(false);
                         setAdvanceAmount('');
                         setAdvanceReason('');
+                        setAdvanceRequestDate(format(new Date(), 'yyyy-MM-dd')); // Reset para hoje
                       }}
                       className="flex-1"
                     >
@@ -631,7 +659,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
                     </Button>
                     <Button
                       onClick={handleAdvanceRequest}
-                      disabled={submittingAdvance || !advanceAmount || !advanceReason.trim()}
+                      disabled={submittingAdvance || !advanceAmount || !advanceReason.trim() || !advanceRequestDate}
                       className="flex-1"
                     >
                       {submittingAdvance ? 'Enviando...' : 'Solicitar Vale'}

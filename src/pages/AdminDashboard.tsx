@@ -29,6 +29,7 @@ import ImageManager from '@/components/admin/ImageManager';
 import OperatingHoursEditor from '@/components/admin/OperatingHoursEditor';
 import { UserManager } from '@/components/admin/UserManager';
 import { WhatsAppManager } from '@/components/admin/WhatsAppManager';
+import ReportsManager from '@/components/admin/ReportsManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 
@@ -748,6 +749,13 @@ const AdminDashboard = () => {
               <div className="space-y-6">
                 <h2 className="text-2xl font-bold pl-12 lg:pl-0">Financeiro</h2>
                 <FinancialDashboard />
+              </div>
+            )}
+
+            {activeTab === 'reports' && (
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold pl-12 lg:pl-0">Relatórios</h2>
+                <ReportsManager />
               </div>
             )}
 
