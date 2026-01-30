@@ -23,6 +23,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { listAdvancesByBarber, approveAdvance, rejectAdvance } from '@/integrations/supabase/barberAdvances';
+import { generateUUID } from '@/utils/uuid';
 
 const BarbeiroDashboard = () => {
   const navigate = useNavigate();
@@ -711,142 +712,62 @@ const BarbeiroDashboard = () => {
       }
     }
     
-    // Se não encontrou perfil pelo telefone (ou telefone não foi informado), criar novo
+    // Se não encontrou perfil pelo telefone, tentar criar perfil temporário
     if (!profileData) {
-      // Se não existe, criar novo usuário e perfil
-      // O perfil precisa de um usuário em auth.users devido à foreign key constraint
-      // Criar um usuário temporário com email baseado no telefone (se houver) ou nome
-      const cleanPhone = newAppointment.clientPhone ? newAppointment.clientPhone.replace(/\D/g, '') : '';
-      const clientNameClean = newAppointment.clientName.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
-      const tempEmail = cleanPhone ? `${cleanPhone}@cliente.temp` : `${clientNameClean}@cliente.temp`;
-      const tempPassword = cleanPhone || clientNameClean; // Senha temporária baseada no telefone ou nome
-      
       try {
-        // Tentar criar o usuário no auth
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: tempEmail,
-          password: tempPassword,
-          options: {
-            data: {
-              name: newAppointment.clientName,
-              phone: newAppointment.clientPhone || null,
-            },
-            email_redirect_to: undefined, // Não redirecionar email
-          },
-        });
+        // Primeiro, tentar criar perfil temporário (se migration foi aplicada)
+        const tempUserId = generateUUID();
+        
+        const { data: newProfile, error: profileError } = await (supabase as any)
+          .from('profiles')
+          .insert([{
+            id: tempUserId,
+            name: newAppointment.clientName,
+            phone: newAppointment.clientPhone || null,
+            is_temp_user: true, // Marcar como usuário temporário
+          }])
+          .select()
+          .single();
 
-        if (signUpError) {
-          // Se já existe, tentar fazer sign in para obter o ID
-          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        if (profileError) {
+          // Se falhou, pode ser que a migration não foi aplicada
+          // Tentar método alternativo: criar usuário auth temporário
+          console.warn('Tentativa de perfil temporário falhou, usando método alternativo:', profileError);
+          
+          // Gerar email temporário único
+          const tempEmail = `temp_${generateUUID().substring(0, 8)}@temp.local`;
+          const tempPassword = generateUUID();
+          
+          const { data: authData, error: authError } = await supabase.auth.signUp({
             email: tempEmail,
             password: tempPassword,
-          });
-
-          if (signInError) {
-            console.error('Error creating/finding user:', signUpError, signInError);
-            toast.error('Erro ao criar usuário do cliente: ' + (signUpError.message || signInError.message || 'Erro desconhecido'));
-            return;
-          }
-
-          // Se conseguiu fazer sign in, o perfil já deve existir (criado pelo trigger)
-          // Buscar o perfil
-          const { data: existingProfileAfterSignIn } = await (supabase as any)
-            .from('profiles')
-            .select('id, name, phone')
-            .eq('id', signInData.user.id)
-            .maybeSingle();
-
-          if (existingProfileAfterSignIn) {
-            profileData = existingProfileAfterSignIn;
-            // Atualizar nome e telefone se necessário
-            if (existingProfileAfterSignIn.name !== newAppointment.clientName || 
-                (newAppointment.clientPhone && existingProfileAfterSignIn.phone !== newAppointment.clientPhone)) {
-              await (supabase as any)
-                .from('profiles')
-                .update({ 
-                  name: newAppointment.clientName,
-                  ...(newAppointment.clientPhone && { phone: newAppointment.clientPhone })
-                })
-                .eq('id', signInData.user.id);
-              profileData = { 
-                ...existingProfileAfterSignIn, 
-                name: newAppointment.clientName, 
-                phone: newAppointment.clientPhone || existingProfileAfterSignIn.phone 
-              };
-            }
-          } else {
-            // Se o perfil não existe, criar manualmente
-            const { data: newProfile, error: profileError } = await (supabase as any)
-              .from('profiles')
-              .insert([{
-                id: signInData.user.id,
+            options: {
+              data: {
                 name: newAppointment.clientName,
                 phone: newAppointment.clientPhone || null,
-              }])
-              .select()
-              .single();
-
-            if (profileError) {
-              console.error('Error creating profile:', profileError);
-              toast.error('Erro ao criar perfil do cliente: ' + (profileError.message || 'Erro desconhecido'));
-              return;
+                is_temp_user: true,
+              }
             }
-            profileData = newProfile;
+          });
+
+          if (authError || !authData.user) {
+            throw new Error('Erro ao criar perfil temporário: ' + (authError?.message || 'Usuário não criado'));
           }
-        } else if (signUpData.user) {
-          // Usuário criado com sucesso, o trigger handle_new_user deve ter criado o perfil
-          // Aguardar um pouco para o trigger executar
-          await new Promise(resolve => setTimeout(resolve, 500));
+
+          // Fazer logout imediatamente para não alterar a sessão atual
+          await supabase.auth.signOut();
           
-          // Buscar o perfil criado pelo trigger
-          const { data: newProfile, error: profileError } = await (supabase as any)
-            .from('profiles')
-            .select('id, name, phone')
-            .eq('id', signUpData.user.id)
-            .maybeSingle();
-
-          if (profileError || !newProfile) {
-            // Se o trigger não criou, criar manualmente
-            const { data: manualProfile, error: manualError } = await (supabase as any)
-              .from('profiles')
-              .insert([{
-                id: signUpData.user.id,
-                name: newAppointment.clientName,
-                phone: newAppointment.clientPhone,
-              }])
-              .select()
-              .single();
-
-            if (manualError) {
-              console.error('Error creating profile manually:', manualError);
-              toast.error('Erro ao criar perfil do cliente: ' + (manualError.message || 'Erro desconhecido'));
-              return;
-            }
-            profileData = manualProfile;
-          } else {
-            // Atualizar nome e telefone se o trigger criou com valores diferentes
-            if (newProfile.name !== newAppointment.clientName || 
-                (newAppointment.clientPhone && newProfile.phone !== newAppointment.clientPhone)) {
-              await (supabase as any)
-                .from('profiles')
-                .update({ 
-                  name: newAppointment.clientName,
-                  ...(newAppointment.clientPhone && { phone: newAppointment.clientPhone })
-                })
-                .eq('id', signUpData.user.id);
-              profileData = { 
-                ...newProfile, 
-                name: newAppointment.clientName, 
-                phone: newAppointment.clientPhone || newProfile.phone 
-              };
-            } else {
-              profileData = newProfile;
-            }
-          }
+          profileData = { 
+            id: authData.user.id, 
+            name: newAppointment.clientName,
+            phone: newAppointment.clientPhone || null 
+          };
+        } else {
+          profileData = newProfile;
         }
       } catch (error: any) {
-        console.error('Error in user creation process:', error);
-        toast.error('Erro ao criar usuário do cliente: ' + (error.message || 'Erro desconhecido'));
+        console.error('Error in profile creation process:', error);
+        toast.error('Erro ao criar perfil do cliente: ' + (error.message || 'Erro desconhecido'));
         return;
       }
     }
@@ -876,8 +797,22 @@ const BarbeiroDashboard = () => {
       }]);
 
     if (error) {
-      toast.error('Erro ao criar agendamento');
       console.error('Error creating appointment:', error);
+      
+      // Verificar se é erro de foreign key constraint (migration não aplicada)
+      if (error.code === '23503' && error.message?.includes('appointments_client_id_fkey')) {
+        toast.error('❌ Erro de configuração do banco!', {
+          description: 'Execute o SQL de verificação no Supabase Dashboard. Verifique o arquivo verificar-migration-aplicada.sql',
+          duration: 8000,
+        });
+      } else if (error.code === '23503') {
+        toast.error('❌ Erro de constraint no banco!', {
+          description: 'Verifique se todas as migrations foram aplicadas corretamente: ' + error.message,
+          duration: 6000,
+        });
+      } else {
+        toast.error('Erro ao criar agendamento: ' + (error.message || 'Erro desconhecido'));
+      }
     } else {
       const message = (isPastAppointment || newAppointment.isRetroactive)
         ? 'Agendamento retroativo criado com sucesso! (Marcado como manual)'
@@ -1048,8 +983,6 @@ const BarbeiroDashboard = () => {
           });
 
         if (uploadError) {
-          // Se o bucket não existir, criar automaticamente não é possível via frontend
-          // Vamos tentar criar uma estrutura alternativa ou apenas salvar a URL
           console.error('Erro ao fazer upload:', uploadError);
           toast.error('Erro ao fazer upload da foto. O agendamento será concluído sem foto.');
         } else {
@@ -1073,7 +1006,8 @@ const BarbeiroDashboard = () => {
         .eq('id', appointmentToComplete);
 
       if (error) {
-        toast.error('Erro ao concluir agendamento');
+        console.error('Database update error:', error);
+        toast.error('Erro ao concluir agendamento: ' + error.message);
       } else {
         toast.success(photoUrl ? 'Agendamento concluído com foto!' : 'Agendamento concluído!', {
           duration: 2000, // 2 segundos
@@ -1103,26 +1037,32 @@ const BarbeiroDashboard = () => {
       return;
     }
 
-    const { error } = await (supabase as any)
-      .from('appointments')
-      .update({ 
-        status: 'completed',
-        payment_method: paymentMethod
-      })
-      .eq('id', appointmentToComplete);
+    try {
+      const { error } = await (supabase as any)
+        .from('appointments')
+        .update({ 
+          status: 'completed',
+          payment_method: paymentMethod
+        })
+        .eq('id', appointmentToComplete);
 
-    if (error) {
-      toast.error('Erro ao concluir agendamento');
-    } else {
-      toast.success('Agendamento concluído!', {
-        duration: 2000, // 2 segundos
-      });
-      setCompleteDialogOpen(false);
-      setAppointmentToComplete(null);
-      setPhotoFile(null);
-      setPhotoPreview(null);
-      setPaymentMethod('');
-      loadAppointments();
+      if (error) {
+        console.error('Database update error:', error);
+        toast.error('Erro ao concluir agendamento: ' + error.message);
+      } else {
+        toast.success('Agendamento concluído!', {
+          duration: 2000, // 2 segundos
+        });
+        setCompleteDialogOpen(false);
+        setAppointmentToComplete(null);
+        setPhotoFile(null);
+        setPhotoPreview(null);
+        setPaymentMethod('');
+        loadAppointments();
+      }
+    } catch (error: any) {
+      console.error('Erro ao completar agendamento:', error);
+      toast.error('Erro ao processar: ' + error.message);
     }
   };
 
@@ -1975,7 +1915,8 @@ const BarbeiroDashboard = () => {
                                   {/* Badge para forma de pagamento (apenas concluídos) */}
                                   {appointment.status === 'completed' && appointment.payment_method && (
                                     <span className="px-2 py-1 rounded text-xs font-medium bg-primary/20 text-primary">
-                                      {appointment.payment_method === 'pix' ? '💳 Pix' : '💵 Dinheiro'}
+                                      {appointment.payment_method === 'pix' ? '💳 Pix' : 
+                                       appointment.payment_method === 'cartao' ? '💳 Cartão' : '💵 Dinheiro'}
                                     </span>
                                   )}
                                 </div>

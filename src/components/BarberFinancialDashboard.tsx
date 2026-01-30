@@ -4,10 +4,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { DollarSign, TrendingUp, Calendar, Users } from 'lucide-react';
+import { DollarSign, TrendingUp, Calendar, Users, Plus, Banknote } from 'lucide-react';
 import { format, startOfDay, endOfDay, startOfWeek, startOfMonth, endOfMonth, startOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { toast } from 'sonner';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
@@ -59,6 +64,12 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   const [filterService, setFilterService] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
   const [totalAdvances, setTotalAdvances] = useState(0);
+  
+  // Estados para solicitação de vale
+  const [advanceDialogOpen, setAdvanceDialogOpen] = useState(false);
+  const [advanceAmount, setAdvanceAmount] = useState('');
+  const [advanceReason, setAdvanceReason] = useState('');
+  const [submittingAdvance, setSubmittingAdvance] = useState(false);
 
   // Helper function to calculate commission for an appointment
   // Priority: 1) Individual commission per service, 2) Fixed commission
@@ -282,6 +293,61 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
     setTotalAdvances(total);
   };
 
+  // Função para solicitar vale
+  const handleAdvanceRequest = async () => {
+    if (!advanceAmount || !advanceReason.trim()) {
+      toast.error('Preencha o valor e o motivo do vale');
+      return;
+    }
+
+    const amount = parseFloat(advanceAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Valor deve ser um número positivo');
+      return;
+    }
+
+    // Verificar se o valor não excede a comissão disponível
+    const availableCommission = netCommission;
+    if (amount > availableCommission) {
+      toast.error(`Valor solicitado (R$ ${amount.toFixed(2)}) excede a comissão disponível (R$ ${availableCommission.toFixed(2)})`);
+      return;
+    }
+
+    setSubmittingAdvance(true);
+
+    try {
+      const { error } = await supabase
+        .from('barber_advances')
+        .insert({
+          barber_id: barberId,
+          amount: amount,
+          reason: advanceReason.trim(),
+          status: 'pending',
+          request_date: format(new Date(), 'yyyy-MM-dd'),
+          effective_date: format(new Date(), 'yyyy-MM-dd'),
+        });
+
+      if (error) {
+        console.error('Error requesting advance:', error);
+        toast.error('Erro ao solicitar vale: ' + error.message);
+      } else {
+        toast.success('Vale solicitado com sucesso!', {
+          description: 'Aguarde a aprovação do gestor',
+          duration: 3000,
+        });
+        setAdvanceDialogOpen(false);
+        setAdvanceAmount('');
+        setAdvanceReason('');
+        // Não recarregar advances aqui pois ainda está pendente
+      }
+    } catch (error: any) {
+      console.error('Error requesting advance:', error);
+      toast.error('Erro ao solicitar vale: ' + error.message);
+    } finally {
+      setSubmittingAdvance(false);
+    }
+  };
+
   // Calculate stats (using commissions instead of full price)
   const completedAndConfirmed = appointments.filter(apt => apt.status === 'completed' || apt.status === 'confirmed');
   const serviceCommission = completedAndConfirmed.reduce((sum, apt) => {
@@ -501,7 +567,81 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
       <Card className="bg-card border-border">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Vales no Período</CardTitle>
-          <DollarSign className="h-4 w-4 text-primary" />
+          <div className="flex items-center gap-2">
+            <Dialog open={advanceDialogOpen} onOpenChange={setAdvanceDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="h-6 px-2 text-xs">
+                  <Plus className="h-3 w-3 mr-1" />
+                  Solicitar
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Banknote className="h-5 w-5 text-primary" />
+                    Solicitar Vale
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="p-3 bg-secondary/50 rounded-lg">
+                    <p className="text-sm text-muted-foreground mb-1">Comissão Disponível:</p>
+                    <p className="text-lg font-bold text-primary">R$ {netCommission.toFixed(2)}</p>
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="advance-amount">Valor do Vale *</Label>
+                    <Input
+                      id="advance-amount"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max={netCommission}
+                      value={advanceAmount}
+                      onChange={(e) => setAdvanceAmount(e.target.value)}
+                      placeholder="0,00"
+                      className="mt-2"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Máximo: R$ {netCommission.toFixed(2)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="advance-reason">Motivo *</Label>
+                    <Textarea
+                      id="advance-reason"
+                      value={advanceReason}
+                      onChange={(e) => setAdvanceReason(e.target.value)}
+                      placeholder="Ex: Despesas pessoais, emergência, etc."
+                      className="mt-2 min-h-[80px]"
+                    />
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setAdvanceDialogOpen(false);
+                        setAdvanceAmount('');
+                        setAdvanceReason('');
+                      }}
+                      className="flex-1"
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      onClick={handleAdvanceRequest}
+                      disabled={submittingAdvance || !advanceAmount || !advanceReason.trim()}
+                      className="flex-1"
+                    >
+                      {submittingAdvance ? 'Enviando...' : 'Solicitar Vale'}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+            <DollarSign className="h-4 w-4 text-primary" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-primary">
