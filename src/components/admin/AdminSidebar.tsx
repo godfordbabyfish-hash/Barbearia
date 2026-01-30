@@ -14,7 +14,8 @@ import {
   X,
   MessageSquare,
   LogOut,
-  History
+  History,
+  FileText
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
@@ -45,6 +46,7 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
     { id: 'users', label: 'Usuários', icon: <User className="h-4 w-4" />, adminOnly: true },
     { id: 'products', label: 'Produtos', icon: <ShoppingBag className="h-4 w-4" /> },
     { id: 'financial', label: 'Financeiro', icon: <DollarSign className="h-4 w-4" /> },
+    { id: 'reports', label: 'Relatórios', icon: <FileText className="h-4 w-4" /> },
     { id: 'advances', label: 'Vales', icon: <DollarSign className="h-4 w-4" /> },
     { id: 'historico-cp', label: 'Histórico CP', icon: <History className="h-4 w-4" /> },
     { id: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
