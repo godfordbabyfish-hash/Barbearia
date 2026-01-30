@@ -109,10 +109,28 @@ echo.
 echo [NOVO] Dashboard do Barbeiro:
 echo   - Alterar data/hora dos agendamentos
 echo   - Notificacoes otimizadas (2-3 segundos)
+echo   - Solicitacao de vales no painel financeiro
+echo   - Agendamentos manuais sem login automatico
 echo.
 echo [NOVO] Sistema de Agendamento:
 echo   - Verificacao de disponibilidade do barbeiro
 echo   - Modal de confirmacao quando barbeiro indisponivel
+echo   - Suporte completo a pagamento por cartao
+echo.
+echo [NOVO] Conectividade WiFi:
+echo   - QR Code para conexao automatica
+echo   - Suporte para Android e iOS
+echo   - Instrucoes especificas por dispositivo
+echo.
+echo Sistema Completo:
+echo   - Agendamentos online e presenciais
+echo   - Painel administrativo avancado
+echo   - Dashboard do cliente personalizado
+echo   - Notificacoes WhatsApp em tempo real
+echo   - Gestao de horarios e disponibilidade
+echo   - Sistema de comissoes individuais e fixas
+echo   - Controle financeiro com graficos
+echo   - Gestao de produtos e vendas
 echo.
 echo Pressione Ctrl+C para parar o servidor
 echo.

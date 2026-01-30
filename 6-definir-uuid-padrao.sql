@@ -1,0 +1,3 @@
+-- 6. DEFINIR UUID COMO PADRÃO
+ALTER TABLE public.profiles 
+ALTER COLUMN id SET DEFAULT gen_random_uuid();

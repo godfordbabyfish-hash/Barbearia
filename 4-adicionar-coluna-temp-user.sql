@@ -1,0 +1,3 @@
+-- 4. ADICIONAR COLUNA is_temp_user (SE NÃO EXISTIR)
+ALTER TABLE public.profiles 
+ADD COLUMN IF NOT EXISTS is_temp_user BOOLEAN DEFAULT FALSE;

@@ -1,0 +1,3 @@
+-- 5. REMOVER FOREIGN KEY CONSTRAINT
+ALTER TABLE public.profiles 
+DROP CONSTRAINT IF EXISTS profiles_id_fkey;
