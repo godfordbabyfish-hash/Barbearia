@@ -282,50 +282,63 @@ const Navbar = () => {
     >
       <div className="max-w-7xl mx-auto px-4">
         <div className="flex items-center justify-between h-20">
-          {/* Logo with Social Menu */}
-          <div className="flex items-center gap-2">
-            <Popover open={socialMenuOpen} onOpenChange={setSocialMenuOpen}>
-              <PopoverTrigger asChild>
-                <button className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                  <div className="w-10 h-10 rounded-full bg-gradient-gold flex items-center justify-center cursor-pointer">
-                    <Scissors className="w-5 h-5 text-primary-foreground" />
+          {/* Logo with Social Menu and Home Button */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Popover open={socialMenuOpen} onOpenChange={setSocialMenuOpen}>
+                <PopoverTrigger asChild>
+                  <button className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                    <div className="w-10 h-10 rounded-full bg-gradient-gold flex items-center justify-center cursor-pointer">
+                      <Scissors className="w-5 h-5 text-primary-foreground" />
+                    </div>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-2 bg-card border-border" align="start">
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => handleSocialClick('google')}
+                      className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                      title="Google Avaliações"
+                    >
+                      <Star className="w-6 h-6 text-primary" />
+                    </button>
+                    <button
+                      onClick={() => handleSocialClick('instagram')}
+                      className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                      title="Instagram"
+                    >
+                      <Instagram className="w-6 h-6 text-primary" />
+                    </button>
+                    <button
+                      onClick={() => handleSocialClick('facebook')}
+                      className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                      title="Facebook"
+                    >
+                      <Facebook className="w-6 h-6 text-primary" />
+                    </button>
+                    <button
+                      onClick={handleWifiClick}
+                      className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                      title="WiFi"
+                    >
+                      <Wifi className="w-6 h-6 text-primary" />
+                    </button>
                   </div>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-2 bg-card border-border" align="start">
-                <div className="flex flex-col gap-2">
-                  <button
-                    onClick={() => handleSocialClick('google')}
-                    className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
-                    title="Google Avaliações"
-                  >
-                    <Star className="w-6 h-6 text-primary" />
-                  </button>
-                  <button
-                    onClick={() => handleSocialClick('instagram')}
-                    className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
-                    title="Instagram"
-                  >
-                    <Instagram className="w-6 h-6 text-primary" />
-                  </button>
-                  <button
-                    onClick={() => handleSocialClick('facebook')}
-                    className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
-                    title="Facebook"
-                  >
-                    <Facebook className="w-6 h-6 text-primary" />
-                  </button>
-                  <button
-                    onClick={handleWifiClick}
-                    className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
-                    title="WiFi"
-                  >
-                    <Wifi className="w-6 h-6 text-primary" />
-                  </button>
-                </div>
-              </PopoverContent>
-            </Popover>
-            <span className="text-xl font-bold cursor-pointer" onClick={() => navigate('/')}>Barbearia Raimundos</span>
+                </PopoverContent>
+              </Popover>
+              <span className="text-xl font-bold cursor-pointer" onClick={() => navigate('/')}>Barbearia Raimundos</span>
+            </div>
+            
+            {/* Home Button */}
+            <Button
+              onClick={() => navigate('/')}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 border-primary/30 hover:border-primary hover:bg-primary/10 text-primary hover:text-primary transition-all duration-300"
+            >
+              <Home className="w-4 h-4" />
+              <span className="font-medium">Início</span>
+            </Button>
           </div>
 
           {/* Desktop Menu */}
