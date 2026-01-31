@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingCart, Package, X, Plus, Minus, MessageCircle } from "lucide-react";
+import { ShoppingCart, Package, X, Plus, Minus, MessageCircle, Eye } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -16,6 +16,12 @@ import {
   SheetTrigger,
   SheetFooter,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface Product {
   id: string;
@@ -40,6 +46,8 @@ const Shop = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [whatsappNumber, setWhatsappNumber] = useState<string>("");
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [productModalOpen, setProductModalOpen] = useState(false);
 
   useEffect(() => {
     loadProducts();
@@ -125,6 +133,11 @@ const Shop = () => {
     return cart.reduce((sum, item) => sum + (Number(item.product.price) * item.quantity), 0);
   };
 
+  const handleProductImageClick = (product: Product) => {
+    setSelectedProduct(product);
+    setProductModalOpen(true);
+  };
+
   const handleCheckoutWhatsApp = () => {
     if (cart.length === 0) {
       toast({
@@ -188,107 +201,134 @@ const Shop = () => {
           <p className="text-muted-foreground text-lg md:text-xl max-w-2xl mx-auto mb-8">
             Produtos premium selecionados para cuidar do seu estilo com excelência
           </p>
-          
-          {/* Cart Button */}
-          <Sheet open={cartOpen} onOpenChange={setCartOpen}>
-            <SheetTrigger asChild>
-              <Button 
-                className="inline-flex items-center gap-2 bg-primary/20 border border-primary hover:bg-primary/30"
-                variant="outline"
-              >
-                <ShoppingCart className="w-5 h-5 text-primary" />
-                <span className="text-primary font-semibold">
-                  {getTotalItems()} {getTotalItems() === 1 ? 'item' : 'itens'} no carrinho
-                </span>
-              </Button>
-            </SheetTrigger>
-            <SheetContent className="w-full sm:max-w-lg">
-              <SheetHeader>
-                <SheetTitle className="flex items-center gap-2">
-                  <ShoppingCart className="w-5 h-5" />
-                  Seu Carrinho
-                </SheetTitle>
-              </SheetHeader>
-              
-              <div className="flex-1 overflow-y-auto py-4">
-                {cart.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
-                    <ShoppingCart className="w-12 h-12 mb-4 opacity-50" />
-                    <p>Seu carrinho está vazio</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {cart.map((item) => (
-                      <div key={item.product.id} className="flex gap-4 p-4 bg-card rounded-lg border border-border">
-                        <div className="w-20 h-20 rounded-md overflow-hidden flex-shrink-0">
-                          <img 
-                            src={item.product.image_url || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"}
-                            alt={item.product.name}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-semibold text-foreground truncate">{item.product.name}</h4>
-                          <p className="text-primary font-bold">
-                            R$ {Number(item.product.price).toFixed(2).replace('.', ',')}
-                          </p>
-                          <div className="flex items-center gap-2 mt-2">
-                            <Button 
-                              variant="outline" 
-                              size="icon" 
-                              className="h-8 w-8"
-                              onClick={() => updateQuantity(item.product.id, -1)}
-                            >
-                              <Minus className="h-4 w-4" />
-                            </Button>
-                            <span className="w-8 text-center font-medium">{item.quantity}</span>
-                            <Button 
-                              variant="outline" 
-                              size="icon" 
-                              className="h-8 w-8"
-                              onClick={() => updateQuantity(item.product.id, 1)}
-                            >
-                              <Plus className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-8 w-8 ml-auto text-destructive hover:text-destructive"
-                              onClick={() => removeFromCart(item.product.id)}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {cart.length > 0 && (
-                <SheetFooter className="border-t border-border pt-4 mt-4">
-                  <div className="w-full space-y-4">
-                    <div className="flex justify-between items-center text-lg font-bold">
-                      <span>Total:</span>
-                      <span className="text-primary">
-                        R$ {getTotalPrice().toFixed(2).replace('.', ',')}
-                      </span>
-                    </div>
-                    <Button 
-                      className="w-full bg-green-600 hover:bg-green-700"
-                      onClick={handleCheckoutWhatsApp}
-                    >
-                      <MessageCircle className="w-5 h-5 mr-2" />
-                      Finalizar via WhatsApp
-                    </Button>
-                  </div>
-                </SheetFooter>
-              )}
-            </SheetContent>
-          </Sheet>
         </div>
       </section>
+
+      {/* Fixed Floating Cart */}
+      <div className="fixed top-4 right-4 z-50">
+        <Sheet open={cartOpen} onOpenChange={setCartOpen}>
+          <SheetTrigger asChild>
+            <div className="relative">
+              <Button 
+                className={`relative bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg hover:shadow-xl transition-all duration-300 rounded-full p-4 ${
+                  getTotalItems() > 0 ? 'animate-bounce' : ''
+                }`}
+                size="lg"
+              >
+                <ShoppingCart className="w-6 h-6" />
+                {getTotalItems() > 0 && (
+                  <>
+                    <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center animate-pulse">
+                      {getTotalItems()}
+                    </div>
+                    {/* Pulse ring effect */}
+                    <div className="absolute inset-0 rounded-full bg-primary animate-ping opacity-20"></div>
+                  </>
+                )}
+              </Button>
+              
+              {/* Mini cart summary */}
+              {getTotalItems() > 0 && (
+                <div className="absolute top-full right-0 mt-2 bg-card border border-border rounded-lg shadow-lg p-3 min-w-[200px] animate-in slide-in-from-top-2">
+                  <div className="text-sm font-medium text-foreground mb-1">
+                    {getTotalItems()} {getTotalItems() === 1 ? 'item' : 'itens'}
+                  </div>
+                  <div className="text-lg font-bold text-primary">
+                    R$ {getTotalPrice().toFixed(2).replace('.', ',')}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Clique para ver detalhes
+                  </div>
+                </div>
+              )}
+            </div>
+          </SheetTrigger>
+          <SheetContent className="w-full sm:max-w-lg">
+            <SheetHeader>
+              <SheetTitle className="flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5" />
+                Seu Carrinho
+              </SheetTitle>
+            </SheetHeader>
+            
+            <div className="flex-1 overflow-y-auto py-4">
+              {cart.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
+                  <ShoppingCart className="w-12 h-12 mb-4 opacity-50" />
+                  <p>Seu carrinho está vazio</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {cart.map((item) => (
+                    <div key={item.product.id} className="flex gap-4 p-4 bg-card rounded-lg border border-border">
+                      <div className="w-20 h-20 rounded-md overflow-hidden flex-shrink-0">
+                        <img 
+                          src={item.product.image_url || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"}
+                          alt={item.product.name}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-foreground truncate">{item.product.name}</h4>
+                        <p className="text-primary font-bold">
+                          R$ {Number(item.product.price).toFixed(2).replace('.', ',')}
+                        </p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <Button 
+                            variant="outline" 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={() => updateQuantity(item.product.id, -1)}
+                          >
+                            <Minus className="h-4 w-4" />
+                          </Button>
+                          <span className="w-8 text-center font-medium">{item.quantity}</span>
+                          <Button 
+                            variant="outline" 
+                            size="icon" 
+                            className="h-8 w-8"
+                            onClick={() => updateQuantity(item.product.id, 1)}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 ml-auto text-destructive hover:text-destructive"
+                            onClick={() => removeFromCart(item.product.id)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {cart.length > 0 && (
+              <SheetFooter className="border-t border-border pt-4 mt-4">
+                <div className="w-full space-y-4">
+                  <div className="flex justify-between items-center text-lg font-bold">
+                    <span>Total:</span>
+                    <span className="text-primary">
+                      R$ {getTotalPrice().toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                  <Button 
+                    className="w-full bg-green-600 hover:bg-green-700"
+                    onClick={handleCheckoutWhatsApp}
+                  >
+                    <MessageCircle className="w-5 h-5 mr-2" />
+                    Finalizar via WhatsApp
+                  </Button>
+                </div>
+              </SheetFooter>
+            )}
+          </SheetContent>
+        </Sheet>
+      </div>
 
       {/* Category Filter */}
       <section className="py-8 px-4 border-b border-border">
@@ -317,13 +357,23 @@ const Shop = () => {
                 key={product.id}
                 className="group bg-card border-border hover:border-primary/50 transition-all duration-300 overflow-hidden hover:shadow-gold"
               >
-                <div className="relative h-64 overflow-hidden">
+                <div 
+                  className="relative h-64 overflow-hidden cursor-pointer"
+                  onClick={() => handleProductImageClick(product)}
+                >
                   <img 
                     src={product.image_url || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"}
                     alt={product.name}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-card via-card/50 to-transparent"></div>
+                  
+                  {/* Hover overlay with eye icon */}
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                    <div className="bg-primary/90 rounded-full p-3">
+                      <Eye className="w-6 h-6 text-white" />
+                    </div>
+                  </div>
                   
                   {(product.stock ?? 0) <= 0 && (
                     <div className="absolute top-4 right-4">
@@ -342,10 +392,7 @@ const Shop = () => {
                 </div>
                 
                 <CardContent className="p-6">
-                  <h3 className="text-xl font-bold mb-2">{product.name}</h3>
-                  <p className="text-muted-foreground text-sm mb-4 line-clamp-2">
-                    {product.description}
-                  </p>
+                  <h3 className="text-xl font-bold mb-4">{product.name}</h3>
                   
                   <div className="flex items-center justify-between">
                     <div>
@@ -368,6 +415,84 @@ const Shop = () => {
           </div>
         </div>
       </section>
+
+      {/* Product Details Modal */}
+      <Dialog open={productModalOpen} onOpenChange={setProductModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          {selectedProduct && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-bold text-primary">
+                  {selectedProduct.name}
+                </DialogTitle>
+              </DialogHeader>
+              
+              <div className="space-y-6">
+                {/* Product Image */}
+                <div className="relative h-80 w-full overflow-hidden rounded-lg">
+                  <img 
+                    src={selectedProduct.image_url || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"}
+                    alt={selectedProduct.name}
+                    className="w-full h-full object-cover"
+                  />
+                  {(selectedProduct.stock ?? 0) <= 0 && (
+                    <div className="absolute top-4 right-4">
+                      <Badge variant="destructive">Esgotado</Badge>
+                    </div>
+                  )}
+                </div>
+
+                {/* Product Info */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Package className="w-5 h-5 text-primary" />
+                    <Badge variant="secondary">
+                      {selectedProduct.category}
+                    </Badge>
+                    {selectedProduct.stock !== null && (
+                      <Badge variant="outline">
+                        Estoque: {selectedProduct.stock}
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className="text-4xl font-bold text-primary">
+                    R$ {Number(selectedProduct.price).toFixed(2)}
+                  </div>
+
+                  <div>
+                    <h4 className="text-lg font-semibold mb-2 text-foreground">Descrição</h4>
+                    <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                      {selectedProduct.description}
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <Button
+                      onClick={() => {
+                        addToCart(selectedProduct);
+                        setProductModalOpen(false);
+                      }}
+                      disabled={(selectedProduct.stock ?? 0) <= 0}
+                      className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground shadow-gold transition-all duration-300"
+                    >
+                      <ShoppingCart className="w-4 h-4 mr-2" />
+                      {(selectedProduct.stock ?? 0) > 0 ? 'Adicionar ao Carrinho' : 'Indisponível'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setProductModalOpen(false)}
+                      className="px-6"
+                    >
+                      Fechar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Footer />
     </div>
