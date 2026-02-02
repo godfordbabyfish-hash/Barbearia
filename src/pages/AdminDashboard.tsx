@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Pencil, Trash2, Plus, ArrowLeft, Upload, Image as ImageIcon, Loader2, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -36,7 +37,8 @@ import { AdminSidebar } from '@/components/admin/AdminSidebar';
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, role, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState<string>('services');
+  const [activeTab, setActiveTab] = useState<string>('services-products');
+  const [servicesProductsTab, setServicesProductsTab] = useState<'services' | 'products'>('services');
   const [services, setServices] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [editingService, setEditingService] = useState<any>(null);
@@ -318,13 +320,20 @@ const AdminDashboard = () => {
         <div className="min-h-screen py-6 px-4 md:px-6 lg:px-8 pt-20 lg:pt-6 overflow-x-hidden">
           <div className="max-w-7xl mx-auto space-y-6 w-full overflow-x-hidden">
             {/* Content based on active tab */}
-            {activeTab === 'services' && (
+            {activeTab === 'services-products' && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between gap-4">
-                  <h2 className="text-2xl font-bold pl-12 lg:pl-0">Serviços</h2>
+                  <h2 className="text-2xl font-bold pl-12 lg:pl-0">Serviços & Produtos</h2>
                 </div>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <Tabs value={servicesProductsTab} onValueChange={(value) => setServicesProductsTab(value as 'services' | 'products')}>
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="services">Serviços</TabsTrigger>
+                    <TabsTrigger value="products">Produtos</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="services" className="space-y-6">
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {services.map((service) => (
                 editingService?.id === service.id ? (
                   // Formulário de edição inline
@@ -368,9 +377,13 @@ const AdminDashboard = () => {
                         <Label>Duração (minutos)</Label>
                         <Input
                           type="number"
-                          value={editingService.duration || 30}
-                          onChange={(e) => setEditingService({ ...editingService, duration: parseInt(e.target.value) })}
+                          value={editingService.duration || ''}
+                          onChange={(e) => setEditingService({ 
+                            ...editingService, 
+                            duration: e.target.value === '' ? null : parseInt(e.target.value) || null
+                          })}
                           placeholder="30"
+                          min="1"
                         />
                       </div>
                       <div>
@@ -478,9 +491,13 @@ const AdminDashboard = () => {
                       <Label>Duração (minutos)</Label>
                       <Input
                         type="number"
-                        value={editingService.duration || 30}
-                        onChange={(e) => setEditingService({ ...editingService, duration: parseInt(e.target.value) })}
+                        value={editingService.duration || ''}
+                        onChange={(e) => setEditingService({ 
+                          ...editingService, 
+                          duration: e.target.value === '' ? null : parseInt(e.target.value) || null
+                        })}
                         placeholder="30"
+                        min="1"
                       />
                     </div>
                     <div>
@@ -525,18 +542,11 @@ const AdminDashboard = () => {
                   </CardContent>
                 </Card>
               ) : null}
-            </div>
-              </div>
-            )}
+                    </div>
+                  </TabsContent>
 
-
-            {activeTab === 'products' && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between gap-4">
-                  <h2 className="text-2xl font-bold pl-12 lg:pl-0">Produtos</h2>
-                </div>
-
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <TabsContent value="products" className="space-y-6">
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {products.map((product) => (
                 editingProduct?.id === product.id ? (
                   // Formulário de edição inline
@@ -741,7 +751,9 @@ const AdminDashboard = () => {
                   </CardContent>
                 </Card>
               ) : null}
-            </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
               </div>
             )}
 

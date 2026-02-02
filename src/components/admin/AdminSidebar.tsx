@@ -42,9 +42,8 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
   const { user, signOut } = useAuth();
 
   const menuItems: MenuItem[] = [
-    { id: 'services', label: 'Serviços', icon: <Scissors className="h-4 w-4" /> },
+    { id: 'services-products', label: 'Serviços & Produtos', icon: <Scissors className="h-4 w-4" /> },
     { id: 'users', label: 'Usuários', icon: <User className="h-4 w-4" />, adminOnly: true },
-    { id: 'products', label: 'Produtos', icon: <ShoppingBag className="h-4 w-4" /> },
     { id: 'financial', label: 'Financeiro', icon: <DollarSign className="h-4 w-4" /> },
     { id: 'reports', label: 'Relatórios', icon: <FileText className="h-4 w-4" /> },
     { id: 'advances', label: 'Vales', icon: <DollarSign className="h-4 w-4" /> },
