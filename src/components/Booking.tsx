@@ -809,202 +809,109 @@ const Booking = () => {
 
     setIsSubmitting(true);
 
-    // Verificar se já existe agendamento no mesmo horário
-    const { data: existingAppointment } = await (supabase as any)
-      .from('appointments')
-      .select('id')
-      .eq('barber_id', formData.barber)
-      .eq('appointment_date', formData.date)
-      .eq('appointment_time', formData.time)
-      .neq('status', 'cancelled')
-      .maybeSingle();
+    try {
+      // 1. Verificações rápidas em paralelo
+      const [existingAppointmentResult, breaksResult] = await Promise.allSettled([
+        // Verificar se já existe agendamento no mesmo horário
+        (supabase as any)
+          .from('appointments')
+          .select('id')
+          .eq('barber_id', formData.barber)
+          .eq('appointment_date', formData.date)
+          .eq('appointment_time', formData.time)
+          .neq('status', 'cancelled')
+          .maybeSingle(),
+        
+        // Verificar pausas do barbeiro
+        (supabase as any)
+          .from('barber_breaks')
+          .select('start_time, end_time')
+          .eq('barber_id', formData.barber)
+          .eq('date', formData.date)
+      ]);
 
-    if (existingAppointment) {
-      toast.error("Horário já está ocupado", {
-        description: "Por favor, escolha outro horário disponível.",
-      });
-      return;
-    }
-
-    // Verificar se o horário está em uma pausa do barbeiro
-    const serviceDuration = getServiceDuration(formData.service, services);
-    const { data: breaks, error: breaksError } = await (supabase as any)
-      .from('barber_breaks')
-      .select('start_time, end_time')
-      .eq('barber_id', formData.barber)
-      .eq('date', formData.date);
-    
-    // Ignore 404 errors (table might not exist)
-    if (breaksError && breaksError.code !== 'PGRST116') {
-      console.warn('Error loading barber breaks:', breaksError);
-    }
-
-    if (breaks && breaks.length > 0) {
-      const timeToMinutes = (time: string): number => {
-        const [hours, minutes] = time.split(':').map(Number);
-        return hours * 60 + minutes;
-      };
-
-      const slotStartMinutes = timeToMinutes(formData.time);
-      const slotEndMinutes = slotStartMinutes + serviceDuration;
-
-      const isInBreak = breaks.some((breakItem: any) => {
-        const breakStartMinutes = timeToMinutes(breakItem.start_time);
-        const breakEndMinutes = timeToMinutes(breakItem.end_time);
-
-        // Slot overlaps with break if: slot_start < break_end AND slot_end > break_start
-        return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;
-      });
-
-      if (isInBreak) {
-        toast.error("Horário indisponível", {
-          description: "Este horário está em uma pausa do barbeiro. Por favor, escolha outro horário.",
+      // Verificar conflito de horário
+      if (existingAppointmentResult.status === 'fulfilled' && existingAppointmentResult.value.data) {
+        toast.error("Horário já está ocupado", {
+          description: "Por favor, escolha outro horário disponível.",
         });
         return;
       }
-    }
 
-    // Ensure profile exists before creating appointment
-    const { data: existingProfile } = await (supabase as any)
-      .from('profiles')
-      .select('id')
-      .eq('id', user.id)
-      .single();
+      // Verificar pausas do barbeiro
+      if (breaksResult.status === 'fulfilled' && breaksResult.value.data?.length > 0) {
+        const serviceDuration = getServiceDuration(formData.service, services);
+        const timeToMinutes = (time: string): number => {
+          const [hours, minutes] = time.split(':').map(Number);
+          return hours * 60 + minutes;
+        };
 
-    if (!existingProfile) {
-      // Create profile if it doesn't exist
-      const { error: profileError } = await (supabase as any)
-        .from('profiles')
-        .insert([{
-          id: user.id,
-          name: formData.name || user.user_metadata?.name || '',
-          phone: formData.phone || user.user_metadata?.phone || '',
-        }]);
+        const slotStartMinutes = timeToMinutes(formData.time);
+        const slotEndMinutes = slotStartMinutes + serviceDuration;
 
-      if (profileError) {
-        console.error('Error creating profile:', profileError);
+        const isInBreak = breaksResult.value.data.some((breakItem: any) => {
+          const breakStartMinutes = timeToMinutes(breakItem.start_time);
+          const breakEndMinutes = timeToMinutes(breakItem.end_time);
+          return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;
+        });
+
+        if (isInBreak) {
+          toast.error("Horário indisponível", {
+            description: "Este horário está em uma pausa do barbeiro. Por favor, escolha outro horário.",
+          });
+          return;
+        }
       }
-    }
 
-    const { data: newAppointment, error } = await (supabase as any)
-      .from('appointments')
-      .insert([{
-        client_id: user.id,
-        service_id: formData.service,
-        barber_id: formData.barber,
-        appointment_date: formData.date,
-        appointment_time: formData.time,
-        status: 'confirmed',
-        booking_type: 'online', // Mark as online booking - WILL trigger webhook
-      }])
-      .select('id')
-      .single();
+      // 2. Criar perfil se necessário (otimizado)
+      const { data: existingProfile } = await (supabase as any)
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .maybeSingle();
 
-    if (error) {
-      setIsSubmitting(false);
-      toast.error("Erro ao criar agendamento", {
-        description: error.message,
-      });
-      return;
-    }
-    
-    try {
+      if (!existingProfile) {
+        await (supabase as any)
+          .from('profiles')
+          .upsert([{
+            id: user.id,
+            name: formData.name || user.user_metadata?.name || '',
+            phone: formData.phone || user.user_metadata?.phone || '',
+          }], { onConflict: 'id' });
+      }
+
+      // 3. Criar agendamento
+      const { data: newAppointment, error } = await (supabase as any)
+        .from('appointments')
+        .insert([{
+          client_id: user.id,
+          service_id: formData.service,
+          barber_id: formData.barber,
+          appointment_date: formData.date,
+          appointment_time: formData.time,
+          status: 'confirmed',
+          booking_type: 'online',
+        }])
+        .select('id')
+        .single();
+
+      if (error) {
+        toast.error("Erro ao criar agendamento", {
+          description: error.message,
+        });
+        return;
+      }
+
+      // 4. Sucesso imediato - não esperar notificações
       toast.success("Agendamento realizado com sucesso!", {
         description: "Você pode acompanhar no seu painel.",
       });
-
-      // NOTE: Removed direct WhatsApp notification to barber
-      // All notifications are now handled by the external webhook system
-
-      // Notify external webhook for UI-created appointments
-      try {
-        const selectedService = services.find(s => s.id === formData.service);
-        const duration = selectedService?.duration || 30;
-        const startDateTime = new Date(`${formData.date}T${formData.time}:00`);
-        const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
-
-        await supabase.functions.invoke('api', {
-          body: {
-            action: 'notify-webhook',
-            appointmentId: newAppointment.id,
-            clientName: formData.name,
-            phone: formData.phone,
-            service: selectedService?.title || 'Serviço',
-            startTime: startDateTime.toISOString(),
-            endTime: endDateTime.toISOString(),
-            userId: user.id,
-            notes: null,
-          }
-        });
-        console.log('External webhook notification sent');
-      } catch (webhookError) {
-        console.error('Error notifying external webhook:', webhookError);
-        // Don't block - appointment was already created
-      }
-
-      // Disparar processamento da fila de WhatsApp (cliente + barbeiro)
-      // Fazer isso de forma assíncrona para não bloquear a UI
-      (async () => {
-        try {
-          // Obter o token de autenticação do usuário
-          const { data: { session } } = await supabase.auth.getSession();
-          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-          const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-          
-          if (!supabaseUrl) {
-            console.error('VITE_SUPABASE_URL não configurado');
-            return;
-          }
-
-          // Fazer chamada direta via fetch com o token do usuário
-          const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'apikey': supabaseAnonKey || '',
-              'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
-            },
-            body: JSON.stringify({}),
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            console.error('❌ Error triggering WhatsApp queue:', response.status, errorData);
-            console.error('   URL:', `${supabaseUrl}/functions/v1/whatsapp-process-queue`);
-            // Tentar novamente após 2 segundos
-            setTimeout(async () => {
-              try {
-                const retryResponse = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'apikey': supabaseAnonKey || '',
-                    'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
-                  },
-                  body: JSON.stringify({}),
-                });
-                if (retryResponse.ok) {
-                  console.log('✅ WhatsApp queue processed on retry');
-                }
-              } catch (retryError) {
-                console.error('❌ Retry failed:', retryError);
-              }
-            }, 2000);
-          } else {
-            const data = await response.json().catch(() => ({}));
-            console.log('✅ WhatsApp queue processed after online booking', data);
-            if (data.processed > 0) {
-              console.log(`   📨 ${data.processed} mensagem(ns) processada(s)`);
-            }
-          }
-        } catch (queueError) {
-          console.error('Error triggering WhatsApp queue after booking:', queueError);
-          // Não bloquear o fluxo do usuário se a fila falhar
-        }
-      })();
-
-      // Set success step immediately - não esperar pelo processamento da fila
+      
       setStep("success");
+
+      // 5. Processar notificações de forma assíncrona (não bloquear UI)
+      processNotificationsAsync(newAppointment.id, formData, services, user);
+
     } catch (error: any) {
       console.error('Error in handleSubmit:', error);
       toast.error("Erro ao processar agendamento", {
@@ -1012,6 +919,87 @@ const Booking = () => {
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Função assíncrona para processar notificações sem bloquear a UI
+  const processNotificationsAsync = async (appointmentId: string, formData: any, services: any[], user: any) => {
+    try {
+      const selectedService = services.find(s => s.id === formData.service);
+      const duration = selectedService?.duration || 30;
+      const startDateTime = new Date(`${formData.date}T${formData.time}:00`);
+      const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
+
+      // Processar webhook e WhatsApp em paralelo com timeouts
+      const [webhookResult, whatsappResult] = await Promise.allSettled([
+        // Webhook externo (com timeout reduzido)
+        Promise.race([
+          supabase.functions.invoke('api', {
+            body: {
+              action: 'notify-webhook',
+              appointmentId,
+              clientName: formData.name,
+              phone: formData.phone,
+              service: selectedService?.title || 'Serviço',
+              startTime: startDateTime.toISOString(),
+              endTime: endDateTime.toISOString(),
+              userId: user.id,
+              notes: null,
+            }
+          }),
+          // Timeout de 8 segundos para webhook
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Webhook timeout')), 8000)
+          )
+        ]),
+
+        // WhatsApp queue (com timeout reduzido)
+        Promise.race([
+          (async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+            const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+            
+            if (!supabaseUrl) return;
+
+            const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': supabaseAnonKey || '',
+                'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
+              },
+              body: JSON.stringify({}),
+            });
+
+            if (response.ok) {
+              const data = await response.json().catch(() => ({}));
+              console.log('✅ WhatsApp queue processed', data);
+            }
+          })(),
+          // Timeout de 6 segundos para WhatsApp
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('WhatsApp timeout')), 6000)
+          )
+        ])
+      ]);
+
+      // Log dos resultados (não bloquear se falhar)
+      if (webhookResult.status === 'fulfilled') {
+        console.log('✅ Webhook notification sent');
+      } else {
+        console.warn('⚠️ Webhook failed:', webhookResult.reason);
+      }
+
+      if (whatsappResult.status === 'fulfilled') {
+        console.log('✅ WhatsApp notification processed');
+      } else {
+        console.warn('⚠️ WhatsApp failed:', whatsappResult.reason);
+      }
+
+    } catch (error) {
+      console.warn('⚠️ Background notifications failed:', error);
+      // Não mostrar erro para o usuário - agendamento já foi criado com sucesso
     }
   };
 

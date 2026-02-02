@@ -94,8 +94,8 @@ const getOperatingHours = async () => {
 // Webhook with retry logic for UI-created appointments
 const callWebhookWithRetry = async (
   payload: any,
-  maxRetries: number = 3,
-  delayMs: number = 5000
+  maxRetries: number = 2,
+  delayMs: number = 2000
 ): Promise<boolean> => {
   const webhookUrl = 'https://projetomensagem-production.up.railway.app/api/webhooks/premium-shears/appointment-created';
   
@@ -103,11 +103,18 @@ const callWebhookWithRetry = async (
     try {
       console.log(`Webhook attempt ${attempt}/${maxRetries} to ${webhookUrl}`);
       
+      // Timeout de 5 segundos por tentativa
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
       const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
       
       if (response.ok) {
         console.log(`Webhook called successfully on attempt ${attempt}`);
