@@ -56,10 +56,10 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
   ];
 
   // Itens marcados como adminOnly só aparecem para admin,
-  // com exceção de "config" e "users", que também são liberados para gestor.
+  // com exceção de "config", "users" e "whatsapp", que também são liberados para gestor.
   const filteredMenuItems = menuItems.filter(item => {
     if (!item.adminOnly) return true;
-    if ((item.id === 'config' || item.id === 'users') && (role === 'admin' || role === 'gestor')) {
+    if ((item.id === 'config' || item.id === 'users' || item.id === 'whatsapp') && (role === 'admin' || role === 'gestor')) {
       return true;
     }
     return role === 'admin';

@@ -3,6 +3,9 @@ project_id = "wabefmgfsatlusevxyfo"
 [functions.api]
 verify_jwt = false
 
+[functions.restart-railway-service-public]
+verify_jwt = false
+
 [functions.whatsapp-process-queue]
 verify_jwt = false
 
