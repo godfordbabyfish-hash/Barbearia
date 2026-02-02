@@ -78,6 +78,9 @@ const BarbeiroDashboard = () => {
   const [productQuantity, setProductQuantity] = useState<number>(1);
   const [savingProductSale, setSavingProductSale] = useState(false);
   
+  // Estado para prevenir submissões simultâneas de agendamentos
+  const [creatingAppointment, setCreatingAppointment] = useState(false);
+  
   // Hooks for commission calculation
   const barberIdForCommissions = currentUserBarber?.id || selectedBarber;
   const { getCommissionPercentage: getIndividualProductCommissionPercentage } = useBarberProductCommissions(barberIdForCommissions);
@@ -181,9 +184,6 @@ const BarbeiroDashboard = () => {
             setBarbers(barbersData);
           }
         }
-        toast.success(`Bem-vindo, ${userBarber.name}!`, {
-          duration: 2000, // 2 segundos
-        });
         // Carregar vales do barbeiro
         loadAdvances();
       } else {
@@ -452,10 +452,6 @@ const BarbeiroDashboard = () => {
         console.log('📡 Realtime subscription status:', status);
         if (status === 'SUBSCRIBED') {
           console.log('✅ Successfully subscribed to appointments channel!');
-          toast.success('Sistema de notificações ativo', {
-            description: 'Você será notificado de novos agendamentos',
-            duration: 2000, // 2 segundos
-          });
         } else if (status === 'CHANNEL_ERROR') {
           console.error('❌ Error subscribing to channel!');
           toast.error('Erro ao ativar notificações');
@@ -515,14 +511,8 @@ const BarbeiroDashboard = () => {
       }));
       
       setAppointments(appointmentsWithClients);
-      toast.success(`${appointmentsWithClients.length} agendamento(s) carregado(s)`, {
-        duration: 2000, // 2 segundos
-      });
     } else {
       setAppointments([]);
-      toast.info('Nenhum agendamento encontrado', {
-        duration: 2000, // 2 segundos
-      });
     }
   };
 
@@ -634,6 +624,12 @@ const BarbeiroDashboard = () => {
   }, [currentUserBarber?.id]);
 
   const handleCreateAppointment = async () => {
+    // Prevenir múltiplas submissões simultâneas
+    if (creatingAppointment) {
+      toast.warning('Aguarde, processando agendamento...');
+      return;
+    }
+
     // Usar barberId do formulário ou o selectedBarber como fallback
     const barberId = newAppointment.barberId || selectedBarber;
     
@@ -653,184 +649,195 @@ const BarbeiroDashboard = () => {
       return;
     }
 
-    // Verificar se é um agendamento retroativo (passado)
-    const appointmentDateTime = new Date(`${newAppointment.date}T${newAppointment.time}:00`);
-    const now = new Date();
-    const isPastAppointment = appointmentDateTime < now;
+    // Ativar estado de loading
+    setCreatingAppointment(true);
 
-    // IMPORTANTE: Barbeiros podem criar agendamentos em QUALQUER horário,
-    // mesmo fora do horário de funcionamento. Não validamos horário de funcionamento aqui.
-    // Apenas verificamos conflitos de horário para agendamentos futuros não-retroativos.
+    try {
+      // Verificar se é um agendamento retroativo (passado)
+      const appointmentDateTime = new Date(`${newAppointment.date}T${newAppointment.time}:00`);
+      const now = new Date();
+      const isPastAppointment = appointmentDateTime < now;
 
-    // Se não for retroativo, verificar conflitos de horário (mas não validar horário de funcionamento)
-    if (!isPastAppointment && !newAppointment.isRetroactive) {
-      const selectedService = services.find(s => s.id === newAppointment.serviceId);
-      const serviceDuration = selectedService?.duration || 30;
+      // IMPORTANTE: Barbeiros podem criar agendamentos em QUALQUER horário,
+      // mesmo fora do horário de funcionamento. Não validamos horário de funcionamento aqui.
+      // Apenas verificamos conflitos de horário para agendamentos futuros não-retroativos.
 
-      const { data: existingAppointments } = await (supabase as any)
-        .from('appointments')
-        .select('appointment_time, service:services(duration)')
-        .eq('barber_id', barberId)
-        .eq('appointment_date', newAppointment.date)
-        .neq('status', 'cancelled');
+      // Se não for retroativo, verificar conflitos de horário (mas não validar horário de funcionamento)
+      if (!isPastAppointment && !newAppointment.isRetroactive) {
+        const selectedService = services.find(s => s.id === newAppointment.serviceId);
+        const serviceDuration = selectedService?.duration || 30;
 
-      // Check for time conflicts
-      const hasConflict = existingAppointments?.some((apt: any) => {
-        const aptDuration = apt.service?.duration || 30;
-        const newEndTime = addMinutesToTime(newAppointment.time, serviceDuration);
-        const aptEndTime = addMinutesToTime(apt.appointment_time, aptDuration);
-        return (newAppointment.time < aptEndTime && newEndTime > apt.appointment_time);
-      });
+        const { data: existingAppointments } = await (supabase as any)
+          .from('appointments')
+          .select('appointment_time, service:services(duration)')
+          .eq('barber_id', barberId)
+          .eq('appointment_date', newAppointment.date)
+          .neq('status', 'cancelled');
 
-      if (hasConflict) {
-        toast.error('Horário indisponível! Já existe um agendamento neste horário.');
-        return;
-      }
-    }
+        // Check for time conflicts
+        const hasConflict = existingAppointments?.some((apt: any) => {
+          const aptDuration = apt.service?.duration || 30;
+          const newEndTime = addMinutesToTime(newAppointment.time, serviceDuration);
+          const aptEndTime = addMinutesToTime(apt.appointment_time, aptDuration);
+          return (newAppointment.time < aptEndTime && newEndTime > apt.appointment_time);
+        });
 
-    // Buscar ou criar perfil do cliente
-    let profileData;
-    
-    // Se telefone foi informado, tentar encontrar perfil existente pelo telefone
-    if (newAppointment.clientPhone && newAppointment.clientPhone.trim()) {
-      const { data: existingProfile } = await (supabase as any)
-        .from('profiles')
-        .select('id, name, phone')
-        .eq('phone', newAppointment.clientPhone.trim())
-        .maybeSingle();
-
-      if (existingProfile) {
-        // Se o perfil já existe, usar ele
-        profileData = existingProfile;
-        // Atualizar o nome se necessário
-        if (existingProfile.name !== newAppointment.clientName) {
-          await (supabase as any)
-            .from('profiles')
-            .update({ name: newAppointment.clientName })
-            .eq('id', existingProfile.id);
+        if (hasConflict) {
+          toast.error('Horário indisponível! Já existe um agendamento neste horário.');
+          return;
         }
       }
-    }
-    
-    // Se não encontrou perfil pelo telefone, tentar criar perfil temporário
-    if (!profileData) {
-      try {
-        // Primeiro, tentar criar perfil temporário (se migration foi aplicada)
-        const tempUserId = generateUUID();
-        
-        const { data: newProfile, error: profileError } = await (supabase as any)
-          .from('profiles')
-          .insert([{
-            id: tempUserId,
-            name: newAppointment.clientName,
-            phone: newAppointment.clientPhone || null,
-            is_temp_user: true, // Marcar como usuário temporário
-          }])
-          .select()
-          .single();
 
-        if (profileError) {
-          // Se falhou, pode ser que a migration não foi aplicada
-          // Tentar método alternativo: criar usuário auth temporário
-          console.warn('Tentativa de perfil temporário falhou, usando método alternativo:', profileError);
-          
-          // Gerar email temporário único
-          const tempEmail = `temp_${generateUUID().substring(0, 8)}@temp.local`;
-          const tempPassword = generateUUID();
-          
-          const { data: authData, error: authError } = await supabase.auth.signUp({
-            email: tempEmail,
-            password: tempPassword,
-            options: {
-              data: {
-                name: newAppointment.clientName,
-                phone: newAppointment.clientPhone || null,
-                is_temp_user: true,
-              }
-            }
-          });
-
-          if (authError || !authData.user) {
-            throw new Error('Erro ao criar perfil temporário: ' + (authError?.message || 'Usuário não criado'));
-          }
-
-          // Fazer logout imediatamente para não alterar a sessão atual
-          await supabase.auth.signOut();
-          
-          profileData = { 
-            id: authData.user.id, 
-            name: newAppointment.clientName,
-            phone: newAppointment.clientPhone || null 
-          };
-        } else {
-          profileData = newProfile;
-        }
-      } catch (error: any) {
-        console.error('Error in profile creation process:', error);
-        toast.error('Erro ao criar perfil do cliente: ' + (error.message || 'Erro desconhecido'));
-        return;
-      }
-    }
-
-    if (!profileData || !profileData.id) {
-      toast.error('Erro ao obter perfil do cliente');
-      return;
-    }
-
-    // Agendamentos criados pelo barbeiro sempre são marcados como 'manual'
-    const bookingType = 'manual';
-
-    // Criar agendamento
-    const { error } = await (supabase as any)
-      .from('appointments')
-      .insert([{
-        client_id: profileData.id,
-        barber_id: barberId, // Usar o barberId correto (do formulário ou selectedBarber)
-        service_id: newAppointment.serviceId,
-        appointment_date: newAppointment.date,
-        appointment_time: newAppointment.time,
-        status: 'confirmed',
-        booking_type: bookingType, // Sempre 'manual' para agendamentos criados pelo barbeiro
-        notes: (isPastAppointment || newAppointment.isRetroactive) 
-          ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' 
-          : 'Agendamento criado manualmente pelo barbeiro',
-      }]);
-
-    if (error) {
-      console.error('Error creating appointment:', error);
+      // Buscar ou criar perfil do cliente
+      let profileData;
       
-      // Verificar se é erro de foreign key constraint (migration não aplicada)
-      if (error.code === '23503' && error.message?.includes('appointments_client_id_fkey')) {
-        toast.error('❌ Erro de configuração do banco!', {
-          description: 'Execute o SQL de verificação no Supabase Dashboard. Verifique o arquivo verificar-migration-aplicada.sql',
-          duration: 8000,
-        });
-      } else if (error.code === '23503') {
-        toast.error('❌ Erro de constraint no banco!', {
-          description: 'Verifique se todas as migrations foram aplicadas corretamente: ' + error.message,
-          duration: 6000,
-        });
-      } else {
-        toast.error('Erro ao criar agendamento: ' + (error.message || 'Erro desconhecido'));
+      // Se telefone foi informado, tentar encontrar perfil existente pelo telefone
+      if (newAppointment.clientPhone && newAppointment.clientPhone.trim()) {
+        const { data: existingProfile } = await (supabase as any)
+          .from('profiles')
+          .select('id, name, phone')
+          .eq('phone', newAppointment.clientPhone.trim())
+          .maybeSingle();
+
+        if (existingProfile) {
+          // Se o perfil já existe, usar ele
+          profileData = existingProfile;
+          // Atualizar o nome se necessário
+          if (existingProfile.name !== newAppointment.clientName) {
+            await (supabase as any)
+              .from('profiles')
+              .update({ name: newAppointment.clientName })
+              .eq('id', existingProfile.id);
+          }
+        }
       }
-    } else {
-      const message = (isPastAppointment || newAppointment.isRetroactive)
-        ? 'Agendamento retroativo criado com sucesso! (Marcado como manual)'
-        : 'Agendamento criado com sucesso! (Marcado como manual)';
-      toast.success(message, {
-        duration: 2000, // 2 segundos
-      });
-      setShowNewAppointment(false);
-      setNewAppointment({
-        clientName: '',
-        clientPhone: '',
-        serviceId: '',
-        barberId: selectedBarber || '', // Manter o selectedBarber como padrão
-        date: '',
-        time: '',
-        isRetroactive: false,
-      });
-      loadAppointments();
+      
+      // Se não encontrou perfil pelo telefone, tentar criar perfil temporário
+      if (!profileData) {
+        try {
+          // Primeiro, tentar criar perfil temporário (se migration foi aplicada)
+          const tempUserId = generateUUID();
+          
+          const { data: newProfile, error: profileError } = await (supabase as any)
+            .from('profiles')
+            .insert([{
+              id: tempUserId,
+              name: newAppointment.clientName,
+              phone: newAppointment.clientPhone || null,
+              is_temp_user: true, // Marcar como usuário temporário
+            }])
+            .select()
+            .single();
+
+          if (profileError) {
+            // Se falhou, pode ser que a migration não foi aplicada
+            // Tentar método alternativo: criar usuário auth temporário
+            console.warn('Tentativa de perfil temporário falhou, usando método alternativo:', profileError);
+            
+            // Gerar email temporário único
+            const tempEmail = `temp_${generateUUID().substring(0, 8)}@temp.local`;
+            const tempPassword = generateUUID();
+            
+            const { data: authData, error: authError } = await supabase.auth.signUp({
+              email: tempEmail,
+              password: tempPassword,
+              options: {
+                data: {
+                  name: newAppointment.clientName,
+                  phone: newAppointment.clientPhone || null,
+                  is_temp_user: true,
+                }
+              }
+            });
+
+            if (authError || !authData.user) {
+              throw new Error('Erro ao criar perfil temporário: ' + (authError?.message || 'Usuário não criado'));
+            }
+
+            // Fazer logout imediatamente para não alterar a sessão atual
+            await supabase.auth.signOut();
+            
+            profileData = { 
+              id: authData.user.id, 
+              name: newAppointment.clientName,
+              phone: newAppointment.clientPhone || null 
+            };
+          } else {
+            profileData = newProfile;
+          }
+        } catch (error: any) {
+          console.error('Error in profile creation process:', error);
+          toast.error('Erro ao criar perfil do cliente: ' + (error.message || 'Erro desconhecido'));
+          return;
+        }
+      }
+
+      if (!profileData || !profileData.id) {
+        toast.error('Erro ao obter perfil do cliente');
+        return;
+      }
+
+      // Agendamentos criados pelo barbeiro sempre são marcados como 'manual'
+      const bookingType = 'manual';
+
+      // Criar agendamento
+      const { error } = await (supabase as any)
+        .from('appointments')
+        .insert([{
+          client_id: profileData.id,
+          barber_id: barberId, // Usar o barberId correto (do formulário ou selectedBarber)
+          service_id: newAppointment.serviceId,
+          appointment_date: newAppointment.date,
+          appointment_time: newAppointment.time,
+          status: 'confirmed',
+          booking_type: bookingType, // Sempre 'manual' para agendamentos criados pelo barbeiro
+          notes: (isPastAppointment || newAppointment.isRetroactive) 
+            ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' 
+            : 'Agendamento criado manualmente pelo barbeiro',
+        }]);
+
+      if (error) {
+        console.error('Error creating appointment:', error);
+        
+        // Verificar se é erro de foreign key constraint (migration não aplicada)
+        if (error.code === '23503' && error.message?.includes('appointments_client_id_fkey')) {
+          toast.error('❌ Erro de configuração do banco!', {
+            description: 'Execute o SQL de verificação no Supabase Dashboard. Verifique o arquivo verificar-migration-aplicada.sql',
+            duration: 8000,
+          });
+        } else if (error.code === '23503') {
+          toast.error('❌ Erro de constraint no banco!', {
+            description: 'Verifique se todas as migrations foram aplicadas corretamente: ' + error.message,
+            duration: 6000,
+          });
+        } else {
+          toast.error('Erro ao criar agendamento: ' + (error.message || 'Erro desconhecido'));
+        }
+      } else {
+        const message = (isPastAppointment || newAppointment.isRetroactive)
+          ? 'Agendamento retroativo criado com sucesso! (Marcado como manual)'
+          : 'Agendamento criado com sucesso! (Marcado como manual)';
+        toast.success(message, {
+          duration: 2000, // 2 segundos
+        });
+        setShowNewAppointment(false);
+        setNewAppointment({
+          clientName: '',
+          clientPhone: '',
+          serviceId: '',
+          barberId: selectedBarber || '', // Manter o selectedBarber como padrão
+          date: '',
+          time: '',
+          isRetroactive: false,
+        });
+        loadAppointments();
+      }
+    } catch (error: any) {
+      console.error('Unexpected error in handleCreateAppointment:', error);
+      toast.error('Erro inesperado: ' + (error.message || 'Erro desconhecido'));
+    } finally {
+      // Sempre desativar o estado de loading
+      setCreatingAppointment(false);
     }
   };
 
@@ -1405,10 +1412,25 @@ const BarbeiroDashboard = () => {
                       />
                     </div>
                     <div className="flex gap-2">
-                      <Button onClick={handleCreateAppointment} className="flex-1">
-                        Criar Agendamento
+                      <Button 
+                        onClick={handleCreateAppointment} 
+                        className="flex-1"
+                        disabled={creatingAppointment}
+                      >
+                        {creatingAppointment ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Criando...
+                          </>
+                        ) : (
+                          'Criar Agendamento'
+                        )}
                       </Button>
-                      <Button variant="outline" onClick={() => setShowNewAppointment(false)}>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setShowNewAppointment(false)}
+                        disabled={creatingAppointment}
+                      >
                         Cancelar
                       </Button>
                     </div>
