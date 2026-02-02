@@ -8,7 +8,18 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface Barber {
   id: string;
@@ -55,6 +66,7 @@ const BarberAdvancesManager = () => {
   };
 
   const loadAdvances = async () => {
+    console.log('📋 Carregando vales...', { selectedBarberId, statusFilter });
     setLoading(true);
     const { data, error } = await listAdvancesAdmin({
       barberId: selectedBarberId !== "all" ? selectedBarberId : undefined,
@@ -63,12 +75,20 @@ const BarberAdvancesManager = () => {
     setLoading(false);
 
     if (error) {
-      console.error("Error loading advances:", error);
+      console.error("❌ Error loading advances:", error);
       toast.error("Erro ao carregar vales");
       return;
     }
 
-    setAdvances(data);
+    console.log('📊 Vales carregados:', data?.length || 0, 'vales');
+    
+    // Filtrar vales que foram "removidos pelo admin" para não aparecerem na lista
+    const filteredData = data?.filter(advance => 
+      !advance.description?.includes('[REMOVIDO PELO ADMIN]')
+    ) || [];
+    
+    console.log('📊 Vales após filtro:', filteredData.length, 'vales (removidos os marcados como REMOVIDO PELO ADMIN)');
+    setAdvances(filteredData);
   };
 
   const handleCreateAdvance = async () => {
@@ -105,6 +125,49 @@ const BarberAdvancesManager = () => {
       effective_date: new Date().toISOString().split("T")[0],
     });
     loadAdvances();
+  };
+
+  const handleDeleteAdvance = async (advanceId: string) => {
+    console.log('🗑️ Tentando remover vale via RPC:', advanceId);
+    
+    try {
+      // Usar a nova função RPC que contorna o RLS de forma segura
+      const { data: rpcResult, error: rpcError } = await supabase
+        .rpc('delete_barber_advance_admin', { advance_id: advanceId });
+
+      console.log('📊 Resultado RPC:', { rpcResult, rpcError });
+
+      if (rpcError) {
+        console.error("❌ Erro na função RPC:", rpcError);
+        toast.error("Erro ao remover vale: " + rpcError.message);
+        return;
+      }
+
+      // Verificar se a função RPC retornou sucesso
+      if (rpcResult && rpcResult.success) {
+        console.log('✅ Vale removido com sucesso via RPC!');
+        toast.success(rpcResult.message || "Vale removido com sucesso!");
+        
+        // Atualizar a interface imediatamente removendo o vale da lista local
+        setAdvances(prevAdvances => 
+          prevAdvances.filter(adv => adv.id !== advanceId)
+        );
+        
+        // Recarregar a lista para garantir sincronização
+        console.log('🔄 Recarregando lista de vales...');
+        await loadAdvances();
+        console.log('✅ Lista recarregada!');
+      } else {
+        // A função RPC retornou erro
+        const errorMessage = rpcResult?.error || "Erro desconhecido na remoção";
+        console.error("❌ RPC retornou erro:", errorMessage);
+        toast.error(errorMessage);
+      }
+      
+    } catch (error: any) {
+      console.error("❌ Exception ao chamar RPC:", error);
+      toast.error("Erro ao remover vale: " + error.message);
+    }
   };
 
   const formatCurrency = (value: number) =>
@@ -288,25 +351,94 @@ const BarberAdvancesManager = () => {
                       </td>
                       <td className="py-2 pr-4 align-top">
                         {adv.status === "pending" ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={async () => {
-                              const { error } = await rejectAdvance(adv.id);
-                              if (error) {
-                                toast.error("Erro ao cancelar vale");
-                              } else {
-                                toast.success("Vale cancelado");
-                                loadAdvances();
-                              }
-                            }}
-                          >
-                            Cancelar
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () => {
+                                const { error } = await rejectAdvance(adv.id);
+                                if (error) {
+                                  toast.error("Erro ao cancelar vale");
+                                } else {
+                                  toast.success("Vale cancelado");
+                                  loadAdvances();
+                                }
+                              }}
+                            >
+                              Cancelar
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Remover Vale</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Tem certeza que deseja remover este vale? Esta ação é irreversível.
+                                    <br /><br />
+                                    <strong>Vale:</strong> {formatCurrency(adv.amount)} para {(adv as any).barber?.name}
+                                    <br />
+                                    <strong>Data:</strong> {new Date(adv.effective_date).toLocaleDateString("pt-BR")}
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => handleDeleteAdvance(adv.id)}
+                                    className="bg-destructive hover:bg-destructive/90"
+                                  >
+                                    Remover
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
                         ) : (
-                          <span className="text-xs text-muted-foreground">
-                            —
-                          </span>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Remover Vale</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Tem certeza que deseja remover este vale? Esta ação é irreversível.
+                                  <br /><br />
+                                  <strong>Vale:</strong> {formatCurrency(adv.amount)} para {(adv as any).barber?.name}
+                                  <br />
+                                  <strong>Status:</strong> {getStatusLabel(adv.status)}
+                                  <br />
+                                  <strong>Data:</strong> {new Date(adv.effective_date).toLocaleDateString("pt-BR")}
+                                  {adv.status === "approved" && (
+                                    <>
+                                      <br /><br />
+                                      <strong className="text-amber-600">⚠️ Atenção:</strong> Este vale foi aprovado e pode já ter sido descontado da comissão do barbeiro.
+                                    </>
+                                  )}
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDeleteAdvance(adv.id)}
+                                  className="bg-destructive hover:bg-destructive/90"
+                                >
+                                  Remover
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         )}
                       </td>
                     </tr>
