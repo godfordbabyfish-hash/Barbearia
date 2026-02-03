@@ -633,11 +633,36 @@ const BarbeiroDashboard = () => {
     // Usar barberId do formulário ou o selectedBarber como fallback
     const barberId = newAppointment.barberId || selectedBarber;
     
-    // Telefone não é obrigatório para agendamentos criados pelo barbeiro
-    if (!newAppointment.clientName || 
-        !newAppointment.serviceId || !barberId || 
-        !newAppointment.date || !newAppointment.time) {
-      toast.error('Preencha todos os campos obrigatórios');
+    // Validações básicas
+    if (!newAppointment.clientName?.trim()) {
+      toast.error('Nome do cliente é obrigatório');
+      return;
+    }
+    
+    if (!newAppointment.serviceId) {
+      toast.error('Selecione um serviço');
+      return;
+    }
+    
+    if (!barberId) {
+      toast.error('Selecione um barbeiro');
+      return;
+    }
+    
+    if (!newAppointment.date) {
+      toast.error('Selecione uma data');
+      return;
+    }
+    
+    if (!newAppointment.time) {
+      toast.error('Selecione um horário');
+      return;
+    }
+
+    // Verificar se o serviço existe
+    const selectedService = services.find(s => s.id === newAppointment.serviceId);
+    if (!selectedService) {
+      toast.error('Serviço selecionado não encontrado');
       return;
     }
 
@@ -675,8 +700,7 @@ const BarbeiroDashboard = () => {
       // Verificar conflitos apenas se não for retroativo
       if (!isPastAppointment && !newAppointment.isRetroactive) {
         if (existingAppointmentResult.status === 'fulfilled' && existingAppointmentResult.value.data) {
-          const selectedService = services.find(s => s.id === newAppointment.serviceId);
-          const serviceDuration = selectedService?.duration || 30;
+          const serviceDuration = selectedService.duration || 30;
 
           const hasConflict = existingAppointmentResult.value.data.some((apt: any) => {
             const aptDuration = apt.service?.duration || 30;
@@ -693,8 +717,7 @@ const BarbeiroDashboard = () => {
 
         // Verificar pausas
         if (breaksResult.status === 'fulfilled' && breaksResult.value.data?.length > 0) {
-          const selectedService = services.find(s => s.id === newAppointment.serviceId);
-          const serviceDuration = selectedService?.duration || 30;
+          const serviceDuration = selectedService.duration || 30;
           
           const timeToMinutes = (time: string) => {
             const [hours, minutes] = time.split(':').map(Number);
@@ -721,12 +744,12 @@ const BarbeiroDashboard = () => {
 
       // 2. CRIAR/ATUALIZAR PERFIL COM UPSERT (otimizado como no cliente)
       const profileId = generateUUID();
-      const { data: profileData } = await (supabase as any)
+      const { data: profileData, error: profileError } = await (supabase as any)
         .from('profiles')
         .upsert([{
           id: profileId,
-          name: newAppointment.clientName,
-          phone: newAppointment.clientPhone || null,
+          name: newAppointment.clientName.trim(),
+          phone: newAppointment.clientPhone?.trim() || null,
           is_temp_user: true,
         }], { 
           onConflict: 'phone',
@@ -735,8 +758,9 @@ const BarbeiroDashboard = () => {
         .select('id')
         .single();
 
-      if (!profileData?.id) {
-        toast.error('Erro ao criar perfil do cliente');
+      if (profileError || !profileData?.id) {
+        console.error('Error creating profile:', profileError);
+        toast.error('Erro ao criar perfil do cliente: ' + (profileError?.message || 'Erro desconhecido'));
         return;
       }
 
@@ -944,14 +968,30 @@ const BarbeiroDashboard = () => {
 
     if (error) {
       toast.error('Erro ao cancelar agendamento');
-    } else {
-      // Disparar processamento da fila de WhatsApp (cliente + barbeiro)
+      return;
+    }
+
+    // Mostrar sucesso imediatamente
+    toast.success('Agendamento cancelado com sucesso', {
+      duration: 2000,
+    });
+    setCancelDialogOpen(false);
+    setAppointmentToCancel(null);
+    setCancellationReason('');
+    loadAppointments();
+
+    // Processar fila de WhatsApp de forma assíncrona (não bloqueia a UI)
+    setTimeout(async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
         
         if (supabaseUrl) {
+          // Timeout de 3 segundos para não travar
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+
           const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
             method: 'POST',
             headers: {
@@ -960,27 +1000,22 @@ const BarbeiroDashboard = () => {
               'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
             },
             body: JSON.stringify({}),
+            signal: controller.signal,
           });
 
-          if (!response.ok) {
-            console.error('Error triggering WhatsApp queue after cancellation:', response.status);
-          } else {
-            console.log('WhatsApp queue processed after cancellation');
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            console.log('✅ WhatsApp queue processed after cancellation');
           }
         }
-      } catch (queueError) {
-        console.error('Error triggering WhatsApp queue after cancellation:', queueError);
-        // Não bloquear o fluxo do usuário se a fila falhar
+      } catch (queueError: any) {
+        // Silenciosamente falhar - não impacta o usuário
+        if (queueError.name !== 'AbortError') {
+          console.error('Error triggering WhatsApp queue:', queueError);
+        }
       }
-
-      toast.success('Agendamento cancelado com sucesso', {
-        duration: 2000, // 2 segundos
-      });
-      setCancelDialogOpen(false);
-      setAppointmentToCancel(null);
-      setCancellationReason('');
-      loadAppointments();
-    }
+    }, 100); // Pequeno delay para não bloquear a UI
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {

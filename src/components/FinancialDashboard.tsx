@@ -10,6 +10,8 @@ import { format, subDays, subMonths, subYears, startOfDay, endOfDay, endOfMonth,
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import { IndividualCommissionManager } from '@/components/IndividualCommissionManager';
+import BarberAdvancesManager from '@/components/admin/BarberAdvancesManager';
+import ReportsManager from '@/components/admin/ReportsManager';
 
 interface Appointment {
   id: string;
@@ -66,7 +68,7 @@ const FinancialDashboard = () => {
   const [filterService, setFilterService] = useState<string>('all');
   const [filterProduct, setFilterProduct] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
-  const [activeTab, setActiveTab] = useState<'overview' | 'commissions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'commissions' | 'advances' | 'reports'>('overview');
   
   const isManager = role === 'admin' || role === 'gestor';
 
@@ -402,7 +404,7 @@ const FinancialDashboard = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">Período</label>
               <Select value={period} onValueChange={(v) => setPeriod(v as any)}>
@@ -513,7 +515,7 @@ const FinancialDashboard = () => {
       </Card>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <Card className="bg-card border-border">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Receita ({getPeriodLabel()})</CardTitle>
@@ -577,7 +579,7 @@ const FinancialDashboard = () => {
 
       {/* Product Stats Cards */}
       {productSales.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           <Card className="bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Receita de Produtos</CardTitle>
@@ -626,7 +628,7 @@ const FinancialDashboard = () => {
       )}
 
       {/* Charts */}
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Revenue over time (including products) */}
         <Card className="bg-card border-border">
           <CardHeader>
@@ -783,66 +785,68 @@ const FinancialDashboard = () => {
         <CardHeader>
           <CardTitle>Últimos Agendamentos</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-2">Data</th>
-                  <th className="text-left py-3 px-2">Horário</th>
-                  <th className="text-left py-3 px-2">Serviço</th>
-                  <th className="text-left py-3 px-2">Barbeiro</th>
-                  <th className="text-left py-3 px-2">Tipo</th>
-                  <th className="text-left py-3 px-2">Status</th>
-                  <th className="text-right py-3 px-2">Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {appointments.slice(0, 10).map((apt) => (
-                  <tr key={apt.id} className="border-b border-border/50 hover:bg-muted/50">
-                    <td className="py-3 px-2">
-                      {format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM/yyyy')}
-                    </td>
-                    <td className="py-3 px-2">{apt.appointment_time}</td>
-                    <td className="py-3 px-2">{(apt.service as any)?.title || '-'}</td>
-                    <td className="py-3 px-2">{(apt.barber as any)?.name || '-'}</td>
-                    <td className="py-3 px-2">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        apt.booking_type === 'local' 
-                          ? 'bg-primary/20 text-primary' 
-                          : apt.booking_type === 'manual'
-                          ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
-                          : 'bg-blue-500/20 text-blue-400'
-                      }`} title={apt.booking_type === 'manual' ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' : ''}>
-                        {apt.booking_type === 'local' ? 'Local' : apt.booking_type === 'manual' ? '📝 Manual' : 'Online'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-2">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        apt.status === 'confirmed' ? 'bg-green-500/20 text-green-400' :
-                        apt.status === 'completed' ? 'bg-primary/20 text-primary' :
-                        apt.status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
-                        'bg-yellow-500/20 text-yellow-400'
-                      }`}>
-                        {apt.status === 'confirmed' ? 'Confirmado' :
-                         apt.status === 'completed' ? 'Concluído' :
-                         apt.status === 'cancelled' ? 'Cancelado' : 'Pendente'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-2 text-right font-medium text-primary">
-                      R$ {((apt.service as any)?.price || 0).toFixed(2)}
-                    </td>
+        <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6">
+          <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '600px' }}>
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-2">Data</th>
+                    <th className="text-left py-3 px-2">Horário</th>
+                    <th className="text-left py-3 px-2">Serviço</th>
+                    <th className="text-left py-3 px-2">Barbeiro</th>
+                    <th className="text-left py-3 px-2">Tipo</th>
+                    <th className="text-left py-3 px-2">Status</th>
+                    <th className="text-right py-3 px-2">Valor</th>
                   </tr>
-                ))}
-                {appointments.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="py-8 text-center text-muted-foreground">
-                      Nenhum agendamento encontrado
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {appointments.slice(0, 10).map((apt) => (
+                    <tr key={apt.id} className="border-b border-border/50 hover:bg-muted/50">
+                      <td className="py-3 px-2">
+                        {format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM/yyyy')}
+                      </td>
+                      <td className="py-3 px-2">{apt.appointment_time}</td>
+                      <td className="py-3 px-2">{(apt.service as any)?.title || '-'}</td>
+                      <td className="py-3 px-2">{(apt.barber as any)?.name || '-'}</td>
+                      <td className="py-3 px-2">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          apt.booking_type === 'local' 
+                            ? 'bg-primary/20 text-primary' 
+                            : apt.booking_type === 'manual'
+                            ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                            : 'bg-blue-500/20 text-blue-400'
+                        }`} title={apt.booking_type === 'manual' ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' : ''}>
+                          {apt.booking_type === 'local' ? 'Local' : apt.booking_type === 'manual' ? '📝 Manual' : 'Online'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          apt.status === 'confirmed' ? 'bg-green-500/20 text-green-400' :
+                          apt.status === 'completed' ? 'bg-primary/20 text-primary' :
+                          apt.status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
+                          'bg-yellow-500/20 text-yellow-400'
+                        }`}>
+                          {apt.status === 'confirmed' ? 'Confirmado' :
+                           apt.status === 'completed' ? 'Concluído' :
+                           apt.status === 'cancelled' ? 'Cancelado' : 'Pendente'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-right font-medium text-primary">
+                        R$ {((apt.service as any)?.price || 0).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                  {appointments.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-muted-foreground">
+                        Nenhum agendamento encontrado
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -850,24 +854,34 @@ const FinancialDashboard = () => {
   );
 
   return (
-    <div className="space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+    <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       {isManager ? (
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'overview' | 'commissions')} className="w-full" style={{ maxWidth: '100%' }}>
-          <TabsList className="grid w-full max-w-full grid-cols-2">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'overview' | 'commissions' | 'advances' | 'reports')} className="w-full" style={{ maxWidth: '100%' }}>
+          <TabsList className="grid w-full max-w-full grid-cols-4">
             <TabsTrigger value="overview" className="text-xs sm:text-sm">Visão Geral</TabsTrigger>
             <TabsTrigger value="commissions" className="text-xs sm:text-sm">Comissões</TabsTrigger>
+            <TabsTrigger value="advances" className="text-xs sm:text-sm">Vales</TabsTrigger>
+            <TabsTrigger value="reports" className="text-xs sm:text-sm">Relatórios</TabsTrigger>
           </TabsList>
           
-          <TabsContent value="overview" className="space-y-6 mt-6">
+          <TabsContent value="overview" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
             {renderContent()}
           </TabsContent>
           
-          <TabsContent value="commissions" className="space-y-6 mt-6 w-full overflow-x-hidden">
+          <TabsContent value="commissions" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
             <IndividualCommissionManager />
+          </TabsContent>
+          
+          <TabsContent value="advances" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+            <BarberAdvancesManager />
+          </TabsContent>
+          
+          <TabsContent value="reports" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+            <ReportsManager />
           </TabsContent>
         </Tabs>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
           {renderContent()}
         </div>
       )}

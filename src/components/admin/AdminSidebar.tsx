@@ -14,8 +14,7 @@ import {
   X,
   MessageSquare,
   LogOut,
-  History,
-  FileText
+  History
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
@@ -45,8 +44,6 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
     { id: 'services-products', label: 'Serviços & Produtos', icon: <Scissors className="h-4 w-4" /> },
     { id: 'users', label: 'Usuários', icon: <User className="h-4 w-4" />, adminOnly: true },
     { id: 'financial', label: 'Financeiro', icon: <DollarSign className="h-4 w-4" /> },
-    { id: 'reports', label: 'Relatórios', icon: <FileText className="h-4 w-4" /> },
-    { id: 'advances', label: 'Vales', icon: <DollarSign className="h-4 w-4" /> },
     { id: 'historico-cp', label: 'Histórico CP', icon: <History className="h-4 w-4" /> },
     { id: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
     // Gestor também pode acessar as Configurações do Site

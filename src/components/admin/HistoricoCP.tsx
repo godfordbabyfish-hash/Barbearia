@@ -286,23 +286,25 @@ const HistoricoCP = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <Card className="bg-card border-border">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-primary" />
-            Histórico CP - Agendamentos Locais/Online
+    <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+      <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+        <CardHeader className="p-3 sm:p-4 md:p-6">
+          <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+            <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+            <span className="hidden sm:inline">Histórico CP - Agendamentos Locais/Online</span>
+            <span className="sm:hidden">Histórico CP</span>
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
           {/* Filtros */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-4 sm:mb-6">
             <div>
               <Label className="text-sm text-muted-foreground mb-1 block">Data Inicial</Label>
               <Input
                 type="date"
                 value={filterDateFrom}
                 onChange={(e) => setFilterDateFrom(e.target.value)}
+                className="w-full"
               />
             </div>
             <div>
@@ -311,12 +313,13 @@ const HistoricoCP = () => {
                 type="date"
                 value={filterDateTo}
                 onChange={(e) => setFilterDateTo(e.target.value)}
+                className="w-full"
               />
             </div>
             <div>
               <Label className="text-sm text-muted-foreground mb-1 block">Barbeiro</Label>
               <Select value={filterBarber} onValueChange={setFilterBarber}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
@@ -332,7 +335,7 @@ const HistoricoCP = () => {
             <div>
               <Label className="text-sm text-muted-foreground mb-1 block">Serviço</Label>
               <Select value={filterService} onValueChange={setFilterService}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
@@ -348,7 +351,7 @@ const HistoricoCP = () => {
             <div>
               <Label className="text-sm text-muted-foreground mb-1 block">Status</Label>
               <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
@@ -363,7 +366,7 @@ const HistoricoCP = () => {
             <div>
               <Label className="text-sm text-muted-foreground mb-1 block">Tipo</Label>
               <Select value={filterType} onValueChange={(v) => setFilterType(v as any)}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
@@ -377,81 +380,97 @@ const HistoricoCP = () => {
 
           {/* Tabela de agendamentos */}
           {loading ? (
-            <div className="flex items-center justify-center py-12">
+            <div className="flex items-center justify-center py-8 sm:py-12">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
           ) : appointments.length === 0 ? (
-            <p className="text-center text-muted-foreground py-12">
+            <p className="text-center text-muted-foreground py-8 sm:py-12 text-sm">
               Nenhum agendamento encontrado com os filtros selecionados.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-3 px-2">Data</th>
-                    <th className="text-left py-3 px-2">Horário</th>
-                    <th className="text-left py-3 px-2">Cliente</th>
-                    <th className="text-left py-3 px-2">Barbeiro</th>
-                    <th className="text-left py-3 px-2">Serviço</th>
-                    <th className="text-left py-3 px-2">Tipo</th>
-                    <th className="text-left py-3 px-2">Status</th>
-                    <th className="text-right py-3 px-2">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {appointments.map((apt) => (
-                    <tr key={apt.id} className="border-b border-border/50 hover:bg-muted/50">
-                      <td className="py-3 px-2">
-                        {format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
-                      </td>
-                      <td className="py-3 px-2">{apt.appointment_time}</td>
-                      <td className="py-3 px-2">
-                        <div>
-                          <div className="font-medium">{apt.client?.name || 'N/A'}</div>
-                          {apt.client?.phone && (
-                            <div className="text-xs text-muted-foreground">{apt.client.phone}</div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-2">{apt.barber?.name || 'N/A'}</td>
-                      <td className="py-3 px-2">
-                        <div>
-                          <div>{apt.service?.title || 'N/A'}</div>
-                          {apt.service?.price && (
-                            <div className="text-xs text-muted-foreground">
-                              R$ {apt.service.price.toFixed(2)}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-2">{getTypeBadge(apt.booking_type)}</td>
-                      <td className="py-3 px-2">{getStatusBadge(apt.status)}</td>
-                      <td className="py-3 px-2">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleEdit(apt)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => {
-                              setDeletingAppointment(apt);
-                              setDeleteDialogOpen(true);
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </td>
+            <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '800px' }}>
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Data</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[60px] sm:w-[80px]">Horário</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[150px]">Cliente</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[100px] sm:w-[120px]">Barbeiro</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[150px]">Serviço</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[70px] sm:w-[80px]">Tipo</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Status</th>
+                      <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Ações</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {appointments.map((apt) => (
+                      <tr key={apt.id} className="border-b border-border/50 hover:bg-muted/50">
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          <div className="text-xs sm:text-sm">
+                            {format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
+                          </div>
+                        </td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2 text-xs sm:text-sm">{apt.appointment_time}</td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          <div>
+                            <div className="font-medium text-xs sm:text-sm truncate" title={apt.client?.name || 'N/A'}>
+                              {apt.client?.name || 'N/A'}
+                            </div>
+                            {apt.client?.phone && (
+                              <div className="text-xs text-muted-foreground truncate" title={apt.client.phone}>
+                                {apt.client.phone}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          <div className="text-xs sm:text-sm truncate" title={apt.barber?.name || 'N/A'}>
+                            {apt.barber?.name || 'N/A'}
+                          </div>
+                        </td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          <div>
+                            <div className="text-xs sm:text-sm truncate" title={apt.service?.title || 'N/A'}>
+                              {apt.service?.title || 'N/A'}
+                            </div>
+                            {apt.service?.price && (
+                              <div className="text-xs text-muted-foreground">
+                                R$ {apt.service.price.toFixed(2)}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">{getTypeBadge(apt.booking_type)}</td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">{getStatusBadge(apt.status)}</td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEdit(apt)}
+                              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                            >
+                              <Pencil className="h-3 w-3 sm:h-4 sm:w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => {
+                                setDeletingAppointment(apt);
+                                setDeleteDialogOpen(true);
+                              }}
+                              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                            >
+                              <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </CardContent>
@@ -459,37 +478,39 @@ const HistoricoCP = () => {
 
       {/* Dialog de Edição */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-[95vw] sm:max-w-md overflow-hidden">
           <DialogHeader>
             <DialogTitle>Editar Agendamento</DialogTitle>
             <DialogDescription>
               Altere as informações do agendamento abaixo.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4 max-h-[60vh] overflow-y-auto pr-2">
             <div>
-              <Label>Data</Label>
+              <Label className="text-sm">Data</Label>
               <Input
                 type="date"
                 value={editForm.appointment_date}
                 onChange={(e) => setEditForm({ ...editForm, appointment_date: e.target.value })}
+                className="w-full"
               />
             </div>
             <div>
-              <Label>Horário</Label>
+              <Label className="text-sm">Horário</Label>
               <Input
                 type="time"
                 value={editForm.appointment_time}
                 onChange={(e) => setEditForm({ ...editForm, appointment_time: e.target.value })}
+                className="w-full"
               />
             </div>
             <div>
-              <Label>Barbeiro</Label>
+              <Label className="text-sm">Barbeiro</Label>
               <Select
                 value={editForm.barber_id}
                 onValueChange={(value) => setEditForm({ ...editForm, barber_id: value })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Selecione um barbeiro" />
                 </SelectTrigger>
                 <SelectContent>
@@ -502,12 +523,12 @@ const HistoricoCP = () => {
               </Select>
             </div>
             <div>
-              <Label>Serviço</Label>
+              <Label className="text-sm">Serviço</Label>
               <Select
                 value={editForm.service_id}
                 onValueChange={(value) => setEditForm({ ...editForm, service_id: value })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Selecione um serviço" />
                 </SelectTrigger>
                 <SelectContent>
@@ -520,12 +541,12 @@ const HistoricoCP = () => {
               </Select>
             </div>
             <div>
-              <Label>Status</Label>
+              <Label className="text-sm">Status</Label>
               <Select
                 value={editForm.status}
                 onValueChange={(value) => setEditForm({ ...editForm, status: value })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -537,25 +558,27 @@ const HistoricoCP = () => {
               </Select>
             </div>
             <div>
-              <Label>Observações (opcional)</Label>
+              <Label className="text-sm">Observações (opcional)</Label>
               <Input
                 value={editForm.notes}
                 onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
                 placeholder="Observações sobre o agendamento"
+                className="w-full"
               />
             </div>
           </div>
-          <div className="flex justify-end gap-2 mt-6">
+          <div className="flex flex-col sm:flex-row justify-end gap-2 mt-4 sm:mt-6">
             <Button
               variant="outline"
               onClick={() => {
                 setEditDialogOpen(false);
                 setEditingAppointment(null);
               }}
+              className="w-full sm:w-auto"
             >
               Cancelar
             </Button>
-            <Button onClick={handleSave} disabled={saving}>
+            <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Salvar
             </Button>
@@ -565,7 +588,7 @@ const HistoricoCP = () => {
 
       {/* Dialog de Confirmação de Exclusão */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-w-[95vw] sm:max-w-md overflow-hidden">
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
             <AlertDialogDescription>

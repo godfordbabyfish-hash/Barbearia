@@ -483,168 +483,176 @@ const ReportsManager = () => {
   };
 
   return (
-    <Card className="bg-card border-border">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="h-5 w-5 text-primary" />
+    <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+      <CardHeader className="p-3 sm:p-4 md:p-6">
+        <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+          <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
           Relatórios Financeiros
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Period Selection */}
-          <div>
-            <Label>Período do Relatório</Label>
-            <Select value={reportPeriod} onValueChange={(v) => setReportPeriod(v as any)}>
-              <SelectTrigger className="mt-2">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="daily">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    Diário (Hoje)
-                  </div>
-                </SelectItem>
-                <SelectItem value="weekly">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    Semanal (Esta Semana)
-                  </div>
-                </SelectItem>
-                <SelectItem value="monthly">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    Mensal (Este Mês)
-                  </div>
-                </SelectItem>
-                <SelectItem value="custom">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    Personalizado
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Barber Selection */}
-          <div>
-            <Label>Barbeiro</Label>
-            <Select value={selectedBarber} onValueChange={setSelectedBarber}>
-              <SelectTrigger className="mt-2">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    Todos os Barbeiros
-                  </div>
-                </SelectItem>
-                {barbers.map((barber) => (
-                  <SelectItem key={barber.id} value={barber.id}>
-                    {barber.name}
+      <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+        <div className="space-y-4 sm:space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            {/* Period Selection */}
+            <div>
+              <Label className="text-sm">Período do Relatório</Label>
+              <Select value={reportPeriod} onValueChange={(v) => setReportPeriod(v as any)}>
+                <SelectTrigger className="mt-2 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="daily">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      <span className="hidden sm:inline">Diário (Hoje)</span>
+                      <span className="sm:hidden">Hoje</span>
+                    </div>
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Generate Button */}
-          <div className="flex items-end">
-            <Button 
-              onClick={handleGenerateReport}
-              disabled={generating}
-              className="w-full"
-            >
-              {generating ? (
-                <>
-                  <TrendingUp className="mr-2 h-4 w-4 animate-spin" />
-                  Gerando...
-                </>
-              ) : (
-                <>
-                  <Download className="mr-2 h-4 w-4" />
-                  Gerar PDF
-                </>
-              )}
-            </Button>
-          </div>
-        </div>
-
-        {/* Custom Date Range */}
-        {reportPeriod === 'custom' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-secondary/30 rounded-lg">
-            <div>
-              <Label>Data Inicial</Label>
-              <Input
-                type="date"
-                value={customDateFrom}
-                onChange={(e) => setCustomDateFrom(e.target.value)}
-                className="mt-2"
-              />
+                  <SelectItem value="weekly">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      <span className="hidden sm:inline">Semanal (Esta Semana)</span>
+                      <span className="sm:hidden">Semana</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="monthly">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      <span className="hidden sm:inline">Mensal (Este Mês)</span>
+                      <span className="sm:hidden">Mês</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="custom">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4" />
+                      Personalizado
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+
+            {/* Barber Selection */}
             <div>
-              <Label>Data Final</Label>
-              <Input
-                type="date"
-                value={customDateTo}
-                onChange={(e) => setCustomDateTo(e.target.value)}
-                className="mt-2"
-              />
+              <Label className="text-sm">Barbeiro</Label>
+              <Select value={selectedBarber} onValueChange={setSelectedBarber}>
+                <SelectTrigger className="mt-2 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4" />
+                      <span className="hidden sm:inline">Todos os Barbeiros</span>
+                      <span className="sm:hidden">Todos</span>
+                    </div>
+                  </SelectItem>
+                  {barbers.map((barber) => (
+                    <SelectItem key={barber.id} value={barber.id}>
+                      {barber.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Generate Button */}
+            <div className="flex items-end">
+              <Button 
+                onClick={handleGenerateReport}
+                disabled={generating}
+                className="w-full"
+              >
+                {generating ? (
+                  <>
+                    <TrendingUp className="mr-2 h-4 w-4 animate-spin" />
+                    <span className="hidden sm:inline">Gerando...</span>
+                    <span className="sm:hidden">...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="mr-2 h-4 w-4" />
+                    <span className="hidden sm:inline">Gerar PDF</span>
+                    <span className="sm:hidden">PDF</span>
+                  </>
+                )}
+              </Button>
             </div>
           </div>
-        )}
 
-        {/* Info Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="bg-primary/10 border-primary/20">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-primary" />
-                <div>
-                  <p className="text-sm font-medium">Faturamento Bruto</p>
-                  <p className="text-xs text-muted-foreground">Valor total dos serviços</p>
-                </div>
+          {/* Custom Date Range */}
+          {reportPeriod === 'custom' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 p-3 sm:p-4 bg-secondary/30 rounded-lg">
+              <div>
+                <Label className="text-sm">Data Inicial</Label>
+                <Input
+                  type="date"
+                  value={customDateFrom}
+                  onChange={(e) => setCustomDateFrom(e.target.value)}
+                  className="mt-2 w-full"
+                />
               </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-green-500/10 border-green-500/20">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-green-500" />
-                <div>
-                  <p className="text-sm font-medium">Lucro da Barbearia</p>
-                  <p className="text-xs text-muted-foreground">Faturamento - Comissões</p>
-                </div>
+              <div>
+                <Label className="text-sm">Data Final</Label>
+                <Input
+                  type="date"
+                  value={customDateTo}
+                  onChange={(e) => setCustomDateTo(e.target.value)}
+                  className="mt-2 w-full"
+                />
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          )}
 
-          <Card className="bg-blue-500/10 border-blue-500/20">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-blue-500" />
-                <div>
-                  <p className="text-sm font-medium">Comissões dos Barbeiros</p>
-                  <p className="text-xs text-muted-foreground">Total pago aos barbeiros</p>
+          {/* Info Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            <Card className="bg-primary/10 border-primary/20">
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-primary flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">Faturamento Bruto</p>
+                    <p className="text-xs text-muted-foreground">Valor total dos serviços</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
 
-        <div className="text-sm text-muted-foreground bg-secondary/30 p-4 rounded-lg">
-          <h4 className="font-medium mb-2">📋 O que inclui o relatório:</h4>
-          <ul className="space-y-1 text-xs">
-            <li>• <strong>Resumo Geral:</strong> Faturamento bruto, comissões, lucro da barbearia</li>
-            <li>• <strong>Detalhes por Barbeiro:</strong> Agendamentos, faturamento individual, comissões</li>
-            <li>• <strong>Lista de Agendamentos:</strong> Data, hora, cliente, serviço, valor</li>
-            <li>• <strong>Vendas de Produtos:</strong> Produtos vendidos e comissões</li>
-            <li>• <strong>Vales e Adiantamentos:</strong> Valores descontados das comissões</li>
-          </ul>
+            <Card className="bg-green-500/10 border-green-500/20">
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">Lucro da Barbearia</p>
+                    <p className="text-xs text-muted-foreground">Faturamento - Comissões</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-blue-500/10 border-blue-500/20">
+              <CardContent className="p-3 sm:p-4">
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">Comissões dos Barbeiros</p>
+                    <p className="text-xs text-muted-foreground">Total pago aos barbeiros</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="text-sm text-muted-foreground bg-secondary/30 p-3 sm:p-4 rounded-lg">
+            <h4 className="font-medium mb-2">📋 O que inclui o relatório:</h4>
+            <ul className="space-y-1 text-xs">
+              <li>• <strong>Resumo Geral:</strong> Faturamento bruto, comissões, lucro da barbearia</li>
+              <li>• <strong>Detalhes por Barbeiro:</strong> Agendamentos, faturamento individual, comissões</li>
+              <li>• <strong>Lista de Agendamentos:</strong> Data, hora, cliente, serviço, valor</li>
+              <li>• <strong>Vendas de Produtos:</strong> Produtos vendidos e comissões</li>
+              <li>• <strong>Vales e Adiantamentos:</strong> Valores descontados das comissões</li>
+            </ul>
+          </div>
         </div>
       </CardContent>
     </Card>
