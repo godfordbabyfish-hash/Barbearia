@@ -63,6 +63,20 @@ CREATE POLICY "Admins and gestores can insert advances"
     OR public.has_role(auth.uid(), 'gestor'::app_role)
   );
 
+-- 3b) Barbeiros podem solicitar vales para si mesmos
+DROP POLICY IF EXISTS "Barbers can request own advances" ON public.barber_advances;
+CREATE POLICY "Barbers can request own advances"
+  ON public.barber_advances
+  FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1
+      FROM public.barbers b
+      WHERE b.id = barber_advances.barber_id
+        AND b.user_id = auth.uid()
+    )
+  );
+
 -- 4) Admins e gestores podem atualizar qualquer vale (ajustar valor, descrição, status)
 DROP POLICY IF EXISTS "Admins and gestores can update advances" ON public.barber_advances;
 CREATE POLICY "Admins and gestores can update advances"
