@@ -327,15 +327,22 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
     setSubmittingAdvance(true);
 
     try {
+      // Obter o usuário atual
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error('Usuário não autenticado');
+        return;
+      }
+
       const { error } = await supabase
         .from('barber_advances')
         .insert({
           barber_id: barberId,
           amount: amount,
-          reason: advanceReason.trim(),
+          description: advanceReason.trim(),
+          requested_by: user.id,
           status: 'pending',
-          request_date: advanceRequestDate, // Usar a data informada pelo barbeiro
-          effective_date: advanceRequestDate, // Data efetiva também será a data da solicitação
+          effective_date: advanceRequestDate, // Data efetiva será a data da solicitação
         });
 
       if (error) {

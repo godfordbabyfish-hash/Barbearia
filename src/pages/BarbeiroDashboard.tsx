@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { ArrowLeft, Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
@@ -638,14 +638,6 @@ const BarbeiroDashboard = () => {
         !newAppointment.serviceId || !barberId || 
         !newAppointment.date || !newAppointment.time) {
       toast.error('Preencha todos os campos obrigatórios');
-      console.error('Validation failed:', {
-        clientName: newAppointment.clientName,
-        clientPhone: newAppointment.clientPhone,
-        serviceId: newAppointment.serviceId,
-        barberId: barberId,
-        date: newAppointment.date,
-        time: newAppointment.time
-      });
       return;
     }
 
@@ -658,186 +650,241 @@ const BarbeiroDashboard = () => {
       const now = new Date();
       const isPastAppointment = appointmentDateTime < now;
 
-      // IMPORTANTE: Barbeiros podem criar agendamentos em QUALQUER horário,
-      // mesmo fora do horário de funcionamento. Não validamos horário de funcionamento aqui.
-      // Apenas verificamos conflitos de horário para agendamentos futuros não-retroativos.
+      // 1. VALIDAÇÕES EM PARALELO (otimizado como no cliente)
+      const [existingAppointmentResult, breaksResult] = await Promise.allSettled([
+        // Verificar conflitos de horário (apenas se não for retroativo)
+        (!isPastAppointment && !newAppointment.isRetroactive) ? 
+          (supabase as any)
+            .from('appointments')
+            .select('appointment_time, service:services(duration)')
+            .eq('barber_id', barberId)
+            .eq('appointment_date', newAppointment.date)
+            .neq('status', 'cancelled') :
+          Promise.resolve({ data: [] }),
+        
+        // Verificar pausas do barbeiro (apenas se não for retroativo)
+        (!isPastAppointment && !newAppointment.isRetroactive) ?
+          (supabase as any)
+            .from('barber_breaks')
+            .select('*')
+            .eq('barber_id', barberId)
+            .eq('date', newAppointment.date) :
+          Promise.resolve({ data: [] })
+      ]);
 
-      // Se não for retroativo, verificar conflitos de horário (mas não validar horário de funcionamento)
+      // Verificar conflitos apenas se não for retroativo
       if (!isPastAppointment && !newAppointment.isRetroactive) {
-        const selectedService = services.find(s => s.id === newAppointment.serviceId);
-        const serviceDuration = selectedService?.duration || 30;
+        if (existingAppointmentResult.status === 'fulfilled' && existingAppointmentResult.value.data) {
+          const selectedService = services.find(s => s.id === newAppointment.serviceId);
+          const serviceDuration = selectedService?.duration || 30;
 
-        const { data: existingAppointments } = await (supabase as any)
-          .from('appointments')
-          .select('appointment_time, service:services(duration)')
-          .eq('barber_id', barberId)
-          .eq('appointment_date', newAppointment.date)
-          .neq('status', 'cancelled');
+          const hasConflict = existingAppointmentResult.value.data.some((apt: any) => {
+            const aptDuration = apt.service?.duration || 30;
+            const newEndTime = addMinutesToTime(newAppointment.time, serviceDuration);
+            const aptEndTime = addMinutesToTime(apt.appointment_time, aptDuration);
+            return (newAppointment.time < aptEndTime && newEndTime > apt.appointment_time);
+          });
 
-        // Check for time conflicts
-        const hasConflict = existingAppointments?.some((apt: any) => {
-          const aptDuration = apt.service?.duration || 30;
-          const newEndTime = addMinutesToTime(newAppointment.time, serviceDuration);
-          const aptEndTime = addMinutesToTime(apt.appointment_time, aptDuration);
-          return (newAppointment.time < aptEndTime && newEndTime > apt.appointment_time);
-        });
-
-        if (hasConflict) {
-          toast.error('Horário indisponível! Já existe um agendamento neste horário.');
-          return;
-        }
-      }
-
-      // Buscar ou criar perfil do cliente
-      let profileData;
-      
-      // Se telefone foi informado, tentar encontrar perfil existente pelo telefone
-      if (newAppointment.clientPhone && newAppointment.clientPhone.trim()) {
-        const { data: existingProfile } = await (supabase as any)
-          .from('profiles')
-          .select('id, name, phone')
-          .eq('phone', newAppointment.clientPhone.trim())
-          .maybeSingle();
-
-        if (existingProfile) {
-          // Se o perfil já existe, usar ele
-          profileData = existingProfile;
-          // Atualizar o nome se necessário
-          if (existingProfile.name !== newAppointment.clientName) {
-            await (supabase as any)
-              .from('profiles')
-              .update({ name: newAppointment.clientName })
-              .eq('id', existingProfile.id);
+          if (hasConflict) {
+            toast.error('Horário indisponível! Já existe um agendamento neste horário.');
+            return;
           }
         }
-      }
-      
-      // Se não encontrou perfil pelo telefone, tentar criar perfil temporário
-      if (!profileData) {
-        try {
-          // Primeiro, tentar criar perfil temporário (se migration foi aplicada)
-          const tempUserId = generateUUID();
+
+        // Verificar pausas
+        if (breaksResult.status === 'fulfilled' && breaksResult.value.data?.length > 0) {
+          const selectedService = services.find(s => s.id === newAppointment.serviceId);
+          const serviceDuration = selectedService?.duration || 30;
           
-          const { data: newProfile, error: profileError } = await (supabase as any)
-            .from('profiles')
-            .insert([{
-              id: tempUserId,
-              name: newAppointment.clientName,
-              phone: newAppointment.clientPhone || null,
-              is_temp_user: true, // Marcar como usuário temporário
-            }])
-            .select()
-            .single();
+          const timeToMinutes = (time: string) => {
+            const [hours, minutes] = time.split(':').map(Number);
+            return hours * 60 + minutes;
+          };
 
-          if (profileError) {
-            // Se falhou, pode ser que a migration não foi aplicada
-            // Tentar método alternativo: criar usuário auth temporário
-            console.warn('Tentativa de perfil temporário falhou, usando método alternativo:', profileError);
-            
-            // Gerar email temporário único
-            const tempEmail = `temp_${generateUUID().substring(0, 8)}@temp.local`;
-            const tempPassword = generateUUID();
-            
-            const { data: authData, error: authError } = await supabase.auth.signUp({
-              email: tempEmail,
-              password: tempPassword,
-              options: {
-                data: {
-                  name: newAppointment.clientName,
-                  phone: newAppointment.clientPhone || null,
-                  is_temp_user: true,
-                }
-              }
+          const slotStartMinutes = timeToMinutes(newAppointment.time);
+          const slotEndMinutes = slotStartMinutes + serviceDuration;
+
+          const isInBreak = breaksResult.value.data.some((breakItem: any) => {
+            const breakStartMinutes = timeToMinutes(breakItem.start_time);
+            const breakEndMinutes = timeToMinutes(breakItem.end_time);
+            return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;
+          });
+
+          if (isInBreak) {
+            toast.error("Horário indisponível", {
+              description: "Este horário está em uma pausa do barbeiro.",
             });
-
-            if (authError || !authData.user) {
-              throw new Error('Erro ao criar perfil temporário: ' + (authError?.message || 'Usuário não criado'));
-            }
-
-            // Fazer logout imediatamente para não alterar a sessão atual
-            await supabase.auth.signOut();
-            
-            profileData = { 
-              id: authData.user.id, 
-              name: newAppointment.clientName,
-              phone: newAppointment.clientPhone || null 
-            };
-          } else {
-            profileData = newProfile;
+            return;
           }
-        } catch (error: any) {
-          console.error('Error in profile creation process:', error);
-          toast.error('Erro ao criar perfil do cliente: ' + (error.message || 'Erro desconhecido'));
-          return;
         }
       }
 
-      if (!profileData || !profileData.id) {
-        toast.error('Erro ao obter perfil do cliente');
+      // 2. CRIAR/ATUALIZAR PERFIL COM UPSERT (otimizado como no cliente)
+      const profileId = generateUUID();
+      const { data: profileData } = await (supabase as any)
+        .from('profiles')
+        .upsert([{
+          id: profileId,
+          name: newAppointment.clientName,
+          phone: newAppointment.clientPhone || null,
+          is_temp_user: true,
+        }], { 
+          onConflict: 'phone',
+          ignoreDuplicates: false 
+        })
+        .select('id')
+        .single();
+
+      if (!profileData?.id) {
+        toast.error('Erro ao criar perfil do cliente');
         return;
       }
 
-      // Agendamentos criados pelo barbeiro sempre são marcados como 'manual'
+      // 3. CRIAR AGENDAMENTO IMEDIATAMENTE
       const bookingType = 'manual';
-
-      // Criar agendamento
-      const { error } = await (supabase as any)
+      const { data: appointmentData, error } = await (supabase as any)
         .from('appointments')
         .insert([{
           client_id: profileData.id,
-          barber_id: barberId, // Usar o barberId correto (do formulário ou selectedBarber)
+          barber_id: barberId,
           service_id: newAppointment.serviceId,
           appointment_date: newAppointment.date,
           appointment_time: newAppointment.time,
           status: 'confirmed',
-          booking_type: bookingType, // Sempre 'manual' para agendamentos criados pelo barbeiro
+          booking_type: bookingType,
           notes: (isPastAppointment || newAppointment.isRetroactive) 
             ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' 
             : 'Agendamento criado manualmente pelo barbeiro',
-        }]);
+        }])
+        .select('id')
+        .single();
 
       if (error) {
         console.error('Error creating appointment:', error);
         
-        // Verificar se é erro de foreign key constraint (migration não aplicada)
         if (error.code === '23503' && error.message?.includes('appointments_client_id_fkey')) {
           toast.error('❌ Erro de configuração do banco!', {
-            description: 'Execute o SQL de verificação no Supabase Dashboard. Verifique o arquivo verificar-migration-aplicada.sql',
+            description: 'Execute o SQL de verificação no Supabase Dashboard.',
             duration: 8000,
           });
         } else if (error.code === '23503') {
           toast.error('❌ Erro de constraint no banco!', {
-            description: 'Verifique se todas as migrations foram aplicadas corretamente: ' + error.message,
+            description: 'Verifique se todas as migrations foram aplicadas: ' + error.message,
             duration: 6000,
           });
         } else {
           toast.error('Erro ao criar agendamento: ' + (error.message || 'Erro desconhecido'));
         }
-      } else {
-        const message = (isPastAppointment || newAppointment.isRetroactive)
-          ? 'Agendamento retroativo criado com sucesso! (Marcado como manual)'
-          : 'Agendamento criado com sucesso! (Marcado como manual)';
-        toast.success(message, {
-          duration: 2000, // 2 segundos
-        });
-        setShowNewAppointment(false);
-        setNewAppointment({
-          clientName: '',
-          clientPhone: '',
-          serviceId: '',
-          barberId: selectedBarber || '', // Manter o selectedBarber como padrão
-          date: '',
-          time: '',
-          isRetroactive: false,
-        });
-        loadAppointments();
+        return;
       }
+
+      // 4. SUCESSO IMEDIATO (como no cliente)
+      const message = (isPastAppointment || newAppointment.isRetroactive)
+        ? 'Agendamento retroativo criado com sucesso!'
+        : 'Agendamento criado com sucesso!';
+      
+      toast.success(message, {
+        duration: 2000,
+      });
+
+      // 5. LIMPAR FORMULÁRIO E RECARREGAR
+      setShowNewAppointment(false);
+      setNewAppointment({
+        clientName: '',
+        clientPhone: '',
+        serviceId: '',
+        barberId: selectedBarber || '',
+        date: '',
+        time: '',
+        isRetroactive: false,
+      });
+      loadAppointments();
+
+      // 6. PROCESSAR NOTIFICAÇÕES EM BACKGROUND (não bloquear UI)
+      processNotificationsAsync(appointmentData.id, newAppointment, barberId).catch(console.error);
+
     } catch (error: any) {
       console.error('Unexpected error in handleCreateAppointment:', error);
       toast.error('Erro inesperado: ' + (error.message || 'Erro desconhecido'));
     } finally {
-      // Sempre desativar o estado de loading
       setCreatingAppointment(false);
+    }
+  };
+
+  // Função assíncrona para processar notificações (como no cliente)
+  const processNotificationsAsync = async (appointmentId: string, appointmentData: any, barberId: string) => {
+    try {
+      const selectedService = services.find(s => s.id === appointmentData.serviceId);
+      const duration = selectedService?.duration || 30;
+      const startDateTime = new Date(`${appointmentData.date}T${appointmentData.time}:00`);
+      const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
+
+      // Processar webhook e WhatsApp em paralelo com timeouts
+      const [webhookResult, whatsappResult] = await Promise.allSettled([
+        // Webhook externo (com timeout)
+        Promise.race([
+          supabase.functions.invoke('api', {
+            body: {
+              action: 'notify-webhook',
+              appointmentId,
+              clientName: appointmentData.clientName,
+              phone: appointmentData.clientPhone || '00000000000',
+              service: selectedService?.title || 'Serviço',
+              startTime: startDateTime.toISOString(),
+              endTime: endDateTime.toISOString(),
+              userId: barberId,
+              notes: null,
+            }
+          }),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Webhook timeout')), 8000)
+          )
+        ]),
+
+        // WhatsApp queue (com timeout)
+        Promise.race([
+          (async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+            const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+            
+            if (!supabaseUrl) return;
+
+            const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': supabaseAnonKey || '',
+                'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
+              },
+              body: JSON.stringify({}),
+            });
+
+            if (response.ok) {
+              console.log('✅ WhatsApp queue processed');
+            }
+          })(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('WhatsApp timeout')), 6000)
+          )
+        ])
+      ]);
+
+      // Log dos resultados (não bloquear se falhar)
+      if (webhookResult.status === 'fulfilled') {
+        console.log('✅ Webhook notification sent');
+      } else {
+        console.warn('⚠️ Webhook failed:', webhookResult.reason);
+      }
+
+      if (whatsappResult.status === 'fulfilled') {
+        console.log('✅ WhatsApp notification processed');
+      } else {
+        console.warn('⚠️ WhatsApp failed:', whatsappResult.reason);
+      }
+
+    } catch (error) {
+      console.error('Error in processNotificationsAsync:', error);
     }
   };
 
@@ -1075,52 +1122,46 @@ const BarbeiroDashboard = () => {
 
   const currentBarber = userRole === 'admin' ? barbers.find(b => b.id === selectedBarber) : currentUserBarber;
 
-  const today = new Date().toISOString().split('T')[0];
-  
-  const todayAppointments = appointments
-    .filter(a => {
-      return a.appointment_date === today && (a.status === 'pending' || a.status === 'confirmed');
-    })
-    .sort((a, b) => {
-      // Ordenar por horário
-      return a.appointment_time.localeCompare(b.appointment_time);
+  // Agrupar agendamentos por barbeiro
+  const getAppointmentsByBarber = () => {
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Filtrar agendamentos de hoje e futuros (pendentes e confirmados)
+    const relevantAppointments = appointments
+      .filter(a => {
+        const isToday = a.appointment_date === today;
+        const isFuture = a.appointment_date > today;
+        const isActiveStatus = a.status === 'pending' || a.status === 'confirmed';
+        return (isToday || isFuture) && isActiveStatus;
+      })
+      .sort((a, b) => {
+        // Ordenar por data primeiro, depois por horário
+        if (a.appointment_date !== b.appointment_date) {
+          return a.appointment_date.localeCompare(b.appointment_date);
+        }
+        return a.appointment_time.localeCompare(b.appointment_time);
+      });
+
+    // Agrupar por barbeiro
+    const appointmentsByBarber = barbers.map(barber => {
+      const barberAppointments = relevantAppointments.filter(a => a.barber_id === barber.id);
+      return {
+        barber,
+        appointments: barberAppointments,
+        todayCount: barberAppointments.filter(a => a.appointment_date === today).length,
+        upcomingCount: barberAppointments.filter(a => a.appointment_date > today).length
+      };
     });
 
-  const todayCompleted = appointments.filter(a => {
-    return a.appointment_date === today && a.status === 'completed';
-  });
-
-  const getWeekStart = () => {
-    const date = new Date();
-    const day = date.getDay();
-    const diff = date.getDate() - day;
-    return new Date(date.setDate(diff)).toISOString().split('T')[0];
-  };
-
-  const weekCompleted = appointments.filter(a => {
-    return a.appointment_date >= getWeekStart() && a.status === 'completed';
-  });
-
-  const getMonthStart = () => {
-    const date = new Date();
-    return new Date(date.getFullYear(), date.getMonth(), 1).toISOString().split('T')[0];
-  };
-
-  const monthCompleted = appointments.filter(a => {
-    return a.appointment_date >= getMonthStart() && a.status === 'completed';
-  });
-
-  const upcomingAppointments = appointments
-    .filter(a => {
-      return a.appointment_date > today && (a.status === 'pending' || a.status === 'confirmed');
-    })
-    .sort((a, b) => {
-      // Ordenar por data primeiro, depois por horário
-      if (a.appointment_date !== b.appointment_date) {
-        return a.appointment_date.localeCompare(b.appointment_date);
-      }
-      return a.appointment_time.localeCompare(b.appointment_time);
+    // Ordenar barbeiros: primeiro os que têm agendamentos hoje, depois por nome
+    return appointmentsByBarber.sort((a, b) => {
+      if (a.todayCount > 0 && b.todayCount === 0) return -1;
+      if (a.todayCount === 0 && b.todayCount > 0) return 1;
+      return a.barber.name.localeCompare(b.barber.name);
     });
+  };
+
+  const appointmentsByBarber = getAppointmentsByBarber();
 
   // Função para filtrar agendamentos do histórico
   const getFilteredHistoryAppointments = () => {
@@ -1190,6 +1231,17 @@ const BarbeiroDashboard = () => {
       }
       return b.appointment_time.localeCompare(a.appointment_time);
     });
+
+  // Calculate completed appointments for different periods
+  const today = new Date().toISOString().split('T')[0];
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const monthAgo = new Date();
+  monthAgo.setMonth(monthAgo.getMonth() - 1);
+
+  const todayCompleted = completedAppointments.filter(a => a.appointment_date === today);
+  const weekCompleted = completedAppointments.filter(a => new Date(a.appointment_date) >= weekAgo);
+  const monthCompleted = completedAppointments.filter(a => new Date(a.appointment_date) >= monthAgo);
 
   return (
     <div className="min-h-screen bg-background py-8 px-4">
@@ -1580,148 +1632,147 @@ const BarbeiroDashboard = () => {
 
             <Card className="bg-card border-border">
               <CardHeader>
-                <CardTitle>Agendamentos</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Agendamentos por Barbeiro
+                </CardTitle>
               </CardHeader>
               <CardContent className="p-4 sm:p-6">
-                <div className="grid grid-cols-2 text-center text-[10px] sm:text-xs uppercase tracking-wide text-muted-foreground">
-                  <div>Agendamentos de Hoje</div>
-                  <div>Próximos Agendamentos</div>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-3 sm:gap-6">
-                  <div>
-                    {todayAppointments.length > 0 ? (
-                      <div className="space-y-2">
-                        {todayAppointments.map((appointment) => {
-                          const clientName = appointment.client?.name ?? 'Cliente';
-                          const clientInitial = clientName.charAt(0).toUpperCase();
-                          const appointmentTime = appointment.appointment_time.slice(0, 5);
-
-                          return (
-                            <div 
-                              key={appointment.id} 
-                              className="p-3 sm:p-4 bg-secondary rounded-lg relative group cursor-pointer"
-                              onClick={() => handleAppointmentClick(appointment)}
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className="flex flex-col items-center gap-1">
-                                  <Avatar className="h-8 w-8 sm:h-11 sm:w-11 border border-border">
-                                    <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
-                                    <AvatarFallback className="bg-primary/20 text-primary font-semibold">
-                                      {clientInitial}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <span
-                                    className={`px-2 py-0.5 rounded text-[10px] sm:text-xs font-medium ${
-                                      appointment.status === 'confirmed'
-                                        ? 'bg-green-500/20 text-green-400'
-                                        : 'bg-yellow-500/20 text-yellow-400'
-                                    }`}
-                                  >
-                                    {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
-                                  </span>
-                                  <div className="flex items-center gap-1 text-[11px] sm:text-xs text-muted-foreground">
-                                    <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
-                                    <span className="font-bold text-primary text-xs sm:text-sm">{appointmentTime}</span>
-                                  </div>
-                                  {appointment.booking_type === 'manual' && (
-                                    <span className="px-2 py-0.5 rounded text-[10px] sm:text-xs font-medium bg-orange-500/20 text-orange-400 border border-orange-500/30" title="Agendamento criado manualmente pelo barbeiro">
-                                      📝 Manual
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="space-y-1 flex-1">
-                                  <p className="font-bold text-sm sm:text-base">{appointment.service?.title || 'Serviço'}</p>
-                                  <p className="text-[11px] sm:text-sm font-medium">Cliente: {clientName}</p>
-                                  {/* horário já está abaixo do avatar; valor não exibido aqui */}
-                                </div>
-                              </div>
+                {appointmentsByBarber.length > 0 ? (
+                  <div className="space-y-6">
+                    {appointmentsByBarber.map(({ barber, appointments, todayCount, upcomingCount }) => (
+                      <div key={barber.id} className="border border-border rounded-lg p-4 bg-secondary/30">
+                        {/* Header do Barbeiro */}
+                        <div className="flex items-center gap-4 mb-4 pb-3 border-b border-border">
+                          <Avatar className="h-12 w-12 border-2 border-primary/20">
+                            <AvatarImage src={barber.photo_url || ''} alt={barber.name} />
+                            <AvatarFallback className="bg-primary/20 text-primary font-bold text-lg">
+                              {barber.name.charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1">
+                            <h3 className="font-bold text-lg">{barber.name}</h3>
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <Calendar className="h-4 w-4" />
+                                Hoje: {todayCount}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-4 w-4" />
+                                Próximos: {upcomingCount}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <User className="h-4 w-4" />
+                                Total: {appointments.length}
+                              </span>
                             </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="text-center text-muted-foreground py-8">
-                        Nenhum agendamento para hoje
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    {upcomingAppointments.length > 0 ? (
-                      <div className="space-y-2">
-                        {upcomingAppointments.map((appointment) => {
-                          const clientName = appointment.client?.name ?? 'Cliente';
-                          const clientInitial = clientName.charAt(0).toUpperCase();
-                          const appointmentTime = appointment.appointment_time.slice(0, 5);
+                          </div>
+                        </div>
 
-                          return (
-                            <div 
-                              key={appointment.id} 
-                              className="p-3 sm:p-4 bg-secondary rounded-lg relative group cursor-pointer"
-                              onClick={() => handleAppointmentClick(appointment)}
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className="flex flex-col items-center gap-1">
-                                  <Avatar className="h-8 w-8 sm:h-11 sm:w-11 border border-border">
-                                    <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
-                                    <AvatarFallback className="bg-primary/20 text-primary font-semibold">
-                                      {clientInitial}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <span
-                                    className={`px-2 py-0.5 rounded text-[10px] sm:text-xs font-medium ${
-                                      appointment.status === 'confirmed'
-                                        ? 'bg-green-500/20 text-green-400'
-                                        : 'bg-yellow-500/20 text-yellow-400'
-                                    }`}
-                                  >
-                                    {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
-                                  </span>
-                                  <div className="flex items-center gap-1 text-[11px] sm:text-xs text-muted-foreground">
-                                    <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
-                                    <span className="font-bold text-primary text-xs sm:text-sm">{appointmentTime}</span>
-                                  </div>
-                                  {appointment.booking_type === 'manual' && (
-                                    <span className="px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs font-medium bg-orange-500/20 text-orange-400 border border-orange-500/30" title="Agendamento criado manualmente pelo barbeiro">
-                                      📝 Manual
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="space-y-1 flex-1">
-                                  <p className="font-bold text-sm sm:text-base">{appointment.service?.title || 'Serviço'}</p>
-                                  <p className="text-[11px] sm:text-sm font-medium">Cliente: {clientName}</p>
-                                  <div className="flex items-center gap-3 text-[11px] sm:text-sm text-muted-foreground mt-1">
-                                    <div className="flex items-center gap-1">
-                                      <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
-                                      <span>{new Date(appointment.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                        {/* Lista de Agendamentos */}
+                        {appointments.length > 0 ? (
+                          <div className="space-y-3">
+                            {appointments.map((appointment) => {
+                              const clientName = appointment.client?.name ?? 'Cliente';
+                              const clientInitial = clientName.charAt(0).toUpperCase();
+                              const appointmentTime = appointment.appointment_time.slice(0, 5);
+                              const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
+                              const today = new Date().toISOString().split('T')[0];
+                              const isToday = appointment.appointment_date === today;
+                              
+                              // Determinar o tipo de agendamento
+                              const bookingTypeLabel = appointment.booking_type === 'local' ? 'Local' : 
+                                                     appointment.booking_type === 'manual' ? 'Manual' : 'Online';
+                              const bookingTypeColor = appointment.booking_type === 'local' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                                                     appointment.booking_type === 'manual' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
+                                                     'bg-green-500/20 text-green-400 border-green-500/30';
+
+                              return (
+                                <div 
+                                  key={appointment.id} 
+                                  className={`p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
+                                    isToday ? 'bg-primary/5 border-primary/30' : 'bg-card border-border'
+                                  }`}
+                                  onClick={() => handleAppointmentClick(appointment)}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    {/* Avatar do Cliente */}
+                                    <Avatar className="h-10 w-10 border border-border">
+                                      <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
+                                      <AvatarFallback className="bg-secondary text-foreground font-semibold">
+                                        {clientInitial}
+                                      </AvatarFallback>
+                                    </Avatar>
+
+                                    {/* Informações do Agendamento */}
+                                    <div className="flex-1 space-y-1">
+                                      <div className="flex items-center justify-between">
+                                        <p className="font-semibold text-sm">{appointment.service?.title || 'Serviço'}</p>
+                                        <div className="flex items-center gap-2">
+                                          {/* Data e Hora */}
+                                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                            isToday ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
+                                          }`}>
+                                            {isToday ? 'HOJE' : format(appointmentDate, 'dd/MM', { locale: ptBR })} às {appointmentTime}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      
+                                      <div className="flex items-center justify-between">
+                                        <p className="text-xs text-muted-foreground">Cliente: {clientName}</p>
+                                        <div className="flex items-center gap-2">
+                                          {/* Tipo de Agendamento */}
+                                          <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
+                                            {bookingTypeLabel}
+                                          </span>
+                                          
+                                          {/* Status */}
+                                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                            appointment.status === 'confirmed'
+                                              ? 'bg-green-500/20 text-green-400'
+                                              : 'bg-yellow-500/20 text-yellow-400'
+                                          }`}>
+                                            {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
+                                          </span>
+                                        </div>
+                                      </div>
                                     </div>
-                                    {/* horário já está abaixo do avatar; valor não exibido aqui */}
                                   </div>
                                 </div>
-                              </div>
-                            </div>
-                          );
-                        })}
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-center text-muted-foreground py-4">
+                            Nenhum agendamento para {barber.name}
+                          </p>
+                        )}
                       </div>
-                    ) : (
-                      <p className="text-center text-muted-foreground py-8">
-                        Nenhum agendamento futuro
-                      </p>
-                    )}
+                    ))}
                   </div>
-                </div>
+                ) : (
+                  <p className="text-center text-muted-foreground py-8">
+                    Nenhum agendamento encontrado
+                  </p>
+                )}
               </CardContent>
             </Card>
-              </TabsContent>
+          </TabsContent>
 
-              <TabsContent value="horarios" className="space-y-6">
-                <BarberBreakManager barberId={currentUserBarber?.id || selectedBarber} />
-              </TabsContent>
+          <TabsContent value="horarios" className="space-y-6">
+            <BarberBreakManager barberId={currentUserBarber?.id || selectedBarber} />
+          </TabsContent>
 
-              <TabsContent value="financeiro" className="space-y-6">
-                <BarberFinancialDashboard barberId={selectedBarber} />
-                <Card className="bg-card border-border">
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center justify-between">
+          <TabsContent value="financeiro" className="space-y-6">
+            <BarberFinancialDashboard barberId={selectedBarber} />
+        <BarberBreakManager barberId={currentUserBarber?.id || selectedBarber} />
+      </TabsContent>
+
+      <TabsContent value="financeiro" className="space-y-6">
+        <BarberFinancialDashboard barberId={selectedBarber} />
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center justify-between">
                       <span>Meus Vales</span>
                       {loadingAdvances ? (
                         <Loader2 className="h-4 w-4 animate-spin text-primary" />
