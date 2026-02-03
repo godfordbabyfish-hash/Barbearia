@@ -214,16 +214,28 @@ const ClienteDashboard = () => {
 
     if (error) {
       toast.error('Erro ao cancelar agendamento');
-    } else {
-      // O trigger do banco de dados já deve ter adicionado a notificação na fila
-      // Mas vamos garantir que a fila seja processada após o cancelamento
+      return;
+    }
+
+    // Mostrar sucesso imediatamente
+    toast.success('Agendamento cancelado com sucesso');
+    setCancelDialogOpen(false);
+    setAppointmentToCancel(null);
+    setCancellationReason('');
+    loadAppointments();
+
+    // Processar fila de WhatsApp de forma assíncrona (não bloqueia a UI)
+    setTimeout(async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
         
         if (supabaseUrl) {
-          // Disparar processamento da fila de WhatsApp (cliente + barbeiro)
+          // Timeout de 3 segundos para não travar
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+
           const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
             method: 'POST',
             headers: {
@@ -232,25 +244,22 @@ const ClienteDashboard = () => {
               'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
             },
             body: JSON.stringify({}),
+            signal: controller.signal,
           });
 
-          if (!response.ok) {
-            console.error('Error triggering WhatsApp queue after cancellation:', response.status);
-          } else {
-            console.log('WhatsApp queue processed after cancellation');
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            console.log('✅ WhatsApp queue processed after cancellation');
           }
         }
-      } catch (queueError) {
-        console.error('Error triggering WhatsApp queue after cancellation:', queueError);
-        // Não bloquear o fluxo do usuário se a fila falhar
+      } catch (queueError: any) {
+        // Silenciosamente falhar - não impacta o usuário
+        if (queueError.name !== 'AbortError') {
+          console.error('Error triggering WhatsApp queue:', queueError);
+        }
       }
-
-      toast.success('Agendamento cancelado com sucesso');
-      setCancelDialogOpen(false);
-      setAppointmentToCancel(null);
-      setCancellationReason('');
-      loadAppointments();
-    }
+    }, 100); // Pequeno delay para não bloquear a UI
   };
 
   return (

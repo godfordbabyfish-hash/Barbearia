@@ -30,7 +30,6 @@ import ImageManager from '@/components/admin/ImageManager';
 import OperatingHoursEditor from '@/components/admin/OperatingHoursEditor';
 import { UserManager } from '@/components/admin/UserManager';
 import { WhatsAppManager } from '@/components/admin/WhatsAppManager';
-import ReportsManager from '@/components/admin/ReportsManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 
@@ -317,23 +316,23 @@ const AdminDashboard = () => {
 
       {/* Main Content */}
       <main className="flex-1 lg:pl-64 bg-background overflow-x-hidden">
-        <div className="min-h-screen py-6 px-4 md:px-6 lg:px-8 pt-20 lg:pt-6 overflow-x-hidden">
-          <div className="max-w-7xl mx-auto space-y-6 w-full overflow-x-hidden">
+        <div className="min-h-screen py-4 sm:py-6 px-2 sm:px-4 md:px-6 lg:px-8 pt-20 lg:pt-6 overflow-x-hidden">
+          <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6 w-full overflow-x-hidden">
             {/* Content based on active tab */}
             {activeTab === 'services-products' && (
-              <div className="space-y-6">
-                <div className="flex items-center justify-between gap-4">
-                  <h2 className="text-2xl font-bold pl-12 lg:pl-0">Serviços & Produtos</h2>
+              <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 w-full">
+                  <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Serviços & Produtos</h2>
                 </div>
 
-                <Tabs value={servicesProductsTab} onValueChange={(value) => setServicesProductsTab(value as 'services' | 'products')}>
+                <Tabs value={servicesProductsTab} onValueChange={(value) => setServicesProductsTab(value as 'services' | 'products')} className="w-full" style={{ maxWidth: '100%' }}>
                   <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="services">Serviços</TabsTrigger>
-                    <TabsTrigger value="products">Produtos</TabsTrigger>
+                    <TabsTrigger value="services" className="text-xs sm:text-sm">Serviços</TabsTrigger>
+                    <TabsTrigger value="products" className="text-xs sm:text-sm">Produtos</TabsTrigger>
                   </TabsList>
                   
-                  <TabsContent value="services" className="space-y-6">
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <TabsContent value="services" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                    <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
               {services.map((service) => (
                 editingService?.id === service.id ? (
                   // Formulário de edição inline
@@ -545,8 +544,8 @@ const AdminDashboard = () => {
                     </div>
                   </TabsContent>
 
-                  <TabsContent value="products" className="space-y-6">
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <TabsContent value="products" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                    <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
               {products.map((product) => (
                 editingProduct?.id === product.id ? (
                   // Formulário de edição inline
@@ -758,75 +757,67 @@ const AdminDashboard = () => {
             )}
 
             {activeTab === 'financial' && (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold pl-12 lg:pl-0">Financeiro</h2>
+              <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Financeiro</h2>
                 <FinancialDashboard />
               </div>
             )}
 
-            {activeTab === 'reports' && (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold pl-12 lg:pl-0">Relatórios</h2>
-                <ReportsManager />
-              </div>
-            )}
-
-            {activeTab === 'advances' && (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold pl-12 lg:pl-0">Vales de Barbeiros</h2>
-                <BarberAdvancesManager />
-              </div>
-            )}
-
             {activeTab === 'historico-cp' && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
                 <HistoricoCP />
               </div>
             )}
 
             {activeTab === 'config' && (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold pl-12 lg:pl-0">Configurações</h2>
+              <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Configurações</h2>
             {/* Minha conta - troca de senha do próprio admin/gestor */}
-            <Card className="bg-card border-border">
-              <CardHeader>
-                <CardTitle>Minha Conta</CardTitle>
+            <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+              <CardHeader className="p-3 sm:p-4 md:p-6">
+                <CardTitle className="text-lg sm:text-xl">Minha Conta</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Nova senha</Label>
-                    <Input
-                      type="password"
-                      value={passwordForm.newPassword}
-                      onChange={(e) =>
-                        setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))
-                      }
-                      placeholder="Digite a nova senha"
-                    />
+              <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                <div className="space-y-3 sm:space-y-4">
+                  <div className="grid gap-3 sm:gap-4 grid-cols-1 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-sm">Nova senha</Label>
+                      <Input
+                        type="password"
+                        value={passwordForm.newPassword}
+                        onChange={(e) =>
+                          setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))
+                        }
+                        placeholder="Digite a nova senha"
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm">Confirmar nova senha</Label>
+                      <Input
+                        type="password"
+                        value={passwordForm.confirmPassword}
+                        onChange={(e) =>
+                          setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))
+                        }
+                        placeholder="Repita a nova senha"
+                        className="w-full"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Confirmar nova senha</Label>
-                    <Input
-                      type="password"
-                      value={passwordForm.confirmPassword}
-                      onChange={(e) =>
-                        setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))
-                      }
-                      placeholder="Repita a nova senha"
-                    />
+                  <div className="flex justify-start">
+                    <Button
+                      onClick={handleChangeOwnPassword}
+                      disabled={changingPassword}
+                      className="w-full sm:w-auto"
+                    >
+                      {changingPassword && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      <span className="hidden sm:inline">Atualizar minha senha</span>
+                      <span className="sm:hidden">Atualizar senha</span>
+                    </Button>
                   </div>
-                </div>
-                <div className="flex justify-start">
-                  <Button
-                    onClick={handleChangeOwnPassword}
-                    disabled={changingPassword}
-                  >
-                    {changingPassword && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    )}
-                    Atualizar minha senha
-                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -835,82 +826,85 @@ const AdminDashboard = () => {
             <SiteConfigEditor />
             
             {/* Card de Manutenção de Dados */}
-            <Card className="bg-card border-destructive/50">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-destructive">
-                  <AlertTriangle className="h-5 w-5" />
+            <Card className="bg-card border-destructive/50 shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+              <CardHeader className="p-3 sm:p-4 md:p-6">
+                <CardTitle className="flex items-center gap-2 text-destructive text-lg sm:text-xl">
+                  <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />
                   Manutenção de Dados
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-muted-foreground">
-                  Use esta opção com cuidado. A exclusão de registros é <strong>permanente e irreversível</strong>.
-                </p>
-                
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive" disabled={clearingAppointments}>
-                      {clearingAppointments ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="mr-2 h-4 w-4" />
-                      )}
-                      Limpar Todos os Agendamentos
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle className="flex items-center gap-2">
-                        <AlertTriangle className="h-5 w-5 text-destructive" />
-                        Tem certeza absoluta?
-                      </AlertDialogTitle>
-                      <AlertDialogDescription className="space-y-2">
-                        <p>
-                          Esta ação é <strong className="text-destructive">irreversível</strong> e irá remover <strong>TODOS</strong> os registros de agendamentos do sistema:
-                        </p>
-                        <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                          <li>Agendamentos pendentes</li>
-                          <li>Agendamentos confirmados</li>
-                          <li>Agendamentos concluídos</li>
-                          <li>Agendamentos cancelados</li>
-                        </ul>
-                        <p className="mt-2 font-semibold">
-                          Todos os dados financeiros relacionados também serão perdidos.
-                        </p>
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={handleClearAllAppointments}
-                        className="bg-destructive hover:bg-destructive/90"
-                      >
-                        Sim, limpar tudo
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+              <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                <div className="space-y-3 sm:space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Use esta opção com cuidado. A exclusão de registros é <strong>permanente e irreversível</strong>.
+                  </p>
+                  
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" disabled={clearingAppointments} className="w-full sm:w-auto">
+                        {clearingAppointments ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="mr-2 h-4 w-4" />
+                        )}
+                        <span className="hidden sm:inline">Limpar Todos os Agendamentos</span>
+                        <span className="sm:hidden">Limpar Agendamentos</span>
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="max-w-[95vw] sm:max-w-md overflow-hidden">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2">
+                          <AlertTriangle className="h-5 w-5 text-destructive" />
+                          Tem certeza absoluta?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="space-y-2">
+                          <p>
+                            Esta ação é <strong className="text-destructive">irreversível</strong> e irá remover <strong>TODOS</strong> os registros de agendamentos do sistema:
+                          </p>
+                          <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                            <li>Agendamentos pendentes</li>
+                            <li>Agendamentos confirmados</li>
+                            <li>Agendamentos concluídos</li>
+                            <li>Agendamentos cancelados</li>
+                          </ul>
+                          <p className="mt-2 font-semibold">
+                            Todos os dados financeiros relacionados também serão perdidos.
+                          </p>
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={handleClearAllAppointments}
+                          className="bg-destructive hover:bg-destructive/90"
+                        >
+                          Sim, limpar tudo
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               </CardContent>
             </Card>
               </div>
             )}
 
             {activeTab === 'images' && (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold pl-12 lg:pl-0">Gerenciar Imagens</h2>
+              <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Gerenciar Imagens</h2>
                 <ImageManager />
               </div>
             )}
 
             {activeTab === 'users' && (
-              <div className="space-y-6 w-full overflow-x-hidden">
+              <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
                 <UserManager />
               </div>
             )}
 
             {activeTab === 'whatsapp' && (
-              <div className="space-y-6">
-                <h2 className="text-2xl font-bold pl-12 lg:pl-0">WhatsApp</h2>
+              <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">WhatsApp</h2>
                 <WhatsAppManager />
               </div>
             )}
