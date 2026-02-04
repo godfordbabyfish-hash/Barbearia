@@ -744,24 +744,62 @@ const BarbeiroDashboard = () => {
 
       // 2. CRIAR/ATUALIZAR PERFIL COM UPSERT (otimizado como no cliente)
       const profileId = generateUUID();
-      const { data: profileData, error: profileError } = await (supabase as any)
-        .from('profiles')
-        .upsert([{
-          id: profileId,
-          name: newAppointment.clientName.trim(),
-          phone: newAppointment.clientPhone?.trim() || null,
-          is_temp_user: true,
-        }], { 
-          onConflict: 'phone',
-          ignoreDuplicates: false 
-        })
-        .select('id')
-        .single();
+      let finalProfileId = profileId;
+      
+      // Se tem telefone, tentar buscar perfil existente primeiro
+      if (newAppointment.clientPhone?.trim()) {
+        const { data: existingProfile } = await (supabase as any)
+          .from('profiles')
+          .select('id')
+          .eq('phone', newAppointment.clientPhone.trim())
+          .maybeSingle();
+        
+        if (existingProfile) {
+          finalProfileId = existingProfile.id;
+          // Atualizar nome se necessário
+          await (supabase as any)
+            .from('profiles')
+            .update({ name: newAppointment.clientName.trim() })
+            .eq('id', existingProfile.id);
+        } else {
+          // Criar novo perfil com telefone
+          const { data: newProfile, error: profileError } = await (supabase as any)
+            .from('profiles')
+            .insert([{
+              id: profileId,
+              name: newAppointment.clientName.trim(),
+              phone: newAppointment.clientPhone.trim(),
+              is_temp_user: true,
+            }])
+            .select('id')
+            .single();
 
-      if (profileError || !profileData?.id) {
-        console.error('Error creating profile:', profileError);
-        toast.error('Erro ao criar perfil do cliente: ' + (profileError?.message || 'Erro desconhecido'));
-        return;
+          if (profileError || !newProfile?.id) {
+            console.error('Error creating profile:', profileError);
+            toast.error('Erro ao criar perfil do cliente: ' + (profileError?.message || 'Erro desconhecido'));
+            return;
+          }
+          finalProfileId = newProfile.id;
+        }
+      } else {
+        // Sem telefone, criar perfil temporário
+        const { data: newProfile, error: profileError } = await (supabase as any)
+          .from('profiles')
+          .insert([{
+            id: profileId,
+            name: newAppointment.clientName.trim(),
+            phone: null,
+            is_temp_user: true,
+          }])
+          .select('id')
+          .single();
+
+        if (profileError || !newProfile?.id) {
+          console.error('Error creating profile:', profileError);
+          toast.error('Erro ao criar perfil do cliente: ' + (profileError?.message || 'Erro desconhecido'));
+          return;
+        }
+        finalProfileId = newProfile.id;
       }
 
       // 3. CRIAR AGENDAMENTO IMEDIATAMENTE
@@ -769,7 +807,7 @@ const BarbeiroDashboard = () => {
       const { data: appointmentData, error } = await (supabase as any)
         .from('appointments')
         .insert([{
-          client_id: profileData.id,
+          client_id: finalProfileId,
           barber_id: barberId,
           service_id: newAppointment.serviceId,
           appointment_date: newAppointment.date,
