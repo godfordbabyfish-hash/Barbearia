@@ -6,10 +6,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { QuickBookingDialog } from "@/components/QuickBookingDialog";
 import { format, addMinutes } from "date-fns";
 import { useOperatingHours } from "@/hooks/useOperatingHours";
+import { getAvailableSlotsForBarber } from "@/utils/availability";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 
 interface Appointment {
   id: string;
+  barber_id: string;
   appointment_date: string;
   appointment_time: string;
   booking_type: string;
@@ -24,9 +26,11 @@ const FilaDaBarbearia = () => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [barbers, setBarbers] = useState<any[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+  const [availableSlotsByBarber, setAvailableSlotsByBarber] = useState<Record<string, string[]>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState("");
   const [quickBookingOpen, setQuickBookingOpen] = useState(false);
+  const [quickBookingPreselectedBarberId, setQuickBookingPreselectedBarberId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
 
@@ -216,6 +220,32 @@ const FilaDaBarbearia = () => {
   };
 
   const today = format(new Date(), "yyyy-MM-dd");
+  const todayDate = new Date();
+
+  // Compute available slots per barber (for barber cards)
+  useEffect(() => {
+    if (hoursLoading || barbers.length === 0 || !isDateOpen(todayDate)) {
+      setAvailableSlotsByBarber({});
+      return;
+    }
+    const next: Record<string, string[]> = {};
+    barbers.forEach((barber: { id: string }) => {
+      const barberAppointmentsToday = appointments
+        .filter((a) => a.barber_id === barber.id && a.appointment_date === today)
+        .map((a) => ({
+          appointment_time: a.appointment_time,
+          duration: a.services?.duration,
+        }));
+      next[barber.id] = getAvailableSlotsForBarber(
+        todayDate,
+        getTimeSlotsForDate,
+        barberAppointmentsToday,
+        { filterPastSlots: true }
+      );
+    });
+    setAvailableSlotsByBarber(next);
+  }, [barbers, appointments, today, hoursLoading, isDateOpen, getTimeSlotsForDate]);
+
   const localAppointments = appointments.filter((apt) => apt.booking_type === "local" && apt.appointment_date === today);
   const onlineAppointments = appointments.filter((apt) => apt.booking_type === "online");
 
@@ -272,7 +302,18 @@ const FilaDaBarbearia = () => {
 
   const handleSlotClick = (slot: string) => {
     setSelectedSlot(slot);
+    setQuickBookingPreselectedBarberId(null);
     setDialogOpen(true);
+  };
+
+  const handleBarberCardClick = (barberId: string) => {
+    setQuickBookingPreselectedBarberId(barberId);
+    setQuickBookingOpen(true);
+  };
+
+  const handleQuickBookingClose = (open: boolean) => {
+    setQuickBookingOpen(open);
+    if (!open) setQuickBookingPreselectedBarberId(null);
   };
 
   return (
@@ -305,60 +346,19 @@ const FilaDaBarbearia = () => {
       </header>
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
-        {/* Available Slots - Card Clicável - Above Stats Cards */}
-        <button
-          onClick={() => {
-            if (availableSlots.length > 0) {
-              setQuickBookingOpen(true);
-            }
-          }}
-          disabled={availableSlots.length === 0}
-          className="w-full bg-card border-2 border-border p-5 md:p-6 lg:p-7 rounded-xl shadow-lg hover:border-success hover:bg-success/5 hover:shadow-xl transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border disabled:hover:bg-card disabled:hover:shadow-lg min-h-[120px] flex items-center"
-        >
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 w-full">
-            <div className="flex items-start gap-3 md:gap-4">
-              <div className="p-2.5 md:p-3 bg-success/10 rounded-xl flex-shrink-0">
-                <Clock className="w-6 h-6 md:w-7 md:h-7 lg:w-8 lg:h-8 text-success" />
-              </div>
-              <div className="flex-1">
-                <h2 className="text-primary text-lg md:text-xl lg:text-2xl font-bold mb-1.5 md:mb-2">Horários Disponíveis Hoje</h2>
-                {availableSlots.length > 0 ? (
-                  <p className="text-muted-foreground text-sm md:text-base">
-                    {availableSlots.length} horário{availableSlots.length > 1 ? 's' : ''} disponível{availableSlots.length > 1 ? 'eis' : ''} - Clique para iniciar atendimento local
-                  </p>
-                ) : (
-                  <p className="text-muted-foreground text-sm md:text-base">Sem horários disponíveis hoje</p>
-                )}
-              </div>
-            </div>
-            {availableSlots.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 md:gap-3">
-                <div className="flex flex-wrap gap-2">
-                  {availableSlots.slice(0, 4).map((slot) => (
-                    <span key={slot} className="px-3 py-1.5 md:px-4 md:py-2 bg-success text-success-foreground rounded-full text-xs md:text-sm font-bold shadow-md">
-                      {slot}
-                    </span>
-                  ))}
-                  {availableSlots.length > 4 && (
-                    <span className="px-3 py-1.5 md:px-4 md:py-2 bg-success/80 text-success-foreground rounded-full text-xs md:text-sm font-bold shadow-md">
-                      +{availableSlots.length - 4}
-                    </span>
-                  )}
-                </div>
-                <div className="text-success flex-shrink-0">
-                  <svg className="w-5 h-5 md:w-6 md:h-6 lg:w-8 lg:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-            </div>
-          )}
-          </div>
-        </button>
+        {/* Global slots card removed */}
 
-        {/* Barber Cards - 3 individual cards showing each barber with their appointments */}
+        {/* Barber Cards - click to open quick booking with barber preselected and their available slots */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
-          {appointmentsByBarber.slice(0, 3).map(({ barber, appointments, todayCount, upcomingCount, inProgressCount }) => (
-            <div key={barber.id} className="bg-card border border-border rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:border-primary/50 flex flex-col" style={{ minHeight: '400px' }}>
+          {appointmentsByBarber.slice(0, 3).map(({ barber, appointments, todayCount, upcomingCount, inProgressCount }) => {
+            const slots = availableSlotsByBarber[barber.id] ?? [];
+            return (
+            <button
+              key={barber.id}
+              type="button"
+              onClick={() => handleBarberCardClick(barber.id)}
+              className="bg-card border-2 border-border rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:border-primary hover:bg-primary/5 flex flex-col text-left" style={{ minHeight: '400px' }}
+            >
               {/* Barber Header with Photo */}
               <div className="p-4 border-b border-border">
                 <div className="flex flex-col items-center gap-3">
@@ -389,6 +389,22 @@ const FilaDaBarbearia = () => {
                   </div>
                 </div>
               </div>
+
+              {/* Slots */}
+              {slots.length > 0 && (
+                <div className="px-4 py-3 border-b border-border/50 flex flex-wrap gap-2 justify-center bg-secondary/10">
+                  {slots.slice(0, 5).map((slot) => (
+                    <span key={slot} className="px-3 py-1 bg-success text-success-foreground rounded-full text-sm font-bold shadow-sm">
+                      {slot}
+                    </span>
+                  ))}
+                  {slots.length > 5 && (
+                    <span className="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm font-bold border border-border">
+                      +{slots.length - 5}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {/* Appointments List */}
               <div className="flex-1 p-3">
@@ -461,26 +477,29 @@ const FilaDaBarbearia = () => {
                   </div>
                 )}
               </div>
-            </div>
-          ))}
+              <div className="p-3 pt-2 border-t border-border text-center">
+                <p className="text-muted-foreground text-xs font-medium">Clique para agendar local</p>
+              </div>
+            </button>
+            );
+          })}
         </div>
 
         <QuickBookingDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           timeSlot={selectedSlot}
-          date={format(new Date(), "yyyy-MM-dd")}
+          date={today}
         />
 
-        {/* Quick Booking for Local Service - opens when clicking the Available Slots card */}
-        {quickBookingOpen && availableSlots.length > 0 && (
-          <QuickBookingDialog
-            open={quickBookingOpen}
-            onOpenChange={setQuickBookingOpen}
-            timeSlot={availableSlots[0]}
-            date={format(new Date(), "yyyy-MM-dd")}
-          />
-        )}
+        {/* Quick Booking: from global card (timeSlot fixed) or from barber card (barber fixed, choose time) */}
+        <QuickBookingDialog
+          open={quickBookingOpen}
+          onOpenChange={handleQuickBookingClose}
+          date={today}
+          timeSlot={quickBookingPreselectedBarberId ? "" : availableSlots[0] ?? ""}
+          preselectedBarberId={quickBookingPreselectedBarberId ?? undefined}
+        />
 
       </main>
     </div>

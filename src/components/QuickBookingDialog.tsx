@@ -5,6 +5,8 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, X, ArrowLeft, Star, Scissors } from "lucide-react";
+import { useOperatingHours } from "@/hooks/useOperatingHours";
+import { getAvailableSlotsForBarber } from "@/utils/availability";
 
 interface Barber {
   id: string;
@@ -28,29 +30,71 @@ interface Service {
 interface QuickBookingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  timeSlot: string;
   date: string;
+  timeSlot?: string;
+  preselectedBarberId?: string;
 }
 
-export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: QuickBookingDialogProps) => {
+export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", preselectedBarberId }: QuickBookingDialogProps) => {
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<"barber" | "client" | "service">("barber");
+  const [step, setStep] = useState<"barber" | "time" | "client" | "service">("barber");
   const [selectedBarberId, setSelectedBarberId] = useState("");
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
   const [clientName, setClientName] = useState("");
+  const [barberSlots, setBarberSlots] = useState<string[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const { getTimeSlotsForDate, isDateOpen } = useOperatingHours();
+
+  const isBarberPreselected = Boolean(preselectedBarberId);
+  const effectiveTimeSlot = isBarberPreselected ? selectedTimeSlot : timeSlot;
 
   useEffect(() => {
     if (open) {
       loadBarbers();
       loadServices();
-      setStep("barber");
-      setSelectedBarberId("");
+      setSelectedBarberId(preselectedBarberId ?? "");
+      setSelectedTimeSlot("");
       setSelectedServiceId("");
       setClientName("");
+      if (preselectedBarberId) {
+        setStep("time");
+        loadSlotsForBarber(preselectedBarberId);
+      } else {
+        setStep("barber");
+      }
     }
-  }, [open]);
+  }, [open, preselectedBarberId]);
+
+  const loadSlotsForBarber = async (barberId: string) => {
+    setLoadingSlots(true);
+    try {
+      const dateObj = new Date(date + "T12:00:00");
+      if (!isDateOpen(dateObj)) {
+        setBarberSlots([]);
+        return;
+      }
+      const { data } = await supabase
+        .from("appointments")
+        .select("appointment_time, services(duration)")
+        .eq("barber_id", barberId)
+        .eq("appointment_date", date)
+        .neq("status", "cancelled");
+      const barberAppointments = (data ?? []).map((a: any) => ({
+        appointment_time: a.appointment_time,
+        duration: a.services?.duration,
+      }));
+      const slots = getAvailableSlotsForBarber(dateObj, getTimeSlotsForDate, barberAppointments, { filterPastSlots: true });
+      setBarberSlots(slots);
+    } catch (e) {
+      console.error("Error loading barber slots:", e);
+      setBarberSlots([]);
+    } finally {
+      setLoadingSlots(false);
+    }
+  };
 
   const loadBarbers = async () => {
     const { data, error } = await supabase
@@ -127,6 +171,11 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
     setStep("client");
   };
 
+  const handleTimeSelect = (slot: string) => {
+    setSelectedTimeSlot(slot);
+    setStep("client");
+  };
+
   const handleClientNameNext = () => {
     setStep("service");
   };
@@ -141,6 +190,11 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
       toast.error("Por favor, selecione o barbeiro e o serviço");
       return;
     }
+    const slotToUse = effectiveTimeSlot;
+    if (!slotToUse) {
+      toast.error("Por favor, selecione um horário");
+      return;
+    }
 
     setLoading(true);
 
@@ -151,7 +205,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
         .select('id')
         .eq('barber_id', selectedBarberId)
         .eq('appointment_date', date)
-        .eq('appointment_time', timeSlot)
+        .eq('appointment_time', slotToUse)
         .neq('status', 'cancelled')
         .maybeSingle();
 
@@ -213,7 +267,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
           barber_id: selectedBarberId,
           service_id: serviceId,
           appointment_date: date,
-          appointment_time: timeSlot,
+          appointment_time: slotToUse,
           booking_type: "local", // Mark as local booking - WILL trigger webhook
           status: "confirmed",
         })
@@ -222,38 +276,36 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
 
       if (appointmentError) throw appointmentError;
 
-      // NOTE: Removed direct WhatsApp notification to barber
-      // All notifications are now handled by the external webhook system
+      // Processamento em background para não travar a UI
+      const runBackgroundNotifications = async () => {
+        // Notify external webhook for UI-created appointments
+        try {
+          const selectedService = services.find(s => s.id === serviceId);
+          const duration = selectedService?.duration || 30;
+          const startDateTime = new Date(`${date}T${slotToUse}:00`);
+          const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
 
-      // Notify external webhook for UI-created appointments
-      try {
-        const selectedService = services.find(s => s.id === serviceId);
-        const duration = selectedService?.duration || 30;
-        const startDateTime = new Date(`${date}T${timeSlot}:00`);
-        const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
+          // Get the current user (barber who created the local appointment)
+          const { data: { user: currentUser } } = await supabase.auth.getUser();
+          const userId = currentUser?.id || clientId; // Fallback to clientId if no user
 
-        // Get the current user (barber who created the local appointment)
-        const { data: { user: currentUser } } = await supabase.auth.getUser();
-        const userId = currentUser?.id || clientId; // Fallback to clientId if no user
-
-        await supabase.functions.invoke('api', {
-          body: {
-            action: 'notify-webhook',
-            appointmentId: newAppointment.id,
-            clientName: localName === "LOCAL" ? 'LOCAL (presencial)' : localName,
-            phone: '00000000000',
-            service: selectedService?.title || 'Serviço',
-            startTime: startDateTime.toISOString(),
-            endTime: endDateTime.toISOString(),
-            userId: userId,
-            notes: null,
-          }
-        });
-        console.log('External webhook notification sent for local booking');
-      } catch (webhookError) {
-        console.error('Error notifying external webhook:', webhookError);
-        // Don't block - appointment was already created
-      }
+          await supabase.functions.invoke('api', {
+            body: {
+              action: 'notify-webhook',
+              appointmentId: newAppointment.id,
+              clientName: localName === "LOCAL" ? 'LOCAL (presencial)' : localName,
+              phone: '00000000000',
+              service: selectedService?.title || 'Serviço',
+              startTime: startDateTime.toISOString(),
+              endTime: endDateTime.toISOString(),
+              userId: userId,
+              notes: null,
+            }
+          });
+          console.log('External webhook notification sent for local booking');
+        } catch (webhookError) {
+          console.error('Error notifying external webhook:', webhookError);
+        }
 
         // Disparar processamento da fila de WhatsApp (cliente + barbeiro)
         try {
@@ -262,33 +314,35 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
           const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
           const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
           
-          if (!supabaseUrl) {
-            console.error('VITE_SUPABASE_URL não configurado');
-            return;
-          }
+          if (supabaseUrl) {
+            // Fazer chamada direta via fetch com o token do usuário
+            const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': supabaseAnonKey || '',
+                'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
+              },
+              body: JSON.stringify({}),
+            });
 
-          // Fazer chamada direta via fetch com o token do usuário
-          const response = await fetch(`${supabaseUrl}/functions/v1/whatsapp-process-queue`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'apikey': supabaseAnonKey || '',
-              'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
-            },
-            body: JSON.stringify({}),
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            console.error('Error triggering WhatsApp queue:', response.status, errorData);
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({}));
+              console.error('Error triggering WhatsApp queue:', response.status, errorData);
+            } else {
+              const data = await response.json().catch(() => ({}));
+              console.log('WhatsApp queue processed after local booking', data);
+            }
           } else {
-            const data = await response.json().catch(() => ({}));
-            console.log('WhatsApp queue processed after local booking', data);
+            console.error('VITE_SUPABASE_URL não configurado');
           }
         } catch (queueError) {
           console.error('Error triggering WhatsApp queue after local booking:', queueError);
-          // Não bloquear o fluxo se a fila falhar
         }
+      };
+
+      // Inicia as notificações sem await para liberar a UI imediatamente
+      runBackgroundNotifications();
 
       toast.success(localName === "LOCAL" 
         ? "Agendamento local realizado com sucesso!" 
@@ -317,7 +371,17 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
       setStep("client");
       setSelectedServiceId("");
     } else if (step === "client") {
-      setStep("barber");
+      if (isBarberPreselected) {
+        setStep("time");
+      } else {
+        setStep("barber");
+      }
+    } else if (step === "time") {
+      if (isBarberPreselected) {
+        handleClose();
+      } else {
+        setStep("barber");
+      }
     }
   };
 
@@ -356,7 +420,11 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
             Agendamento Rápido
           </h2>
           <p className="text-gray-400">
-            Horário: <span style={{ color: "#FFD700" }}>{timeSlot}</span> - {date}
+            {effectiveTimeSlot ? (
+              <>Horário: <span style={{ color: "#FFD700" }}>{effectiveTimeSlot}</span> - {date}</>
+            ) : (
+              <>Data: <span style={{ color: "#FFD700" }}>{date}</span></>
+            )}
           </p>
         </div>
 
@@ -365,6 +433,65 @@ export const QuickBookingDialog = ({ open, onOpenChange, timeSlot, date }: Quick
             <Loader2 className="h-12 w-12 animate-spin" style={{ color: "#FFD700" }} />
             <p className="text-gray-400 mt-4">Confirmando agendamento...</p>
           </div>
+        ) : step === "time" ? (
+          <>
+            <div className="flex items-center gap-4 mb-6">
+              <button
+                type="button"
+                onClick={handleClose}
+                className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+              >
+                <ArrowLeft className="h-5 w-5" />
+                Voltar
+              </button>
+              {selectedBarber && (
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full overflow-hidden border-2" style={{ borderColor: "#FFD700" }}>
+                    {selectedBarber.image_url ? (
+                      <img src={selectedBarber.image_url} alt={selectedBarber.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-gray-700 flex items-center justify-center">
+                        <Scissors className="h-4 w-4 text-gray-500" />
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-white font-medium">{selectedBarber.name}</span>
+                </div>
+              )}
+            </div>
+            <div className="text-center mb-6">
+              <h3 className="text-xl font-semibold text-white">
+                Horários disponíveis - <span style={{ color: "#FFD700" }}>{date}</span>
+              </h3>
+              <p className="text-gray-400 text-sm mt-1">Selecione um horário para continuar</p>
+            </div>
+            {loadingSlots ? (
+              <div className="flex flex-col items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin" style={{ color: "#FFD700" }} />
+                <p className="text-gray-400 mt-2">Carregando horários...</p>
+              </div>
+            ) : barberSlots.length === 0 ? (
+              <p className="text-gray-400 text-center py-6">Nenhum horário disponível para este barbeiro hoje.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2 justify-center">
+                {barberSlots.map((slot) => (
+                  <button
+                    key={slot}
+                    type="button"
+                    onClick={() => handleTimeSelect(slot)}
+                    className="px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105"
+                    style={{
+                      backgroundColor: selectedTimeSlot === slot ? "#FFD700" : "#2a2a2a",
+                      color: selectedTimeSlot === slot ? "#000" : "#fff",
+                      border: `2px solid ${selectedTimeSlot === slot ? "#FFD700" : "transparent"}`,
+                    }}
+                  >
+                    {slot}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         ) : step === "barber" ? (
           <>
             {/* Barber Selection */}
