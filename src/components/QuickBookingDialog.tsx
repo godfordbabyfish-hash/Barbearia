@@ -419,6 +419,9 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
           >
             Agendamento Rápido
           </h2>
+          <p className="text-gray-400 mb-2">
+            Selecione o barbeiro e o serviço para agendar seu horário.
+          </p>
           <p className="text-gray-400">
             {effectiveTimeSlot ? (
               <>Horário: <span style={{ color: "#FFD700" }}>{effectiveTimeSlot}</span> - {date}</>

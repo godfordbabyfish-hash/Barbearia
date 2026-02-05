@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, MapPin, Globe, Clock, Users, Scissors } from "lucide-react";
+import { Home, MapPin, Globe, Clock, Users, Scissors } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { QuickBookingDialog } from "@/components/QuickBookingDialog";
 import { format, addMinutes } from "date-fns";
 import { useOperatingHours } from "@/hooks/useOperatingHours";
-import { getAvailableSlotsForBarber } from "@/utils/availability";
+import { getAvailableSlotsForBarber, BarberBreak } from "@/utils/availability";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { useAuth } from "@/contexts/AuthContext";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Appointment {
   id: string;
@@ -21,18 +23,26 @@ interface Appointment {
   barbers: { name: string };
 }
 
-const FilaDaBarbearia = () => {
+type FilaProps = {
+  readOnly?: boolean;
+};
+
+const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const [currentTime, setCurrentTime] = useState("");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [barbers, setBarbers] = useState<any[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [availableSlotsByBarber, setAvailableSlotsByBarber] = useState<Record<string, string[]>>({});
+  const [barberBreaksByBarber, setBarberBreaksByBarber] = useState<Record<string, BarberBreak[]>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState("");
   const [quickBookingOpen, setQuickBookingOpen] = useState(false);
   const [quickBookingPreselectedBarberId, setQuickBookingPreselectedBarberId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
+  const { role } = useAuth();
+  const isClient = role === "cliente";
+  const isReadOnly = readOnly || isClient;
 
   useEffect(() => {
     const updateTime = () => {
@@ -76,6 +86,38 @@ const FilaDaBarbearia = () => {
       supabase.removeChannel(channel);
     };
   }, [hoursLoading]);
+
+  const loadBreaksForToday = async () => {
+    try {
+      const todayStr = format(new Date(), "yyyy-MM-dd");
+      const barberIds = barbers.map((b) => b.id);
+      if (barberIds.length === 0) {
+        setBarberBreaksByBarber({});
+        return;
+      }
+      const { data, error } = await (supabase as any)
+        .from("barber_breaks")
+        .select("barber_id, start_time, end_time")
+        .in("barber_id", barberIds)
+        .eq("date", todayStr)
+        .order("start_time");
+      if (error) {
+        setBarberBreaksByBarber({});
+        return;
+      }
+      const map: Record<string, BarberBreak[]> = {};
+      (data || []).forEach((row: any) => {
+        if (!map[row.barber_id]) map[row.barber_id] = [];
+        map[row.barber_id].push({
+          start_time: row.start_time,
+          end_time: row.end_time,
+        });
+      });
+      setBarberBreaksByBarber(map);
+    } catch {
+      setBarberBreaksByBarber({});
+    }
+  };
 
   const loadAppointments = async () => {
     const today = format(new Date(), "yyyy-MM-dd");
@@ -228,6 +270,7 @@ const FilaDaBarbearia = () => {
       setAvailableSlotsByBarber({});
       return;
     }
+    loadBreaksForToday();
     const next: Record<string, string[]> = {};
     barbers.forEach((barber: { id: string }) => {
       const barberAppointmentsToday = appointments
@@ -240,14 +283,17 @@ const FilaDaBarbearia = () => {
         todayDate,
         getTimeSlotsForDate,
         barberAppointmentsToday,
-        { filterPastSlots: true }
+        { filterPastSlots: true, breaks: barberBreaksByBarber[barber.id] || [] }
       );
     });
     setAvailableSlotsByBarber(next);
-  }, [barbers, appointments, today, hoursLoading, isDateOpen, getTimeSlotsForDate]);
+  }, [barbers, appointments, today, hoursLoading, barberBreaksByBarber]);
 
   const localAppointments = appointments.filter((apt) => apt.booking_type === "local" && apt.appointment_date === today);
   const onlineAppointments = appointments.filter((apt) => apt.booking_type === "online");
+  const futureAppointments = appointments
+    .filter((apt) => apt.appointment_date > today)
+    .sort((a, b) => a.appointment_date.localeCompare(b.appointment_date) || a.appointment_time.localeCompare(b.appointment_time));
 
   const inProgressCount = appointments.filter((apt) => apt.status === "in_progress").length;
   const waitingCount = appointments.filter((apt) => apt.status === "confirmed" || apt.status === "pending").length;
@@ -327,12 +373,15 @@ const FilaDaBarbearia = () => {
               <span className="text-foreground">Raimundos</span>
             </h1>
             <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate("/")}
-              className="text-muted-foreground hover:text-foreground"
+              asChild
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 border-primary/30 hover:border-primary hover:bg-primary/10 text-primary hover:text-primary transition-all duration-300 cursor-pointer"
             >
-              <ArrowLeft className="h-6 w-6" />
+              <a href="/" aria-label="Ir para Início">
+                <Home className="h-4 w-4" />
+                <span className="font-medium">Início</span>
+              </a>
             </Button>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
@@ -346,160 +395,215 @@ const FilaDaBarbearia = () => {
       </header>
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
-        {/* Global slots card removed */}
+        <Tabs defaultValue="barbeiros" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-6">
+            <TabsTrigger value="barbeiros">Agendamentos por Barbeiro</TabsTrigger>
+            <TabsTrigger value="futuros">Agendamentos Futuros</TabsTrigger>
+          </TabsList>
 
-        {/* Barber Cards - click to open quick booking with barber preselected and their available slots */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
-          {appointmentsByBarber.slice(0, 3).map(({ barber, appointments, todayCount, upcomingCount, inProgressCount }) => {
-            const slots = availableSlotsByBarber[barber.id] ?? [];
-            return (
-            <button
-              key={barber.id}
-              type="button"
-              onClick={() => handleBarberCardClick(barber.id)}
-              className="bg-card border-2 border-border rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:border-primary hover:bg-primary/5 flex flex-col text-left" style={{ minHeight: '400px' }}
-            >
-              {/* Barber Header with Photo */}
-              <div className="p-4 border-b border-border">
-                <div className="flex flex-col items-center gap-3">
-                  <Avatar className="h-16 w-16 border-2 border-primary/20">
-                    <AvatarImage src={barber.photo_url || barber.image_url || ''} alt={barber.name} />
-                    <AvatarFallback className="bg-primary/20 text-primary font-bold text-xl">
-                      {barber.name.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="text-center">
-                    <h3 className="font-bold text-lg text-primary">{barber.name}</h3>
-                    <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground mt-1">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        Hoje: {todayCount}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Users className="h-3 w-3" />
-                        Próximos: {upcomingCount}
-                      </span>
-                      {inProgressCount > 0 && (
-                        <span className="flex items-center gap-1 text-warning">
-                          <Scissors className="h-3 w-3" />
-                          Atendendo: {inProgressCount}
+          <TabsContent value="barbeiros">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
+              {appointmentsByBarber.slice(0, 3).map(({ barber, appointments, todayCount, upcomingCount, inProgressCount }) => {
+                const slots = availableSlotsByBarber[barber.id] ?? [];
+                return (
+                <button
+                  key={barber.id}
+                  type="button"
+                  onClick={isReadOnly ? undefined : () => handleBarberCardClick(barber.id)}
+                  className={`bg-card border-2 border-border rounded-xl shadow-lg transition-all duration-300 flex flex-col text-left ${isReadOnly ? '' : 'hover:shadow-xl hover:border-primary hover:bg-primary/5 cursor-pointer'}`} style={{ minHeight: '400px' }}
+                >
+                  <div className="p-4 border-b border-border">
+                    <div className="flex flex-col items-center gap-3">
+                      <Avatar className="h-16 w-16 border-2 border-primary/20">
+                        <AvatarImage src={barber.photo_url || barber.image_url || ''} alt={barber.name} />
+                        <AvatarFallback className="bg-primary/20 text-primary font-bold text-xl">
+                          {barber.name.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="text-center">
+                        <h3 className="font-bold text-lg text-primary">{barber.name}</h3>
+                        <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground mt-1">
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            Hoje: {todayCount}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Users className="h-3 w-3" />
+                            Próximos: {upcomingCount}
+                          </span>
+                          {inProgressCount > 0 && (
+                            <span className="flex items-center gap-1 text-warning">
+                              <Scissors className="h-3 w-3" />
+                              Atendendo: {inProgressCount}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {slots.length > 0 && (
+                    <div className="px-4 py-3 border-b border-border/50 flex flex-wrap gap-2 justify-center bg-secondary/10">
+                      {slots.slice(0, 5).map((slot) => (
+                        <span key={slot} className="px-3 py-1 bg-success text-success-foreground rounded-full text-sm font-bold shadow-sm">
+                          {slot}
+                        </span>
+                      ))}
+                      {slots.length > 5 && (
+                        <span className="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm font-bold border border-border">
+                          +{slots.length - 5}
                         </span>
                       )}
                     </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Slots */}
-              {slots.length > 0 && (
-                <div className="px-4 py-3 border-b border-border/50 flex flex-wrap gap-2 justify-center bg-secondary/10">
-                  {slots.slice(0, 5).map((slot) => (
-                    <span key={slot} className="px-3 py-1 bg-success text-success-foreground rounded-full text-sm font-bold shadow-sm">
-                      {slot}
-                    </span>
-                  ))}
-                  {slots.length > 5 && (
-                    <span className="px-3 py-1 bg-secondary text-secondary-foreground rounded-full text-sm font-bold border border-border">
-                      +{slots.length - 5}
-                    </span>
                   )}
-                </div>
-              )}
 
-              {/* Appointments List */}
-              <div className="flex-1 p-3">
-                {appointments.length === 0 ? (
-                  <div className="text-center py-8 flex-1 flex items-center justify-center">
-                    <div>
-                      <Scissors className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-                      <p className="text-muted-foreground text-xs font-medium">Sem agendamentos</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-80 overflow-y-auto">
-                    {appointments.slice(0, 6).map((apt, index) => {
-                      const formattedDate = format(new Date(apt.appointment_date + "T12:00:00"), "dd/MM");
-                      const isToday = apt.appointment_date === today;
-                      const bookingTypeLabel = apt.booking_type === 'local' ? 'Local' : 
-                                             apt.booking_type === 'online' ? 'Online' : 'Manual';
-                      const bookingTypeColor = apt.booking_type === 'local' ? 'bg-success/20 text-success border-success/30' : 
-                                             apt.booking_type === 'online' ? 'bg-info/20 text-info border-info/30' : 
-                                             'bg-orange-500/20 text-orange-400 border-orange-500/30';
+                  <div className="flex-1 p-3">
+                    {appointments.length === 0 ? (
+                      <div className="text-center py-8 flex-1 flex items-center justify-center">
+                        <div>
+                          <Scissors className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                          <p className="text-muted-foreground text-xs font-medium">Sem agendamentos</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-80 overflow-y-auto">
+                        {appointments.slice(0, 6).map((apt) => {
+                          const formattedDate = format(new Date(apt.appointment_date + "T12:00:00"), "dd/MM");
+                          const bookingTypeLabel = apt.booking_type === 'local' ? 'Local' : 
+                                                 apt.booking_type === 'online' ? 'Online' : 'Manual';
+                          const bookingTypeColor = apt.booking_type === 'local' ? 'bg-success/20 text-success border-success/30' : 
+                                                 apt.booking_type === 'online' ? 'bg-info/20 text-info border-info/30' : 
+                                                 'bg-orange-500/20 text-orange-400 border-orange-500/30';
 
-                      return (
-                        <div key={apt.id} className="flex items-center gap-2 p-2 bg-secondary/40 hover:bg-secondary/60 rounded-lg transition-all duration-200 border border-border/50">
-                          {/* Date/Time Box */}
-                          <div className="flex flex-col items-center justify-center min-w-[45px] p-1 rounded bg-muted/50 flex-shrink-0">
-                            <div className="text-[9px] font-bold text-primary leading-tight text-center">
-                              {formattedDate}
-                            </div>
-                            <div className="text-[9px] font-semibold text-primary mt-0.5">
-                              {apt.appointment_time.slice(0, 5)}
-                            </div>
-                          </div>
-                          
-                          {/* Status and Type Badges */}
-                          <div className="flex flex-col gap-1 flex-shrink-0">
-                            {apt.status === 'in_progress' && (
-                              <div className="flex items-center justify-center w-5 h-5 rounded-full bg-warning/20 text-warning text-[8px] font-bold">
-                                ▶
+                          return (
+                            <div key={apt.id} className="flex items-center gap-2 p-2 bg-secondary/40 hover:bg-secondary/60 rounded-lg transition-all duration-200 border border-border/50">
+                              <div className="flex flex-col items-center justify-center min-w-[45px] p-1 rounded bg-muted/50 flex-shrink-0">
+                                <div className="text-[9px] font-bold text-primary leading-tight text-center">
+                                  {formattedDate}
+                                </div>
+                                <div className="text-[9px] font-semibold text-primary mt-0.5">
+                                  {apt.appointment_time.slice(0, 5)}
+                                </div>
                               </div>
-                            )}
-                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-medium border ${bookingTypeColor}`}>
-                              {bookingTypeLabel.charAt(0)}
+                              <div className="flex flex-col gap-1 flex-shrink-0">
+                                {apt.status === 'in_progress' && (
+                                  <div className="flex items-center justify-center w-5 h-5 rounded-full bg-warning/20 text-warning text-[8px] font-bold">
+                                    ▶
+                                  </div>
+                                )}
+                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-medium border ${bookingTypeColor}`}>
+                                  {bookingTypeLabel.charAt(0)}
+                                </span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-foreground text-xs font-semibold mb-0.5 break-words line-clamp-1">
+                                  {apt.client_name || apt.profiles.name}
+                                </div>
+                                <div className="text-muted-foreground text-[9px] break-words line-clamp-1">
+                                  {apt.services.title} ({apt.services.duration}min)
+                                </div>
+                                {apt.status === 'in_progress' && (
+                                  <div className="text-warning text-[8px] font-bold mt-0.5">
+                                    EM ATENDIMENTO
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {appointments.length > 6 && (
+                          <div className="text-center py-2">
+                            <span className="text-xs text-muted-foreground">
+                              +{appointments.length - 6} mais agendamentos
                             </span>
                           </div>
-                          
-                          {/* Client Info */}
-                          <div className="flex-1 min-w-0">
-                            <div className="text-foreground text-xs font-semibold mb-0.5 break-words line-clamp-1">
-                              {apt.profiles.name}
-                            </div>
-                            <div className="text-muted-foreground text-[9px] break-words line-clamp-1">
-                              {apt.services.title} ({apt.services.duration}min)
-                            </div>
-                            {apt.status === 'in_progress' && (
-                              <div className="text-warning text-[8px] font-bold mt-0.5">
-                                EM ATENDIMENTO
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {appointments.length > 6 && (
-                      <div className="text-center py-2">
-                        <span className="text-xs text-muted-foreground">
-                          +{appointments.length - 6} mais agendamentos
-                        </span>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
-              <div className="p-3 pt-2 border-t border-border text-center">
-                <p className="text-muted-foreground text-xs font-medium">Clique para agendar local</p>
-              </div>
-            </button>
-            );
-          })}
-        </div>
+                  <div className="p-3 pt-2 border-t border-border text-center">
+                    <p className="text-muted-foreground text-xs font-medium">
+                      {isReadOnly ? 'Visualização da fila (sem ações)' : 'Clique para agendar local'}
+                    </p>
+                  </div>
+                </button>
+                );
+              })}
+            </div>
+          </TabsContent>
 
-        <QuickBookingDialog
-          open={dialogOpen}
-          onOpenChange={setDialogOpen}
-          timeSlot={selectedSlot}
-          date={today}
-        />
+          <TabsContent value="futuros">
+            {futureAppointments.length === 0 ? (
+              <div className="text-center py-16">
+                <p className="text-muted-foreground">Nenhum agendamento futuro</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {Array.from(new Set(futureAppointments.map(a => a.appointment_date)))
+                  .sort()
+                  .map(date => {
+                    const items = futureAppointments.filter(a => a.appointment_date === date);
+                    return (
+                      <div key={date} className="bg-card border border-border rounded-xl overflow-hidden">
+                        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                          <div className="font-bold text-primary">
+                            {format(new Date(date + 'T12:00:00'), "dd 'de' MMMM, yyyy")}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {items.length} agendamentos
+                          </div>
+                        </div>
+                        <div className="p-3 space-y-2">
+                          {items.map(apt => (
+                            <div key={apt.id} className="flex items-center gap-3 p-2 bg-secondary/40 rounded-lg border border-border/50">
+                              <div className="min-w-[48px] text-center">
+                                <div className="text-xs font-semibold text-primary">
+                                  {apt.appointment_time.slice(0, 5)}
+                                </div>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-semibold truncate">
+                                  {apt.services.title} • {apt.barbers?.name || ''}
+                                </div>
+                                <div className="text-xs text-muted-foreground truncate">
+                                  {apt.client_name || apt.profiles.name}
+                                </div>
+                              </div>
+                              <div className="text-xs px-2 py-1 rounded-full border">
+                                {apt.status === 'confirmed' ? 'Confirmado' :
+                                 apt.status === 'cancelled' ? 'Cancelado' :
+                                 apt.status === 'in_progress' ? 'Em atendimento' : 'Pendente'}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+
+        {!isReadOnly && (
+          <QuickBookingDialog
+            open={dialogOpen}
+            onOpenChange={setDialogOpen}
+            timeSlot={selectedSlot}
+            date={today}
+          />
+        )}
 
         {/* Quick Booking: from global card (timeSlot fixed) or from barber card (barber fixed, choose time) */}
-        <QuickBookingDialog
-          open={quickBookingOpen}
-          onOpenChange={handleQuickBookingClose}
-          date={today}
-          timeSlot={quickBookingPreselectedBarberId ? "" : availableSlots[0] ?? ""}
-          preselectedBarberId={quickBookingPreselectedBarberId ?? undefined}
-        />
+        {!isReadOnly && (
+          <QuickBookingDialog
+            open={quickBookingOpen}
+            onOpenChange={handleQuickBookingClose}
+            date={today}
+            timeSlot={quickBookingPreselectedBarberId ? "" : availableSlots[0] ?? ""}
+            preselectedBarberId={quickBookingPreselectedBarberId ?? undefined}
+          />
+        )}
 
       </main>
     </div>

@@ -7,6 +7,7 @@ import { ShoppingCart, Package, X, Plus, Minus, MessageCircle, Eye } from "lucid
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
   Sheet,
@@ -21,7 +22,17 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 interface Product {
   id: string;
@@ -38,19 +49,42 @@ interface CartItem {
   quantity: number;
 }
 
+interface Barber {
+  id: string;
+  name: string;
+}
+
 const Shop = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { toast } = useToast();
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
   const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [barbers, setBarbers] = useState<Barber[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [whatsappNumber, setWhatsappNumber] = useState<string>("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [productModalOpen, setProductModalOpen] = useState(false);
+  
+  // Checkout Dialog State
+  const [checkoutDialogOpen, setCheckoutDialogOpen] = useState(false);
+  const [selectedBarberId, setSelectedBarberId] = useState<string>("");
+  const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
 
   useEffect(() => {
+    if (!supabaseUrl || !supabaseAnonKey) {
+      toast({
+        title: "Supabase não configurado",
+        description: "Configure VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY para carregar a loja.",
+        variant: "destructive",
+      });
+      return;
+    }
     loadProducts();
+    loadBarbers();
     loadWhatsappNumber();
   }, []);
 
@@ -65,6 +99,20 @@ const Shop = () => {
       console.error('Error loading products:', error);
     } else {
       setProducts(data || []);
+    }
+  };
+
+  const loadBarbers = async () => {
+    const { data, error } = await supabase
+      .from('barbers')
+      .select('id, name')
+      .eq('visible', true)
+      .order('name');
+
+    if (error) {
+      console.error('Error loading barbers:', error);
+    } else {
+      setBarbers(data || []);
     }
   };
 
@@ -157,30 +205,123 @@ const Shop = () => {
       return;
     }
 
-    // Build the message
-    let message = "🛒 *Novo Pedido - Barbearia*\n\n";
-    message += "*Produtos:*\n";
-    
-    cart.forEach(item => {
-      const subtotal = Number(item.product.price) * item.quantity;
-      message += `• ${item.product.name} (${item.quantity}x) - R$ ${subtotal.toFixed(2).replace('.', ',')}\n`;
-    });
+    setCheckoutDialogOpen(true);
+  };
 
-    message += `\n*Total: R$ ${getTotalPrice().toFixed(2).replace('.', ',')}*\n\n`;
-    message += "Gostaria de confirmar este pedido!";
+  const confirmCheckout = async () => {
+    if (!supabaseUrl || !supabaseAnonKey) {
+      toast({
+        title: "Supabase não configurado",
+        description: "Configure VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY para concluir a compra.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!selectedBarberId) {
+      toast({
+        title: "Selecione um barbeiro",
+        description: "Por favor, informe qual barbeiro está realizando a venda.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    // Open WhatsApp
-    const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
-    window.open(whatsappUrl, '_blank');
+    setIsProcessingCheckout(true);
 
-    // Clear cart after sending
-    setCart([]);
-    setCartOpen(false);
-    
-    toast({
-      title: "Pedido enviado!",
-      description: "Complete o envio da mensagem no WhatsApp.",
-    });
+    try {
+      // 1. Get Fixed Commission Rate
+      const { data: fixedCommissionData } = await supabase
+        .from('barber_fixed_commissions')
+        .select('product_commission_percentage')
+        .eq('barber_id', selectedBarberId)
+        .maybeSingle();
+
+      const fixedCommissionPercentage = fixedCommissionData?.product_commission_percentage || 0;
+
+      // 2. Get Individual Product Commissions
+      const { data: individualCommissions } = await supabase
+        .from('barber_product_commissions')
+        .select('product_id, commission_percentage')
+        .eq('barber_id', selectedBarberId);
+
+      // 3. Create Pending Sales records
+      const salesToInsert = cart.map(item => {
+        const unitPrice = Number(item.product.price);
+        const totalPrice = unitPrice * item.quantity;
+        
+        // Determine commission percentage: Individual > Fixed
+        const individualCommission = individualCommissions?.find(
+          c => c.product_id === item.product.id
+        )?.commission_percentage;
+
+        const commissionPercentage = individualCommission !== undefined && individualCommission > 0
+          ? individualCommission
+          : fixedCommissionPercentage;
+
+        const commissionValue = (totalPrice * commissionPercentage) / 100;
+
+        return {
+          barber_id: selectedBarberId,
+          product_id: item.product.id,
+          quantity: item.quantity,
+          unit_price: unitPrice,
+          total_price: totalPrice,
+          commission_percentage: commissionPercentage,
+          commission_value: commissionValue,
+          status: 'pending', // Pending confirmation by barber
+          sale_date: new Date().toISOString().split('T')[0],
+          sale_time: new Date().toLocaleTimeString(),
+          client_id: user?.id || null,
+        };
+      });
+
+      const { error } = await supabase
+        .from('product_sales')
+        .insert(salesToInsert);
+
+      if (error) throw error;
+
+      // 3. Build WhatsApp Message
+      const barberName = barbers.find(b => b.id === selectedBarberId)?.name || "Barbeiro";
+      
+      let message = "🛒 *Novo Pedido - Barbearia*\n\n";
+      message += `*Vendedor:* ${barberName}\n\n`;
+      message += "*Produtos:*\n";
+      
+      cart.forEach(item => {
+        const subtotal = Number(item.product.price) * item.quantity;
+        message += `• ${item.product.name} (${item.quantity}x) - R$ ${subtotal.toFixed(2).replace('.', ',')}\n`;
+      });
+
+      message += `\n*Total: R$ ${getTotalPrice().toFixed(2).replace('.', ',')}*\n\n`;
+      message += "Gostaria de confirmar este pedido!";
+
+      // 4. Open WhatsApp
+      const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank');
+
+      // 5. Clear cart and close
+      setCart([]);
+      setCartOpen(false);
+      setCheckoutDialogOpen(false);
+      setSelectedBarberId("");
+      
+      toast({
+        title: "Pedido enviado!",
+        description: "O pedido foi registrado e a mensagem enviada.",
+      });
+
+    } catch (error: any) {
+      console.error('Error processing checkout:', error);
+      console.error('Error details:', error?.message, error?.details, error?.hint);
+      toast({
+        title: "Erro ao processar",
+        description: `Erro: ${error?.message || "Ocorreu um erro ao registrar o pedido."}`,
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessingCheckout(false);
+    }
   };
 
   return (
@@ -425,6 +566,9 @@ const Shop = () => {
                 <DialogTitle className="text-2xl font-bold text-primary">
                   {selectedProduct.name}
                 </DialogTitle>
+                <DialogDescription>
+                  Detalhes do produto selecionado
+                </DialogDescription>
               </DialogHeader>
               
               <div className="space-y-6">
@@ -491,6 +635,61 @@ const Shop = () => {
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Checkout Dialog - Select Barber */}
+      <Dialog open={checkoutDialogOpen} onOpenChange={setCheckoutDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Finalizar Pedido</DialogTitle>
+            <DialogDescription>
+              Selecione o vendedor para prosseguir com o pedido.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="barber-select">Quem está realizando a venda?</Label>
+              <Select value={selectedBarberId} onValueChange={setSelectedBarberId}>
+                <SelectTrigger id="barber-select">
+                  <SelectValue placeholder="Selecione o barbeiro" />
+                </SelectTrigger>
+                <SelectContent>
+                  {barbers.map((barber) => (
+                    <SelectItem key={barber.id} value={barber.id}>
+                      {barber.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Selecione o barbeiro responsável pela venda para que ele receba a comissão.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCheckoutDialogOpen(false)}
+              disabled={isProcessingCheckout}
+            >
+              Cancelar
+            </Button>
+            <Button 
+              onClick={confirmCheckout}
+              disabled={!selectedBarberId || isProcessingCheckout}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {isProcessingCheckout ? (
+                <>Enviando...</>
+              ) : (
+                <>
+                  <MessageCircle className="w-4 h-4 mr-2" />
+                  Confirmar e Enviar WhatsApp
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

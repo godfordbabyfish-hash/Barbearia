@@ -30,6 +30,7 @@ interface Appointment {
   status: string;
   notes?: string | null;
   client_id: string;
+  client_name?: string | null;
   barber_id: string;
   service_id: string;
   service?: { title: string; price: number } | null;
@@ -414,8 +415,8 @@ const HistoricoCP = () => {
                         <td className="py-2 sm:py-3 px-1 sm:px-2 text-xs sm:text-sm">{apt.appointment_time}</td>
                         <td className="py-2 sm:py-3 px-1 sm:px-2">
                           <div>
-                            <div className="font-medium text-xs sm:text-sm truncate" title={apt.client?.name || 'N/A'}>
-                              {apt.client?.name || 'N/A'}
+                            <div className="font-medium text-xs sm:text-sm truncate" title={apt.client_name || apt.client?.name || 'N/A'}>
+                              {apt.client_name || apt.client?.name || 'N/A'}
                             </div>
                             {apt.client?.phone && (
                               <div className="text-xs text-muted-foreground truncate" title={apt.client.phone}>

@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { ArrowLeft, Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
@@ -18,6 +18,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import BarberFinancialDashboard from '@/components/BarberFinancialDashboard';
 import { BarberBreakManager } from '@/components/admin/BarberBreakManager';
+import { ProductSalesManager } from '@/components/ProductSalesManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
@@ -80,6 +81,7 @@ const BarbeiroDashboard = () => {
   
   // Estado para prevenir submissões simultâneas de agendamentos
   const [creatingAppointment, setCreatingAppointment] = useState(false);
+  const [hasBarberBreaks, setHasBarberBreaks] = useState(true);
   
   // Hooks for commission calculation
   const barberIdForCommissions = currentUserBarber?.id || selectedBarber;
@@ -94,6 +96,21 @@ const BarbeiroDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userRole]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const { error } = await (supabase as any)
+          .from('barber_breaks')
+          .select('start_time')
+          .limit(1);
+        if (error) {
+          setHasBarberBreaks(false);
+        }
+      } catch {
+        setHasBarberBreaks(false);
+      }
+    })();
+  }, []);
   useEffect(() => {
     const resolveName = async () => {
       if (!user) return;
@@ -412,7 +429,7 @@ const BarbeiroDashboard = () => {
                 ? new Date(payload.new.appointment_date).toLocaleDateString('pt-BR')
                 : 'N/A';
               
-              const notificationMessage = `Cliente: ${client?.name || 'Desconhecido'}\nServiço: ${service?.title || 'Desconhecido'}\nHorário: ${appointmentTime}\nData: ${appointmentDate}`;
+              const notificationMessage = `Cliente: ${payload.new.client_name || client?.name || 'Desconhecido'}\nServiço: ${service?.title || 'Desconhecido'}\nHorário: ${appointmentTime}\nData: ${appointmentDate}`;
               
               // Toast na interface
               toast.success('📅 Novo Agendamento!', {
@@ -688,7 +705,7 @@ const BarbeiroDashboard = () => {
           Promise.resolve({ data: [] }),
         
         // Verificar pausas do barbeiro (apenas se não for retroativo)
-        (!isPastAppointment && !newAppointment.isRetroactive) ?
+        (!isPastAppointment && !newAppointment.isRetroactive && hasBarberBreaks) ?
           (supabase as any)
             .from('barber_breaks')
             .select('*')
@@ -1396,8 +1413,9 @@ const BarbeiroDashboard = () => {
         {(currentUserBarber || selectedBarber) && (
           <>
             <Tabs defaultValue="agendamentos" className="w-full">
-              <TabsList className="grid w-full grid-cols-4 mb-6">
+              <TabsList className="grid w-full grid-cols-5 mb-6">
                 <TabsTrigger value="agendamentos">Agendamentos</TabsTrigger>
+                <TabsTrigger value="vendas">Vendas</TabsTrigger>
                 <TabsTrigger value="horarios">Horários</TabsTrigger>
                 <TabsTrigger value="financeiro">Financeiro</TabsTrigger>
                 <TabsTrigger value="historico">Histórico</TabsTrigger>
@@ -1701,6 +1719,15 @@ const BarbeiroDashboard = () => {
                   </div>
                 </DialogContent>
               </Dialog>
+              
+              <Button 
+                variant="outline" 
+                onClick={() => navigate('/fila')} 
+                className="w-full sm:w-auto"
+              >
+                <Scissors className="mr-2 h-4 w-4" />
+                Fila da Barbearia
+              </Button>
             </div>
 
             <Card className="bg-card border-border">
@@ -1711,135 +1738,237 @@ const BarbeiroDashboard = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4 sm:p-6">
-                {appointmentsByBarber.length > 0 ? (
-                  <div className="space-y-6">
-                    {appointmentsByBarber.map(({ barber, appointments, todayCount, upcomingCount }) => (
-                      <div key={barber.id} className="border border-border rounded-lg p-4 bg-secondary/30">
-                        {/* Header do Barbeiro */}
-                        <div className="flex items-center gap-4 mb-4 pb-3 border-b border-border">
-                          <Avatar className="h-12 w-12 border-2 border-primary/20">
-                            <AvatarImage src={barber.photo_url || ''} alt={barber.name} />
-                            <AvatarFallback className="bg-primary/20 text-primary font-bold text-lg">
-                              {barber.name.charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1">
-                            <h3 className="font-bold text-lg">{barber.name}</h3>
-                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Calendar className="h-4 w-4" />
-                                Hoje: {todayCount}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-4 w-4" />
-                                Próximos: {upcomingCount}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <User className="h-4 w-4" />
-                                Total: {appointments.length}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
+                <Tabs defaultValue="hoje" className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 mb-4">
+                    <TabsTrigger value="hoje">Agendamentos de Hoje</TabsTrigger>
+                    <TabsTrigger value="futuros">Agendamentos Futuros</TabsTrigger>
+                  </TabsList>
 
-                        {/* Lista de Agendamentos */}
-                        {appointments.length > 0 ? (
-                          <div className="space-y-3">
-                            {appointments.map((appointment) => {
-                              const clientName = appointment.client?.name ?? 'Cliente';
-                              const clientInitial = clientName.charAt(0).toUpperCase();
-                              const appointmentTime = appointment.appointment_time.slice(0, 5);
-                              const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
-                              const today = new Date().toISOString().split('T')[0];
-                              const isToday = appointment.appointment_date === today;
-                              
-                              // Determinar o tipo de agendamento
-                              const bookingTypeLabel = appointment.booking_type === 'local' ? 'Local' : 
-                                                     appointment.booking_type === 'manual' ? 'Manual' : 'Online';
-                              const bookingTypeColor = appointment.booking_type === 'local' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
-                                                     appointment.booking_type === 'manual' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
-                                                     'bg-green-500/20 text-green-400 border-green-500/30';
-
-                              return (
-                                <div 
-                                  key={appointment.id} 
-                                  className={`p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
-                                    isToday ? 'bg-primary/5 border-primary/30' : 'bg-card border-border'
-                                  }`}
-                                  onClick={() => handleAppointmentClick(appointment)}
-                                >
-                                  <div className="flex items-center gap-3">
-                                    {/* Avatar do Cliente */}
-                                    <Avatar className="h-10 w-10 border border-border">
-                                      <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
-                                      <AvatarFallback className="bg-secondary text-foreground font-semibold">
-                                        {clientInitial}
-                                      </AvatarFallback>
-                                    </Avatar>
-
-                                    {/* Informações do Agendamento */}
-                                    <div className="flex-1 space-y-1">
-                                      <div className="flex items-center justify-between">
-                                        <p className="font-semibold text-sm">{appointment.service?.title || 'Serviço'}</p>
-                                        <div className="flex items-center gap-2">
-                                          {/* Data e Hora */}
-                                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                            isToday ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'
-                                          }`}>
-                                            {isToday ? 'HOJE' : format(appointmentDate, 'dd/MM', { locale: ptBR })} às {appointmentTime}
-                                          </span>
-                                        </div>
-                                      </div>
-                                      
-                                      <div className="flex items-center justify-between">
-                                        <p className="text-xs text-muted-foreground">Cliente: {clientName}</p>
-                                        <div className="flex items-center gap-2">
-                                          {/* Tipo de Agendamento */}
-                                          <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
-                                            {bookingTypeLabel}
-                                          </span>
-                                          
-                                          {/* Status */}
-                                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                            appointment.status === 'confirmed'
-                                              ? 'bg-green-500/20 text-green-400'
-                                              : 'bg-yellow-500/20 text-yellow-400'
-                                          }`}>
-                                            {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </div>
+                  <TabsContent value="hoje">
+                    {appointmentsByBarber.length > 0 ? (
+                      <div className="space-y-6">
+                        {appointmentsByBarber.map(({ barber, appointments, todayCount, upcomingCount }) => {
+                          const today = new Date().toISOString().split('T')[0];
+                          const list = appointments.filter(a => a.appointment_date === today);
+                          return (
+                            <div key={barber.id} className="border border-border rounded-lg p-4 bg-secondary/30">
+                              <div className="flex items-center gap-4 mb-4 pb-3 border-b border-border">
+                                <Avatar className="h-12 w-12 border-2 border-primary/20">
+                                  <AvatarImage src={barber.photo_url || ''} alt={barber.name} />
+                                  <AvatarFallback className="bg-primary/20 text-primary font-bold text-lg">
+                                    {barber.name.charAt(0).toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1">
+                                  <h3 className="font-bold text-lg">{barber.name}</h3>
+                                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                    <span className="flex items-center gap-1">
+                                      <Calendar className="h-4 w-4" />
+                                      Hoje: {todayCount}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <Clock className="h-4 w-4" />
+                                      Próximos: {upcomingCount}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <User className="h-4 w-4" />
+                                      Total: {appointments.length}
+                                    </span>
                                   </div>
                                 </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <p className="text-center text-muted-foreground py-4">
-                            Nenhum agendamento para {barber.name}
-                          </p>
-                        )}
+                              </div>
+
+                              {list.length > 0 ? (
+                                <div className="space-y-3">
+                                  {list.map((appointment) => {
+                                    const clientName = appointment.client_name || appointment.client?.name || 'Cliente';
+                                    const clientInitial = clientName.charAt(0).toUpperCase();
+                                    const appointmentTime = appointment.appointment_time.slice(0, 5);
+                                    const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
+                                    const bookingTypeLabel = appointment.booking_type === 'local' ? 'Local' : 
+                                                           appointment.booking_type === 'manual' ? 'Manual' : 'Online';
+                                    const bookingTypeColor = appointment.booking_type === 'local' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                                                           appointment.booking_type === 'manual' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
+                                                           'bg-green-500/20 text-green-400 border-green-500/30';
+
+                                    return (
+                                      <div 
+                                        key={appointment.id} 
+                                        className="p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-primary/5 border-primary/30"
+                                        onClick={() => handleAppointmentClick(appointment)}
+                                      >
+                                        <div className="flex items-center gap-3">
+                                          <Avatar className="h-10 w-10 border border-border">
+                                            <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
+                                            <AvatarFallback className="bg-secondary text-foreground font-semibold">
+                                              {clientInitial}
+                                            </AvatarFallback>
+                                          </Avatar>
+                                          <div className="flex-1 space-y-1">
+                                            <div className="flex items-center justify-between">
+                                              <p className="font-semibold text-sm">{appointment.service?.title || 'Serviço'}</p>
+                                              <div className="flex items-center gap-2">
+                                                <span className="px-2 py-1 rounded text-xs font-medium bg-primary/20 text-primary">
+                                                  HOJE às {appointmentTime}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                              <p className="text-xs text-muted-foreground">Cliente: {clientName}</p>
+                                              <div className="flex items-center gap-2">
+                                                <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
+                                                  {bookingTypeLabel}
+                                                </span>
+                                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                                  appointment.status === 'confirmed'
+                                                    ? 'bg-green-500/20 text-green-400'
+                                                    : 'bg-yellow-500/20 text-yellow-400'
+                                                }`}>
+                                                  {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-center text-muted-foreground py-4">
+                                  Nenhum agendamento hoje para {barber.name}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-center text-muted-foreground py-8">
-                    Nenhum agendamento encontrado
-                  </p>
-                )}
+                    ) : (
+                      <p className="text-center text-muted-foreground py-8">
+                        Nenhum agendamento encontrado
+                      </p>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="futuros">
+                    {appointmentsByBarber.length > 0 ? (
+                      <div className="space-y-6">
+                        {appointmentsByBarber.map(({ barber, appointments, todayCount, upcomingCount }) => {
+                          const today = new Date().toISOString().split('T')[0];
+                          const list = appointments.filter(a => a.appointment_date > today);
+                          return (
+                            <div key={barber.id} className="border border-border rounded-lg p-4 bg-secondary/30">
+                              <div className="flex items-center gap-4 mb-4 pb-3 border-b border-border">
+                                <Avatar className="h-12 w-12 border-2 border-primary/20">
+                                  <AvatarImage src={barber.photo_url || ''} alt={barber.name} />
+                                  <AvatarFallback className="bg-primary/20 text-primary font-bold text-lg">
+                                    {barber.name.charAt(0).toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1">
+                                  <h3 className="font-bold text-lg">{barber.name}</h3>
+                                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                    <span className="flex items-center gap-1">
+                                      <Calendar className="h-4 w-4" />
+                                      Hoje: {todayCount}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <Clock className="h-4 w-4" />
+                                      Próximos: {upcomingCount}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <User className="h-4 w-4" />
+                                      Total: {appointments.length}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {list.length > 0 ? (
+                                <div className="space-y-3">
+                                  {list.map((appointment) => {
+                                    const clientName = appointment.client_name || appointment.client?.name || 'Cliente';
+                                    const clientInitial = clientName.charAt(0).toUpperCase();
+                                    const appointmentTime = appointment.appointment_time.slice(0, 5);
+                                    const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
+                                    const bookingTypeLabel = appointment.booking_type === 'local' ? 'Local' : 
+                                                           appointment.booking_type === 'manual' ? 'Manual' : 'Online';
+                                    const bookingTypeColor = appointment.booking_type === 'local' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+                                                           appointment.booking_type === 'manual' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
+                                                           'bg-green-500/20 text-green-400 border-green-500/30';
+
+                                    return (
+                                      <div 
+                                        key={appointment.id} 
+                                        className="p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-card border-border"
+                                        onClick={() => handleAppointmentClick(appointment)}
+                                      >
+                                        <div className="flex items-center gap-3">
+                                          <Avatar className="h-10 w-10 border border-border">
+                                            <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
+                                            <AvatarFallback className="bg-secondary text-foreground font-semibold">
+                                              {clientInitial}
+                                            </AvatarFallback>
+                                          </Avatar>
+                                          <div className="flex-1 space-y-1">
+                                            <div className="flex items-center justify-between">
+                                              <p className="font-semibold text-sm">{appointment.service?.title || 'Serviço'}</p>
+                                              <div className="flex items-center gap-2">
+                                                <span className="px-2 py-1 rounded text-xs font-medium bg-secondary text-muted-foreground">
+                                                  {format(appointmentDate, 'dd/MM', { locale: ptBR })} às {appointmentTime}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                              <p className="text-xs text-muted-foreground">Cliente: {clientName}</p>
+                                              <div className="flex items-center gap-2">
+                                                <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
+                                                  {bookingTypeLabel}
+                                                </span>
+                                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                                  appointment.status === 'confirmed'
+                                                    ? 'bg-green-500/20 text-green-400'
+                                                    : 'bg-yellow-500/20 text-yellow-400'
+                                                }`}>
+                                                  {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-center text-muted-foreground py-4">
+                                  Nenhum agendamento futuro para {barber.name}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-center text-muted-foreground py-8">
+                        Nenhum agendamento encontrado
+                      </p>
+                    )}
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="vendas" className="space-y-6">
+            <ProductSalesManager barberId={currentUserBarber?.id || selectedBarber} />
           </TabsContent>
 
           <TabsContent value="horarios" className="space-y-6">
             <BarberBreakManager barberId={currentUserBarber?.id || selectedBarber} />
           </TabsContent>
 
-          <TabsContent value="financeiro" className="space-y-6">
-            <BarberFinancialDashboard barberId={selectedBarber} />
-        <BarberBreakManager barberId={currentUserBarber?.id || selectedBarber} />
-      </TabsContent>
+          {/* Duplicate Financeiro Tab Removed */}
 
       <TabsContent value="financeiro" className="space-y-6">
         <BarberFinancialDashboard barberId={selectedBarber} />

@@ -5,6 +5,11 @@ export interface AppointmentSlotInfo {
   duration?: number;
 }
 
+export interface BarberBreak {
+  start_time: string;
+  end_time: string;
+}
+
 /**
  * Returns available time slots for a specific barber on a date.
  * Uses operating hours slots and removes slots occupied by the barber's appointments.
@@ -13,7 +18,7 @@ export function getAvailableSlotsForBarber(
   date: Date,
   getTimeSlotsForDate: (date: Date) => string[],
   barberAppointmentsOnDate: AppointmentSlotInfo[],
-  options?: { filterPastSlots?: boolean }
+  options?: { filterPastSlots?: boolean; breaks?: BarberBreak[] }
 ): string[] {
   const filterPast = options?.filterPastSlots !== false;
   const todayStr = format(date, "yyyy-MM-dd");
@@ -45,5 +50,21 @@ export function getAvailableSlotsForBarber(
     }
   });
 
-  return slots.filter((slot) => !bookedSlots.has(slot));
+  const breakSlots = new Set<string>();
+  if (options?.breaks && options.breaks.length > 0) {
+    options.breaks.forEach((br) => {
+      const [startH, startM] = br.start_time.split(":").map(Number);
+      const [endH, endM] = br.end_time.split(":").map(Number);
+      let cursor = new Date(date);
+      cursor.setHours(startH, startM, 0, 0);
+      const end = new Date(date);
+      end.setHours(endH, endM, 0, 0);
+      while (cursor < end) {
+        breakSlots.add(format(cursor, "HH:mm"));
+        cursor = addMinutes(cursor, 30);
+      }
+    });
+  }
+
+  return slots.filter((slot) => !bookedSlots.has(slot) && !breakSlots.has(slot));
 }
