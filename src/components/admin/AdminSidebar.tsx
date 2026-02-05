@@ -9,7 +9,6 @@ import {
   DollarSign, 
   Settings, 
   Image as ImageIcon, 
-  ArrowLeft,
   Menu,
   X,
   MessageSquare,
@@ -79,15 +78,6 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
             </span>
           </h2>
         </div>
-        <Button 
-          onClick={() => navigate('/')} 
-          variant="outline" 
-          size="sm"
-          className="w-full"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Voltar ao Site
-        </Button>
       </div>
 
       {/* Menu Items */}

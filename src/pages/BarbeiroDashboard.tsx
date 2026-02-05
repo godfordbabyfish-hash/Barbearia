@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { ArrowLeft, Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors } from 'lucide-react';
+import { Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
@@ -52,6 +52,9 @@ const BarbeiroDashboard = () => {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'dinheiro' | ''>('');
+  const [payments, setPayments] = useState<{method: string, amount: number}[]>([]);
+  const [currentPaymentAmount, setCurrentPaymentAmount] = useState<string>('');
+  const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('pix');
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
   const [cancellationReason, setCancellationReason] = useState('');
@@ -497,7 +500,8 @@ const BarbeiroDashboard = () => {
       .from('appointments')
       .select(`
         *,
-        service:services(title, price, duration)
+        service:services(title, price, duration),
+        appointment_payments(amount, payment_method)
       `)
       .eq('barber_id', selectedBarber)
       .order('appointment_date', { ascending: true })
@@ -1073,39 +1077,81 @@ const BarbeiroDashboard = () => {
     }, 100); // Pequeno delay para não bloquear a UI
   };
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      // Validar tipo de arquivo
-      if (!file.type.startsWith('image/')) {
-        toast.error('Por favor, selecione apenas imagens');
-        return;
-      }
-      
-      // Validar tamanho (máximo 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('A imagem deve ter no máximo 5MB');
-        return;
-      }
+  const handleAddPayment = () => {
+    if (!currentPaymentAmount || isNaN(parseFloat(currentPaymentAmount)) || parseFloat(currentPaymentAmount) <= 0) {
+      toast.error('Informe um valor válido');
+      return;
+    }
 
+    const amount = parseFloat(currentPaymentAmount);
+    setPayments([...payments, { method: currentPaymentMethod, amount }]);
+    setCurrentPaymentAmount('');
+    // Manter o método atual para facilitar entradas consecutivas do mesmo tipo ou resetar se preferir
+  };
+
+  const handleRemovePayment = (index: number) => {
+    const newPayments = [...payments];
+    newPayments.splice(index, 1);
+    setPayments(newPayments);
+  };
+
+  const getTotalPaid = () => {
+    return payments.reduce((acc, curr) => acc + curr.amount, 0);
+  };
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
       setPhotoFile(file);
-      
-      // Criar preview
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      const preview = URL.createObjectURL(file);
+      setPhotoPreview(preview);
     }
   };
 
   const handleCompleteWithPhoto = async () => {
     if (!appointmentToComplete) return;
 
-    // Validar forma de pagamento
-    if (!paymentMethod || (paymentMethod !== 'pix' && paymentMethod !== 'dinheiro' && paymentMethod !== 'cartao')) {
-      toast.error('Selecione a forma de pagamento (Pix, Dinheiro ou Cartão)');
-      return;
+    // Se não houver pagamentos na lista, usar o método simples antigo (se selecionado)
+    // OU exigir que adicione à lista. Vamos unificar: se paymentMethod estiver setado e lista vazia, adicionar auto.
+    // Mas para suportar a nova UI, vamos priorizar a lista `payments`.
+    
+    let finalPayments = [...payments];
+    
+    // Fallback para compatibilidade ou uso simples: se a lista estiver vazia e o usuário selecionou um método único no select antigo (se ainda existir)
+    // Mas vamos mudar a UI para usar apenas a lista.
+    // Se a lista estiver vazia, erro.
+    if (finalPayments.length === 0) {
+        if (paymentMethod) {
+            // Se o usuário usou o select antigo (vamos manter por enquanto ou remover? Melhor remover para não confundir)
+            // Vou assumir que vamos migrar tudo para a lista.
+            // Mas preciso pegar o valor total do serviço.
+            const appointment = appointments.find(a => a.id === appointmentToComplete);
+            const price = appointment?.service?.price || 0;
+            if (price > 0) {
+                finalPayments.push({ method: paymentMethod, amount: price });
+            } else {
+                 toast.error('Adicione pelo menos um pagamento');
+                 return;
+            }
+        } else {
+            toast.error('Adicione os pagamentos recebidos');
+            return;
+        }
+    }
+
+    // Validação estrita: O total pago DEVE ser igual ao valor do serviço
+    const appointmentToCheck = appointments.find(a => a.id === appointmentToComplete);
+    const servicePriceToCheck = appointmentToCheck?.service?.price || 0;
+    
+    // Se o serviço tiver preço > 0, validar o total
+    if (servicePriceToCheck > 0) {
+      const totalPaidCheck = finalPayments.reduce((acc, curr) => acc + curr.amount, 0);
+      const diff = Math.abs(totalPaidCheck - servicePriceToCheck);
+      
+      if (diff > 0.05) { // Tolerância de 5 centavos para erros de float
+        toast.error(`Valor incorreto! O total pago (R$ ${totalPaidCheck.toFixed(2)}) deve ser igual ao valor do serviço (R$ ${servicePriceToCheck.toFixed(2)})`);
+        return;
+      }
     }
 
     setUploadingPhoto(true);
@@ -1139,30 +1185,60 @@ const BarbeiroDashboard = () => {
         }
       }
 
-      // Atualizar status do agendamento com a foto (se houver) e forma de pagamento
-      const { error } = await (supabase as any)
+      // 1. Atualizar status do agendamento
+      // Para o campo payment_method no appointments, se houver múltiplos, usar 'misto' ou o primeiro.
+      // Vamos usar o de maior valor ou 'misto' se houver > 1.
+      let mainMethod = finalPayments[0].method;
+      if (finalPayments.length > 1) {
+          // Check if all are same
+          const allSame = finalPayments.every(p => p.method === finalPayments[0].method);
+          mainMethod = allSame ? finalPayments[0].method : 'misto'; // 'misto' não é um enum válido provavelmente? Checar check constraint.
+          // O check é IN ('pix', 'dinheiro', 'cartao'). Então não posso usar 'misto'.
+          // Vou usar o de maior valor.
+          const maxPayment = finalPayments.reduce((prev, current) => (prev.amount > current.amount) ? prev : current);
+          mainMethod = maxPayment.method;
+      }
+
+      const { error: updateError } = await (supabase as any)
         .from('appointments')
         .update({ 
           status: 'completed',
           photo_url: photoUrl,
-          payment_method: paymentMethod
+          payment_method: mainMethod
         })
         .eq('id', appointmentToComplete);
 
-      if (error) {
-        console.error('Database update error:', error);
-        toast.error('Erro ao concluir agendamento: ' + error.message);
-      } else {
-        toast.success(photoUrl ? 'Agendamento concluído com foto!' : 'Agendamento concluído!', {
-          duration: 2000, // 2 segundos
-        });
-        setCompleteDialogOpen(false);
-        setAppointmentToComplete(null);
-        setPhotoFile(null);
-        setPhotoPreview(null);
-        setPaymentMethod('');
-        loadAppointments();
+      if (updateError) throw updateError;
+
+      // 2. Inserir pagamentos na tabela appointment_payments
+      const paymentInserts = finalPayments.map(p => ({
+          appointment_id: appointmentToComplete,
+          payment_method: p.method,
+          amount: p.amount
+      }));
+
+      const { error: paymentsError } = await supabase
+          .from('appointment_payments')
+          .insert(paymentInserts);
+
+      if (paymentsError) {
+          console.error('Error inserting payments:', paymentsError);
+          toast.error('Erro ao salvar detalhes do pagamento, mas o agendamento foi concluído.');
       }
+
+      toast.success(photoUrl ? 'Agendamento concluído com foto!' : 'Agendamento concluído!', {
+        duration: 2000,
+      });
+      
+      setCompleteDialogOpen(false);
+      setAppointmentToComplete(null);
+      setPhotoFile(null);
+      setPhotoPreview(null);
+      setPaymentMethod('');
+      setPayments([]);
+      setCurrentPaymentAmount('');
+      loadAppointments();
+
     } catch (error: any) {
       console.error('Erro ao completar agendamento:', error);
       toast.error('Erro ao processar: ' + error.message);
@@ -1173,37 +1249,99 @@ const BarbeiroDashboard = () => {
 
 
   const handleCompleteWithoutPhoto = async () => {
+    // Reutilizar a lógica, apenas sem foto
+    // Mas como handleCompleteWithPhoto já trata se photoFile é null, posso chamar ela mesma?
+    // A única diferença é que handleCompleteWithPhoto faz o upload SE photoFile existir.
+    // Então posso chamar handleCompleteWithPhoto diretamente se garantir que photoFile é null, 
+    // mas aqui photoFile pode estar setado mas o usuário clicou em "Sem foto".
+    // Então vou limpar o photoFile antes de chamar ou passar um flag.
+    // Melhor duplicar a lógica simplificada ou adaptar a anterior.
+    // Vou adaptar a anterior para aceitar um argumento ou simplesmente ignorar o file se chamar essa função.
+    
+    // Para simplificar e evitar duplicação de código complexo de pagamentos, 
+    // vou fazer o seguinte:
+    // Vou extrair a lógica de salvamento para uma função comum ou apenas setar photoFile = null e chamar a outra?
+    // Não posso mudar o state e chamar a função imediatamente pq o state é assíncrono.
+    
+    // Vou copiar a lógica de pagamentos e update.
+    
     if (!appointmentToComplete) return;
 
-    // Validar forma de pagamento
-    if (!paymentMethod || (paymentMethod !== 'pix' && paymentMethod !== 'dinheiro' && paymentMethod !== 'cartao')) {
-      toast.error('Selecione a forma de pagamento (Pix, Dinheiro ou Cartão)');
-      return;
+    let finalPayments = [...payments];
+    
+    if (finalPayments.length === 0) {
+        if (paymentMethod) {
+            const appointment = appointments.find(a => a.id === appointmentToComplete);
+            const price = appointment?.service?.price || 0;
+            if (price > 0) {
+                finalPayments.push({ method: paymentMethod, amount: price });
+            } else {
+                 toast.error('Adicione pelo menos um pagamento');
+                 return;
+            }
+        } else {
+            toast.error('Adicione os pagamentos recebidos');
+            return;
+        }
+    }
+
+    // Validação estrita: O total pago DEVE ser igual ao valor do serviço
+    const appointmentToCheck = appointments.find(a => a.id === appointmentToComplete);
+    const servicePriceToCheck = appointmentToCheck?.service?.price || 0;
+    
+    // Se o serviço tiver preço > 0, validar o total
+    if (servicePriceToCheck > 0) {
+      const totalPaidCheck = finalPayments.reduce((acc, curr) => acc + curr.amount, 0);
+      const diff = Math.abs(totalPaidCheck - servicePriceToCheck);
+      
+      if (diff > 0.05) { // Tolerância de 5 centavos para erros de float
+        toast.error(`Valor incorreto! O total pago (R$ ${totalPaidCheck.toFixed(2)}) deve ser igual ao valor do serviço (R$ ${servicePriceToCheck.toFixed(2)})`);
+        return;
+      }
     }
 
     try {
+      let mainMethod = finalPayments[0].method;
+      if (finalPayments.length > 1) {
+          const maxPayment = finalPayments.reduce((prev, current) => (prev.amount > current.amount) ? prev : current);
+          mainMethod = maxPayment.method;
+      }
+
       const { error } = await (supabase as any)
         .from('appointments')
         .update({ 
           status: 'completed',
-          payment_method: paymentMethod
+          payment_method: mainMethod
         })
         .eq('id', appointmentToComplete);
 
-      if (error) {
-        console.error('Database update error:', error);
-        toast.error('Erro ao concluir agendamento: ' + error.message);
-      } else {
-        toast.success('Agendamento concluído!', {
-          duration: 2000, // 2 segundos
-        });
-        setCompleteDialogOpen(false);
-        setAppointmentToComplete(null);
-        setPhotoFile(null);
-        setPhotoPreview(null);
-        setPaymentMethod('');
-        loadAppointments();
+      if (error) throw error;
+
+      const paymentInserts = finalPayments.map(p => ({
+          appointment_id: appointmentToComplete,
+          payment_method: p.method,
+          amount: p.amount
+      }));
+
+      const { error: paymentsError } = await supabase
+          .from('appointment_payments')
+          .insert(paymentInserts);
+
+      if (paymentsError) {
+          console.error('Error inserting payments:', paymentsError);
       }
+
+      toast.success('Agendamento concluído!', {
+        duration: 2000,
+      });
+      setCompleteDialogOpen(false);
+      setAppointmentToComplete(null);
+      setPhotoFile(null);
+      setPhotoPreview(null);
+      setPaymentMethod('');
+      setPayments([]);
+      setCurrentPaymentAmount('');
+      loadAppointments();
     } catch (error: any) {
       console.error('Erro ao completar agendamento:', error);
       toast.error('Erro ao processar: ' + error.message);
@@ -1391,10 +1529,6 @@ const BarbeiroDashboard = () => {
               </div>
             )}
             <div className="flex gap-2">
-              <Button onClick={() => navigate('/')} variant="outline" className="w-full md:w-auto">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Voltar ao Site
-              </Button>
               <Button onClick={() => navigate('/configuracoes')} variant="outline" className="w-full md:w-auto">
                 <Settings className="mr-2 h-4 w-4" />
                 Configurações
@@ -2188,11 +2322,26 @@ const BarbeiroDashboard = () => {
                                     </span>
                                   )}
                                   {/* Badge para forma de pagamento (apenas concluídos) */}
-                                  {appointment.status === 'completed' && appointment.payment_method && (
-                                    <span className="px-2 py-1 rounded text-xs font-medium bg-primary/20 text-primary">
-                                      {appointment.payment_method === 'pix' ? '💳 Pix' : 
-                                       appointment.payment_method === 'cartao' ? '💳 Cartão' : '💵 Dinheiro'}
-                                    </span>
+                                  {appointment.status === 'completed' && (
+                                    <>
+                                      {/* Verifica se tem pagamentos parciais */}
+                                      {appointment.appointment_payments && appointment.appointment_payments.length > 0 ? (
+                                        <div className="flex flex-wrap gap-1">
+                                          {appointment.appointment_payments.map((payment, idx) => (
+                                            <span key={idx} className="px-2 py-1 rounded text-xs font-medium bg-primary/20 text-primary border border-primary/30">
+                                              {payment.payment_method === 'pix' ? '💳 Pix' : 
+                                               payment.payment_method === 'cartao' ? '💳 Cartão' : '💵 Dinheiro'}: R$ {Number(payment.amount).toFixed(2)}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : appointment.payment_method ? (
+                                        // Fallback para método único antigo
+                                        <span className="px-2 py-1 rounded text-xs font-medium bg-primary/20 text-primary">
+                                          {appointment.payment_method === 'pix' ? '💳 Pix' : 
+                                           appointment.payment_method === 'cartao' ? '💳 Cartão' : '💵 Dinheiro'}
+                                        </span>
+                                      ) : null}
+                                    </>
                                   )}
                                 </div>
                                 <p className="text-sm font-medium">Cliente: {appointment.client?.name ?? 'Cliente'}</p>
@@ -2378,41 +2527,94 @@ const BarbeiroDashboard = () => {
               )}
 
               {/* Campo de forma de pagamento */}
-              <div className="space-y-2">
-                <Label htmlFor="payment-method" className="text-sm font-medium">
-                  Forma de Pagamento <span className="text-destructive">*</span>
-                </Label>
-                <Select
-                  value={paymentMethod}
-                  onValueChange={(value) => setPaymentMethod(value as 'pix' | 'dinheiro' | 'cartao')}
-                >
-                  <SelectTrigger id="payment-method">
-                    <SelectValue placeholder="Selecione a forma de pagamento" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pix">
-                      <div className="flex items-center gap-2">
-                        <Smartphone className="h-4 w-4 text-primary" />
-                        <span>Pix</span>
+              <div className="space-y-4">
+                <div className="flex items-end gap-2">
+                  <div className="space-y-2 flex-1">
+                    <Label className="text-sm font-medium">Forma de Pagamento</Label>
+                    <Select
+                      value={currentPaymentMethod}
+                      onValueChange={setCurrentPaymentMethod}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pix">
+                          <div className="flex items-center gap-2">
+                            <Smartphone className="h-4 w-4 text-primary" />
+                            <span>Pix</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="dinheiro">
+                          <div className="flex items-center gap-2">
+                            <Banknote className="h-4 w-4 text-green-500" />
+                            <span>Dinheiro</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="cartao">
+                          <div className="flex items-center gap-2">
+                            <CreditCard className="h-4 w-4 text-blue-500" />
+                            <span>Cartão</span>
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="space-y-2 w-32">
+                    <Label className="text-sm font-medium">Valor</Label>
+                    <Input
+                      type="number"
+                      placeholder="0,00"
+                      value={currentPaymentAmount}
+                      onChange={(e) => setCurrentPaymentAmount(e.target.value)}
+                    />
+                  </div>
+
+                  <Button onClick={handleAddPayment} type="button" size="icon" className="mb-0.5 shrink-0">
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {/* Lista de pagamentos adicionados */}
+                {payments.length > 0 && (
+                  <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase font-bold">Pagamentos Registrados</Label>
+                    {payments.map((p, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-sm bg-background p-2 rounded border">
+                        <div className="flex items-center gap-2">
+                          {p.method === 'pix' && <Smartphone className="h-4 w-4 text-primary" />}
+                          {p.method === 'dinheiro' && <Banknote className="h-4 w-4 text-green-500" />}
+                          {p.method === 'cartao' && <CreditCard className="h-4 w-4 text-blue-500" />}
+                          <span className="capitalize">{p.method}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="font-semibold">
+                            {p.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                          <button 
+                            onClick={() => handleRemovePayment(idx)}
+                            className="text-destructive hover:bg-destructive/10 p-1 rounded-full transition-colors"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
-                    </SelectItem>
-                    <SelectItem value="dinheiro">
-                      <div className="flex items-center gap-2">
-                        <Banknote className="h-4 w-4 text-green-500" />
-                        <span>Dinheiro</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="cartao">
-                      <div className="flex items-center gap-2">
-                        <CreditCard className="h-4 w-4 text-blue-500" />
-                        <span>Cartão</span>
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Selecione como o serviço foi pago
-                </p>
+                    ))}
+                    <div className="flex justify-between items-center pt-2 border-t mt-2">
+                      <span className="font-bold">Total Pago</span>
+                      <span className="font-bold text-lg text-green-600">
+                        {getTotalPaid().toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                
+                {payments.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                        Adicione os pagamentos recebidos (Pix, Dinheiro, Cartão)
+                    </p>
+                )}
               </div>
 
               <div className="flex gap-2 pt-4">
