@@ -83,6 +83,43 @@ const Booking = () => {
   // Estados para o modal de confirmação de barbeiro indisponível
   const [unavailableBarberDialogOpen, setUnavailableBarberDialogOpen] = useState(false);
   const [selectedUnavailableBarber, setSelectedUnavailableBarber] = useState<any>(null);
+  
+  // Estado para nome de cliente personalizado (para agendar para outra pessoa)
+  const [customClientName, setCustomClientName] = useState("");
+  const [hasClientNameColumn, setHasClientNameColumn] = useState(true);
+  const [hasBarberBreaks, setHasBarberBreaks] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { error } = await (supabase as any)
+          .from('appointments')
+          .select('client_name')
+          .limit(1);
+        if (error) {
+          setHasClientNameColumn(false);
+        }
+      } catch {
+        setHasClientNameColumn(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { error } = await (supabase as any)
+          .from('barber_breaks')
+          .select('start_time')
+          .limit(1);
+        if (error) {
+          setHasBarberBreaks(false);
+        }
+      } catch {
+        setHasBarberBreaks(false);
+      }
+    })();
+  }, []);
 
   // Carregar dados iniciais apenas uma vez (não quando estiver no step success)
   useEffect(() => {
@@ -807,6 +844,15 @@ const Booking = () => {
       return;
     }
 
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseAnonKey) {
+      toast.error("Configuração do Supabase ausente", {
+        description: "Configure VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY para confirmar agendamentos.",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -823,11 +869,13 @@ const Booking = () => {
           .maybeSingle(),
         
         // Verificar pausas do barbeiro
-        (supabase as any)
-          .from('barber_breaks')
-          .select('start_time, end_time')
-          .eq('barber_id', formData.barber)
-          .eq('date', formData.date)
+        hasBarberBreaks
+          ? (supabase as any)
+              .from('barber_breaks')
+              .select('start_time, end_time')
+              .eq('barber_id', formData.barber)
+              .eq('date', formData.date)
+          : Promise.resolve({ data: [] })
       ]);
 
       // Verificar conflito de horário
@@ -881,23 +929,28 @@ const Booking = () => {
       }
 
       // 3. Criar agendamento
+      const payload: any = {
+        client_id: user.id,
+        service_id: formData.service,
+        barber_id: formData.barber,
+        appointment_date: formData.date,
+        appointment_time: formData.time,
+        status: 'confirmed',
+        booking_type: 'online',
+      };
+      if (hasClientNameColumn) {
+        payload.client_name = customClientName || formData.name;
+      }
+
       const { data: newAppointment, error } = await (supabase as any)
         .from('appointments')
-        .insert([{
-          client_id: user.id,
-          service_id: formData.service,
-          barber_id: formData.barber,
-          appointment_date: formData.date,
-          appointment_time: formData.time,
-          status: 'confirmed',
-          booking_type: 'online',
-        }])
+        .insert([payload])
         .select('id')
         .single();
 
       if (error) {
         toast.error("Erro ao criar agendamento", {
-          description: error.message,
+          description: error.message || "Falha na requisição. Verifique a configuração do Supabase.",
         });
         return;
       }
@@ -938,7 +991,7 @@ const Booking = () => {
             body: {
               action: 'notify-webhook',
               appointmentId,
-              clientName: formData.name,
+              clientName: customClientName || formData.name,
               phone: formData.phone,
               service: selectedService?.title || 'Serviço',
               startTime: startDateTime.toISOString(),
@@ -1372,12 +1425,23 @@ const Booking = () => {
                 {/* Etapa de confirmação: exibir nome e telefone apenas como resumo, sem permitir edição */}
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <div className="space-y-2">
-                    <Label htmlFor="name">Nome Completo</Label>
+                    <Label htmlFor="name">Nome Completo (Responsável)</Label>
                     <Input
                       id="name"
                       value={formData.name}
                       readOnly
                       className="bg-secondary border-border text-muted-foreground"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="customClientName">Agendar para outra pessoa (Opcional)</Label>
+                    <Input
+                      id="customClientName"
+                      value={customClientName}
+                      onChange={(e) => setCustomClientName(e.target.value)}
+                      placeholder="Nome de quem vai cortar (deixe vazio se for para você)"
+                      className="bg-secondary border-border focus:border-primary transition-colors"
                     />
                   </div>
 

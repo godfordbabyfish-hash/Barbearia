@@ -16,6 +16,7 @@ import { ptBR } from 'date-fns/locale';
 import haircutImg from "@/assets/service-haircut.jpg";
 import beardImg from "@/assets/service-beard.jpg";
 import stylingImg from "@/assets/service-styling.jpg";
+import FilaDaBarbearia from '@/pages/FilaDaBarbearia';
 
 const iconMap: Record<string, any> = {
   Scissors,
@@ -32,8 +33,11 @@ const defaultImages: Record<string, string> = {
 const ClienteDashboard = () => {
   const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
   const [displayName, setDisplayName] = useState<string>('');
   const [appointments, setAppointments] = useState<any[]>([]);
+  const [productSales, setProductSales] = useState<any[]>([]);
   const [serviceStats, setServiceStats] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
@@ -48,8 +52,15 @@ const ClienteDashboard = () => {
       navigate('/auth');
       return;
     }
+    if (!supabaseUrl || !supabaseAnonKey) {
+      toast.error('Supabase não configurado', {
+        description: 'Configure VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY para carregar o histórico.',
+      });
+      return;
+    }
     loadDisplayName();
     loadAppointments();
+    loadProductSales();
     loadServiceStats();
     loadServices();
   }, [user, role]);
@@ -97,6 +108,32 @@ const ClienteDashboard = () => {
     } else {
       console.log('Loaded appointments:', data);
       setAppointments(data || []);
+    }
+  };
+
+  const loadProductSales = async () => {
+    if (!user) return;
+    
+    // Check if client_id column exists by trying to select it
+    // If it doesn't exist, this might fail or return empty, so we handle gracefully
+    try {
+      const { data, error } = await supabase
+        .from('product_sales')
+        .select(`
+          *,
+          product:products(name, image_url),
+          barber:barbers(name)
+        `)
+        .eq('client_id', user.id)
+        .order('sale_date', { ascending: false });
+
+      if (error) {
+        console.log('Error loading product sales (column might not exist yet):', error);
+      } else {
+        setProductSales(data || []);
+      }
+    } catch (e) {
+      console.error('Exception loading product sales:', e);
     }
   };
 
@@ -290,14 +327,11 @@ const ClienteDashboard = () => {
                 Shop
               </Button>
               <Button onClick={() => {
-                // Navegar para a página inicial e depois rolar até a seção de agendamento
                 navigate('/');
-                // Aguardar navegação completa e então rolar até a seção de agendamento
                 setTimeout(() => {
                   const bookingSection = document.getElementById('agendamento');
                   if (bookingSection) {
-                    // Scroll mais preciso para garantir que vai para a seção correta
-                    const yOffset = -80; // Offset para compensar navbar fixa
+                    const yOffset = -80;
                     const y = bookingSection.getBoundingClientRect().top + window.pageYOffset + yOffset;
                     window.scrollTo({ top: y, behavior: 'smooth' });
                   }
@@ -318,9 +352,10 @@ const ClienteDashboard = () => {
         </div>
 
         <Tabs defaultValue="agendamentos" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
             <TabsTrigger value="agendamentos">Agendamentos</TabsTrigger>
             <TabsTrigger value="historico">Histórico</TabsTrigger>
+            <TabsTrigger value="fila">Fila</TabsTrigger>
           </TabsList>
 
           <TabsContent value="agendamentos" className="space-y-6">
@@ -424,131 +459,231 @@ const ClienteDashboard = () => {
           </TabsContent>
 
           <TabsContent value="historico" className="space-y-6">
+            <Tabs defaultValue="services" className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="services" className="flex items-center gap-2">
+                  <Scissors className="h-4 w-4" />
+                  Serviços
+                </TabsTrigger>
+                <TabsTrigger value="products" className="flex items-center gap-2">
+                  <ShoppingBag className="h-4 w-4" />
+                  Produtos
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="services">
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <History className="h-5 w-5 text-primary" />
+                      Histórico de Serviços
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {/* Filtros */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 pb-4 border-b border-border">
+                      <div>
+                        <Label className="text-sm text-muted-foreground mb-1 block">Período</Label>
+                        <Select value={historyFilterPeriod} onValueChange={(v) => setHistoryFilterPeriod(v as any)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Todos</SelectItem>
+                            <SelectItem value="today">Hoje</SelectItem>
+                            <SelectItem value="week">Última Semana</SelectItem>
+                            <SelectItem value="month">Último Mês</SelectItem>
+                            <SelectItem value="year">Último Ano</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-sm text-muted-foreground mb-1 block">Status</Label>
+                        <Select value={historyFilterStatus} onValueChange={(v) => setHistoryFilterStatus(v as any)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Todos</SelectItem>
+                            <SelectItem value="completed">Concluído</SelectItem>
+                            <SelectItem value="confirmed">Confirmado</SelectItem>
+                            <SelectItem value="cancelled">Cancelado</SelectItem>
+                            <SelectItem value="pending">Pendente</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-sm text-muted-foreground mb-1 block">Serviço</Label>
+                        <Select value={historyFilterService} onValueChange={setHistoryFilterService}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">Todos</SelectItem>
+                            {services.map((service) => (
+                              <SelectItem key={service.id} value={service.id}>{service.title}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {(() => {
+                        const filteredAppointments = getFilteredHistoryAppointments();
+                        return filteredAppointments.length > 0 ? (
+                          filteredAppointments.map((appointment) => (
+                          <div key={appointment.id} className="p-4 bg-secondary rounded-lg">
+                            <div className="flex justify-between items-start mb-2">
+                              <div>
+                                <h3 className="font-bold text-lg">{appointment.service.title}</h3>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <Calendar className="h-3 w-3" />
+                                  {format(new Date(appointment.appointment_date), "dd 'de' MMMM, yyyy", { locale: ptBR })}
+                                  <Clock className="h-3 w-3 ml-2" />
+                                  {appointment.appointment_time.slice(0, 5)}
+                                </div>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  Barbeiro: {appointment.barber?.name || 'Não informado'}
+                                </p>
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <span className={`px-2 py-1 rounded-full text-xs font-bold border ${
+                                  appointment.status === 'completed' ? 'bg-green-500/20 text-green-500 border-green-500/50' :
+                                  appointment.status === 'confirmed' ? 'bg-blue-500/20 text-blue-500 border-blue-500/50' :
+                                  appointment.status === 'cancelled' ? 'bg-red-500/20 text-red-500 border-red-500/50' :
+                                  'bg-yellow-500/20 text-yellow-500 border-yellow-500/50'
+                                }`}>
+                                  {appointment.status === 'completed' ? 'Concluído' :
+                                   appointment.status === 'confirmed' ? 'Confirmado' :
+                                   appointment.status === 'cancelled' ? 'Cancelado' : 'Pendente'}
+                                </span>
+                                <span className="font-bold text-primary">
+                                  R$ {appointment.service.price.toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
+                            
+                            {(appointment.status === 'pending' || appointment.status === 'confirmed') && (
+                              <div className="mt-3 pt-3 border-t border-border/50 flex justify-end">
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30"
+                                  onClick={() => handleCancelClick(appointment.id)}
+                                >
+                                  Cancelar Agendamento
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                          ))
+                        ) : (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <History className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                            <p>Nenhum serviço encontrado no histórico</p>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="products">
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <ShoppingBag className="h-5 w-5 text-primary" />
+                      Histórico de Compras
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {productSales.length > 0 ? (
+                        productSales.map((sale) => (
+                          <div key={sale.id} className="p-4 bg-secondary rounded-lg">
+                            <div className="flex gap-4">
+                              <div className="h-16 w-16 bg-background rounded-md overflow-hidden flex-shrink-0">
+                                {sale.product?.image_url ? (
+                                  <img 
+                                    src={sale.product.image_url} 
+                                    alt={sale.product.name} 
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center bg-secondary">
+                                    <ShoppingBag className="h-6 w-6 text-muted-foreground" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <h3 className="font-bold">{sale.product?.name || 'Produto'}</h3>
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                                      <Calendar className="h-3 w-3" />
+                                      {format(new Date(sale.sale_date), "dd 'de' MMMM, yyyy", { locale: ptBR })}
+                                      <Clock className="h-3 w-3 ml-2" />
+                                      {sale.sale_time?.slice(0, 5)}
+                                    </div>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                      Vendedor: {sale.barber?.name || 'Não informado'}
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-col items-end gap-2">
+                                    <span className={`px-2 py-1 rounded-full text-xs font-bold border ${
+                                      sale.status === 'confirmed' ? 'bg-green-500/20 text-green-500 border-green-500/50' :
+                                      sale.status === 'cancelled' ? 'bg-red-500/20 text-red-500 border-red-500/50' :
+                                      'bg-yellow-500/20 text-yellow-500 border-yellow-500/50'
+                                    }`}>
+                                      {sale.status === 'confirmed' ? 'Confirmado' :
+                                       sale.status === 'cancelled' ? 'Cancelado' : 'Pendente'}
+                                    </span>
+                                    <div className="text-right">
+                                      <span className="font-bold text-primary block">
+                                        R$ {sale.total_price.toFixed(2)}
+                                      </span>
+                                      <span className="text-xs text-muted-foreground">
+                                        {sale.quantity}x R$ {sale.unit_price.toFixed(2)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <ShoppingBag className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                          <p>Nenhuma compra de produto encontrada</p>
+                          <Button 
+                            variant="link" 
+                            className="text-primary mt-2"
+                            onClick={() => navigate('/shop')}
+                          >
+                            Ir para o Shop
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
+          
+          <TabsContent value="fila" className="space-y-6">
             <Card className="bg-card border-border">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <History className="h-5 w-5 text-primary" />
-                  Histórico de Agendamentos
+                  Fila da Barbearia
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                {/* Filtros */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 pb-4 border-b border-border">
-                  <div>
-                    <Label className="text-sm text-muted-foreground mb-1 block">Período</Label>
-                    <Select value={historyFilterPeriod} onValueChange={(v) => setHistoryFilterPeriod(v as any)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos</SelectItem>
-                        <SelectItem value="today">Hoje</SelectItem>
-                        <SelectItem value="week">Última Semana</SelectItem>
-                        <SelectItem value="month">Último Mês</SelectItem>
-                        <SelectItem value="year">Último Ano</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-sm text-muted-foreground mb-1 block">Status</Label>
-                    <Select value={historyFilterStatus} onValueChange={(v) => setHistoryFilterStatus(v as any)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos</SelectItem>
-                        <SelectItem value="completed">Concluído</SelectItem>
-                        <SelectItem value="confirmed">Confirmado</SelectItem>
-                        <SelectItem value="cancelled">Cancelado</SelectItem>
-                        <SelectItem value="pending">Pendente</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-sm text-muted-foreground mb-1 block">Serviço</Label>
-                    <Select value={historyFilterService} onValueChange={setHistoryFilterService}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos</SelectItem>
-                        {services.map((service) => (
-                          <SelectItem key={service.id} value={service.id}>{service.title}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  {(() => {
-                    const filteredAppointments = getFilteredHistoryAppointments();
-                    return filteredAppointments.length > 0 ? (
-                      filteredAppointments.map((appointment) => (
-                      <div key={appointment.id} className="p-4 bg-secondary rounded-lg">
-                        <div className="flex justify-between items-start">
-                          <div className="space-y-1">
-                            <p className="font-bold text-lg">{appointment.service.title}</p>
-                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <Calendar className="h-4 w-4" />
-                                {format(new Date(appointment.appointment_date), "dd/MM/yyyy")}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-4 w-4" />
-                                {appointment.appointment_time.slice(0, 5)}
-                              </span>
-                            </div>
-                            <p className="text-sm text-muted-foreground">
-                              Com {appointment.barber.name}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              Cliente: {user?.user_metadata?.name || 'Você'}
-                            </p>
-                            <p className="text-sm">
-                              <span className={`px-2 py-1 rounded ${
-                                appointment.status === 'completed' ? 'bg-green-500/20 text-green-500' :
-                                appointment.status === 'confirmed' ? 'bg-blue-500/20 text-blue-500' :
-                                appointment.status === 'cancelled' ? 'bg-red-500/20 text-red-500' :
-                                'bg-primary/20 text-primary'
-                              }`}>
-                                {appointment.status === 'completed' ? 'Concluído' :
-                                 appointment.status === 'confirmed' ? 'Confirmado' :
-                                 appointment.status === 'cancelled' ? 'Cancelado' :
-                                 'Agendamento Efetuado'}
-                              </span>
-                            </p>
-                            {appointment.status === 'completed' && appointment.photo_url && (
-                              <div className="mt-3">
-                                <img 
-                                  src={appointment.photo_url} 
-                                  alt="Foto do corte" 
-                                  className="w-full max-w-xs h-48 object-cover rounded-lg border border-border"
-                                />
-                              </div>
-                            )}
-                          </div>
-                          {(appointment.status === 'pending' || appointment.status === 'confirmed') && (
-                            <Button 
-                              size="sm" 
-                              variant="destructive"
-                              onClick={() => handleCancelClick(appointment.id)}
-                            >
-                              Cancelar
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                      ))
-                    ) : (
-                      <p className="text-center text-muted-foreground py-8">
-                        {appointments.length === 0 
-                          ? 'Você ainda não tem agendamentos'
-                          : 'Nenhum agendamento encontrado com os filtros selecionados'}
-                      </p>
-                    );
-                  })()}
-                </div>
+              <CardContent className="p-0">
+                <FilaDaBarbearia readOnly />
               </CardContent>
             </Card>
           </TabsContent>

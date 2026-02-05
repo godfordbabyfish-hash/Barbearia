@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Scissors, Menu, X, LogOut, Home, ShoppingBag, Users, Calendar, Wifi, Star, Instagram, Facebook, QrCode, Copy, Smartphone } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/contexts/AuthContext";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useNavigate } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -528,6 +528,23 @@ const Navbar = () => {
               {/* User Actions */}
               {user ? (
                 <>
+                  {userProfile && (
+                    <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-secondary/30 border border-border/50 mb-2">
+                      <Avatar className="h-9 w-9">
+                        {userProfile.photo_url ? (
+                          <AvatarImage src={userProfile.photo_url} alt={userProfile.name} />
+                        ) : null}
+                        <AvatarFallback className="bg-primary/20 text-primary text-xs font-semibold">
+                          {userProfile.name.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-foreground truncate">
+                          {userProfile.name}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <Button 
                     onClick={() => {
                       handleDashboardClick();
@@ -598,6 +615,9 @@ const Navbar = () => {
               <Wifi className="w-5 h-5 text-primary" />
               Conectar ao WiFi
             </DialogTitle>
+            <DialogDescription>
+              Escaneie o QR Code ou use as instruções abaixo para conectar à rede.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-6 py-4">
             {/* QR Code */}

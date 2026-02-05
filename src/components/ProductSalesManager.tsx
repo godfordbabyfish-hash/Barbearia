@@ -8,11 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { ShoppingBag, Plus, Loader2, DollarSign, Calendar } from 'lucide-react';
+import { ShoppingBag, Plus, Loader2, DollarSign, Calendar, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
+import { Badge } from '@/components/ui/badge';
 
 interface Product {
   id: string;
@@ -32,6 +33,8 @@ interface ProductSale {
   sale_date: string;
   sale_time: string;
   product?: Product;
+  status: 'pending' | 'confirmed' | 'cancelled';
+  notes?: string;
 }
 
 interface ProductSalesManagerProps {
@@ -55,6 +58,27 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
   useEffect(() => {
     loadProducts();
     loadSales();
+    
+    // Subscribe to realtime changes
+    const channel = supabase
+      .channel('product_sales_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'product_sales',
+          filter: `barber_id=eq.${barberId}`,
+        },
+        () => {
+          loadSales();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [barberId]);
 
   const loadProducts = async () => {
@@ -87,6 +111,7 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
         sale_date,
         sale_time,
         notes,
+        status,
         product:products(id, name, price, stock)
       `)
       .eq('barber_id', barberId)
@@ -101,6 +126,44 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
       setSales((data as any) || []);
     }
     setLoading(false);
+  };
+
+  const handleUpdateStatus = async (saleId: string, newStatus: 'confirmed' | 'cancelled') => {
+    try {
+      let updateData: any = { status: newStatus };
+
+      // Se estiver confirmando, recalcula a comissão com as taxas atuais
+      if (newStatus === 'confirmed') {
+        const sale = sales.find(s => s.id === saleId);
+        if (sale) {
+          const individualCommission = getIndividualCommissionPercentage(barberId, sale.product_id);
+          const fixedCommission = getFixedCommissionPercentage(barberId);
+          const commissionPercentage = individualCommission > 0 ? individualCommission : fixedCommission;
+          const commissionValue = (sale.total_price * commissionPercentage) / 100;
+
+          updateData = {
+            ...updateData,
+            commission_percentage: commissionPercentage,
+            commission_value: commissionValue
+          };
+        }
+      }
+
+      const { error } = await supabase
+        .from('product_sales')
+        .update(updateData)
+        .eq('id', saleId);
+
+      if (error) throw error;
+
+      toast.success(`Venda ${newStatus === 'confirmed' ? 'confirmada' : 'cancelada'} com sucesso!`);
+      // No need to manually update stock here as the DB trigger handles it for confirmed sales
+      
+      loadSales();
+    } catch (error) {
+      console.error('Error updating status:', error);
+      toast.error('Erro ao atualizar status da venda');
+    }
   };
 
   const handleSaveSale = async () => {
@@ -150,28 +213,19 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
           sale_date: saleDate,
           sale_time: saleTime,
           notes: notes.trim() || null,
+          status: 'confirmed', // Manual sales are auto-confirmed
         });
 
       if (error) throw error;
 
-      // Atualizar estoque do produto
-      if (product.stock !== null) {
-        const { error: stockError } = await supabase
-          .from('products')
-          .update({ stock: product.stock - quantity })
-          .eq('id', selectedProduct);
-
-        if (stockError) {
-          console.error('Error updating stock:', stockError);
-          // Não falhar a venda se o estoque não atualizar
-        }
-      }
+      // Stock update is handled by DB trigger when status is 'confirmed'
 
       toast.success('Venda registrada com sucesso!');
       setDialogOpen(false);
       resetForm();
+      // loadSales will be triggered by realtime subscription, but we call it anyway for immediate feedback
       loadSales();
-      loadProducts(); // Recarregar produtos para atualizar estoque
+      loadProducts(); 
     } catch (error: any) {
       console.error('Error saving sale:', error);
       toast.error(error.message || 'Erro ao registrar venda');
@@ -241,11 +295,13 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
               <table className="w-full caption-bottom text-sm" style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%' }}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="px-1 sm:px-2" style={{ width: '25%' }}>Data/Hora</TableHead>
-                    <TableHead className="px-1 sm:px-2" style={{ width: '25%' }}>Produto</TableHead>
-                    <TableHead className="text-center px-1 sm:px-2" style={{ width: '15%' }}>Qtd</TableHead>
-                    <TableHead className="text-right px-1 sm:px-2" style={{ width: '20%' }}>Total</TableHead>
+                    <TableHead className="px-1 sm:px-2" style={{ width: '15%' }}>Data</TableHead>
+                    <TableHead className="px-1 sm:px-2" style={{ width: '20%' }}>Produto</TableHead>
+                    <TableHead className="text-center px-1 sm:px-2" style={{ width: '10%' }}>Qtd</TableHead>
+                    <TableHead className="text-right px-1 sm:px-2" style={{ width: '15%' }}>Total</TableHead>
                     <TableHead className="text-right px-1 sm:px-2" style={{ width: '15%' }}>Comissão</TableHead>
+                    <TableHead className="text-center px-1 sm:px-2" style={{ width: '15%' }}>Status</TableHead>
+                    <TableHead className="text-center px-1 sm:px-2" style={{ width: '10%' }}>Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -263,6 +319,9 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
                           <span className="truncate block text-xs sm:text-sm" title={product?.name || 'Produto desconhecido'}>
                             {product?.name || 'Produto desconhecido'}
                           </span>
+                          {sale.notes && (
+                             <div className="text-xs text-muted-foreground truncate" title={sale.notes}>{sale.notes}</div>
+                          )}
                         </TableCell>
                         <TableCell className="text-center px-1 sm:px-2 text-xs sm:text-sm">
                           {sale.quantity}
@@ -279,6 +338,41 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
                           <div className="text-xs text-muted-foreground">
                             ({sale.commission_percentage.toFixed(1)}%)
                           </div>
+                        </TableCell>
+                        <TableCell className="text-center px-1 sm:px-2">
+                          {sale.status === 'confirmed' && (
+                            <Badge variant="default" className="bg-green-600 hover:bg-green-700 text-xs">Confirmado</Badge>
+                          )}
+                          {sale.status === 'pending' && (
+                            <Badge variant="outline" className="border-yellow-500 text-yellow-600 bg-yellow-50 text-xs">Pendente</Badge>
+                          )}
+                          {sale.status === 'cancelled' && (
+                            <Badge variant="destructive" className="text-xs">Cancelado</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center px-1 sm:px-2">
+                          {sale.status === 'pending' && (
+                            <div className="flex gap-1 justify-center">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                onClick={() => handleUpdateStatus(sale.id, 'confirmed')}
+                                title="Confirmar Venda"
+                              >
+                                <CheckCircle className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => handleUpdateStatus(sale.id, 'cancelled')}
+                                title="Cancelar Venda"
+                              >
+                                <XCircle className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     );

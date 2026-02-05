@@ -222,6 +222,7 @@ const Auth = () => {
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     required
                     className="h-11"
+                    autoComplete="username"
                   />
                 </div>
 
@@ -235,6 +236,7 @@ const Auth = () => {
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     required
                     className="h-11"
+                    autoComplete="current-password"
                   />
                 </div>
 

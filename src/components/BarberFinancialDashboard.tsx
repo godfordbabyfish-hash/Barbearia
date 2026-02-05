@@ -206,7 +206,8 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
         service_id,
         service:services(price, title)
       `)
-      .eq('barber_id', barberId);
+      .eq('barber_id', barberId)
+      .eq('status', 'confirmed');
     
     // Apply date range filter
     if (startDate && endDate) {
@@ -250,7 +251,8 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
         commission_value,
         product:products(name)
       `)
-      .eq('barber_id', barberId);
+      .eq('barber_id', barberId)
+      .eq('status', 'confirmed');
 
     if (startDate && endDate) {
       query = query.gte('sale_date', startDate).lte('sale_date', endDate);

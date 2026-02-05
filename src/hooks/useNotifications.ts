@@ -8,8 +8,7 @@ export const useNotifications = () => {
   useEffect(() => {
     const setupServiceWorker = async () => {
       if (!('serviceWorker' in navigator)) {
-        console.error('❌ Service Worker não suportado');
-        toast.error('Notificações não suportadas neste navegador');
+        console.warn('Service Worker não suportado');
         return;
       }
 
