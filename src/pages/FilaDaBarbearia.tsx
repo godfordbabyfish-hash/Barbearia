@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Home, MapPin, Globe, Clock, Users, Scissors } from "lucide-react";
+import { Home, MapPin, Globe, Clock, Users, Scissors, LayoutDashboard } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { QuickBookingDialog } from "@/components/QuickBookingDialog";
 import { format, addMinutes } from "date-fns";
@@ -43,6 +43,25 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const { role } = useAuth();
   const isClient = role === "cliente";
   const isReadOnly = readOnly || isClient;
+
+  const handleDashboardClick = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      navigate("/login");
+      return;
+    }
+
+    if (role === "admin" || role === "gestor") {
+      navigate("/admin");
+    } else if (role === "barbeiro") {
+      navigate("/barbeiro");
+    } else if (role === "cliente") {
+      navigate("/cliente");
+    } else {
+      navigate("/");
+    }
+  };
 
   useEffect(() => {
     const updateTime = () => {
@@ -372,17 +391,28 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
               <span className="text-primary">Barbearia</span>{" "}
               <span className="text-foreground">Raimundos</span>
             </h1>
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              className="flex items-center gap-2 border-primary/30 hover:border-primary hover:bg-primary/10 text-primary hover:text-primary transition-all duration-300 cursor-pointer"
-            >
-              <a href="/" aria-label="Ir para Início">
-                <Home className="h-4 w-4" />
-                <span className="font-medium">Início</span>
-              </a>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2 border-primary/30 hover:border-primary hover:bg-primary/10 text-primary hover:text-primary transition-all duration-300 cursor-pointer"
+                onClick={handleDashboardClick}
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                <span className="font-medium">Meu Painel</span>
+              </Button>
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2 border-primary/30 hover:border-primary hover:bg-primary/10 text-primary hover:text-primary transition-all duration-300 cursor-pointer"
+              >
+                <a href="/" aria-label="Ir para Início">
+                  <Home className="h-4 w-4" />
+                  <span className="font-medium">Início</span>
+                </a>
+              </Button>
+            </div>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
             <span className="bg-primary text-primary-foreground px-4 py-1.5 rounded-full font-semibold text-sm inline-flex items-center gap-2">

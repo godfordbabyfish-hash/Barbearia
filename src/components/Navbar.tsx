@@ -16,6 +16,7 @@ const Navbar = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [socialMenuOpen, setSocialMenuOpen] = useState(false);
   const [wifiCredentials, setWifiCredentials] = useState({ username: '', password: '' });
+  const [socialLinks, setSocialLinks] = useState({ google: '', instagram: '', facebook: '' });
   const [wifiDialogOpen, setWifiDialogOpen] = useState(false);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
   const [userProfile, setUserProfile] = useState<{ name: string; photo_url: string | null } | null>(null);
@@ -67,6 +68,11 @@ const Navbar = () => {
       setWifiCredentials({
         username: config?.wifi?.username || '',
         password: config?.wifi?.password || '',
+      });
+      setSocialLinks({
+        google: config?.social?.google_reviews || '',
+        instagram: config?.social?.instagram || '',
+        facebook: config?.social?.facebook || '',
       });
     }
   };
@@ -222,30 +228,21 @@ const Navbar = () => {
   };
 
 
-  const handleSocialClick = async (type: 'google' | 'instagram' | 'facebook') => {
-    const { data, error } = await supabase
-      .from('site_config')
-      .select('config_value')
-      .eq('config_key', 'footer_info')
-      .maybeSingle();
+  const handleSocialClick = (type: 'google' | 'instagram' | 'facebook') => {
+    let url = '';
+    
+    if (type === 'google') {
+      url = socialLinks.google;
+    } else if (type === 'instagram') {
+      url = socialLinks.instagram;
+    } else if (type === 'facebook') {
+      url = socialLinks.facebook;
+    }
 
-    if (!error && data) {
-      const config = data.config_value as any;
-      let url = '';
-      
-      if (type === 'google' && config.social?.google_reviews) {
-        url = config.social.google_reviews;
-      } else if (type === 'instagram' && config.social?.instagram) {
-        url = config.social.instagram;
-      } else if (type === 'facebook' && config.social?.facebook) {
-        url = config.social.facebook;
-      }
-
-      if (url) {
-        window.open(url, '_blank');
-      } else {
-        toast.error('Link não configurado');
-      }
+    if (url) {
+      window.open(url, '_blank');
+    } else {
+      toast.error('Link não configurado');
     }
     setSocialMenuOpen(false);
   };
@@ -285,47 +282,57 @@ const Navbar = () => {
           {/* Logo with Social Menu and Home Button */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <Popover open={socialMenuOpen} onOpenChange={setSocialMenuOpen}>
-                <PopoverTrigger asChild>
-                  <button className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                    <div className="w-10 h-10 rounded-full bg-gradient-gold flex items-center justify-center cursor-pointer">
-                      <Scissors className="w-5 h-5 text-primary-foreground" />
+              {(socialLinks.google || socialLinks.instagram || socialLinks.facebook || (wifiCredentials.username && wifiCredentials.password)) && (
+                <Popover open={socialMenuOpen} onOpenChange={setSocialMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <button className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                      <div className="w-10 h-10 rounded-full bg-gradient-gold flex items-center justify-center cursor-pointer">
+                        <Scissors className="w-5 h-5 text-primary-foreground" />
+                      </div>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-2 bg-card border-border" align="start">
+                    <div className="flex flex-col gap-2">
+                      {socialLinks.google && (
+                        <button
+                          onClick={() => handleSocialClick('google')}
+                          className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                          title="Google Avaliações"
+                        >
+                          <Star className="w-6 h-6 text-primary" />
+                        </button>
+                      )}
+                      {socialLinks.instagram && (
+                        <button
+                          onClick={() => handleSocialClick('instagram')}
+                          className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                          title="Instagram"
+                        >
+                          <Instagram className="w-6 h-6 text-primary" />
+                        </button>
+                      )}
+                      {socialLinks.facebook && (
+                        <button
+                          onClick={() => handleSocialClick('facebook')}
+                          className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                          title="Facebook"
+                        >
+                          <Facebook className="w-6 h-6 text-primary" />
+                        </button>
+                      )}
+                      {(wifiCredentials.username && wifiCredentials.password) && (
+                        <button
+                          onClick={handleWifiClick}
+                          className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
+                          title="WiFi"
+                        >
+                          <Wifi className="w-6 h-6 text-primary" />
+                        </button>
+                      )}
                     </div>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-2 bg-card border-border" align="start">
-                  <div className="flex flex-col gap-2">
-                    <button
-                      onClick={() => handleSocialClick('google')}
-                      className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
-                      title="Google Avaliações"
-                    >
-                      <Star className="w-6 h-6 text-primary" />
-                    </button>
-                    <button
-                      onClick={() => handleSocialClick('instagram')}
-                      className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
-                      title="Instagram"
-                    >
-                      <Instagram className="w-6 h-6 text-primary" />
-                    </button>
-                    <button
-                      onClick={() => handleSocialClick('facebook')}
-                      className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
-                      title="Facebook"
-                    >
-                      <Facebook className="w-6 h-6 text-primary" />
-                    </button>
-                    <button
-                      onClick={handleWifiClick}
-                      className="flex items-center justify-center w-12 h-12 rounded-full border-2 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all"
-                      title="WiFi"
-                    >
-                      <Wifi className="w-6 h-6 text-primary" />
-                    </button>
-                  </div>
-                </PopoverContent>
-              </Popover>
+                  </PopoverContent>
+                </Popover>
+              )}
               <span className="text-xl font-bold cursor-pointer" onClick={() => navigate('/')}>Barbearia Raimundos</span>
             </div>
             

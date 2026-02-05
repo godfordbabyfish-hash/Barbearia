@@ -26,6 +26,7 @@ interface Appointment {
   created_at: string;
   service_id: string;
   service: { price: number; title: string } | null;
+  appointment_payments?: { amount: number; payment_method?: string }[];
 }
 
 interface Service {
@@ -76,7 +77,10 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   // Priority: 1) Individual commission per service, 2) Fixed commission
   const getCommissionValue = (apt: Appointment): number => {
     if (!apt.service || !apt.service_id) return 0;
-    const servicePrice = apt.service.price || 0;
+    
+    // Determine the base value for commission: sum of payments or service price
+    const paymentsTotal = apt.appointment_payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+    const servicePrice = paymentsTotal > 0 ? paymentsTotal : (apt.service.price || 0);
     
     // Try individual commission first
     const individualCommission = calculateIndividualCommission(barberId, apt.service_id, servicePrice);
@@ -204,10 +208,10 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
         status,
         created_at,
         service_id,
-        service:services(price, title)
+        service:services(price, title),
+        appointment_payments(amount, payment_method)
       `)
-      .eq('barber_id', barberId)
-      .eq('status', 'confirmed');
+      .eq('barber_id', barberId);
     
     // Apply date range filter
     if (startDate && endDate) {
@@ -865,6 +869,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
                   <th className="text-left py-3 px-2">Horário</th>
                   <th className="text-left py-3 px-2">Serviço</th>
                   <th className="text-left py-3 px-2">Tipo</th>
+                  <th className="text-left py-3 px-2">Pagamento</th>
                   <th className="text-left py-3 px-2">Status</th>
                   <th className="text-right py-3 px-2">Comissão</th>
                 </tr>
@@ -887,6 +892,21 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
                       }`} title={apt.booking_type === 'manual' ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' : ''}>
                         {apt.booking_type === 'local' ? 'Local' : apt.booking_type === 'manual' ? '📝 Manual' : 'Online'}
                       </span>
+                    </td>
+                    <td className="py-3 px-2">
+                      {apt.appointment_payments && apt.appointment_payments.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {apt.appointment_payments.map((p, idx) => (
+                            <span key={idx} className="text-xs text-muted-foreground whitespace-nowrap">
+                              {(p as any).payment_method === 'pix' ? 'Pix' : 
+                               (p as any).payment_method === 'cartao' ? 'Cartão' : 
+                               (p as any).payment_method === 'dinheiro' ? 'Dinheiro' : 'Outro'}: R$ {Number(p.amount).toFixed(2)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
                     </td>
                     <td className="py-3 px-2">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${

@@ -20,8 +20,10 @@ interface Appointment {
   booking_type: string;
   status: string;
   created_at: string;
+  payment_method?: string;
   service: { price: number; title: string } | null;
   barber: { name: string } | null;
+  appointment_payments?: { amount: number; payment_method: string }[];
 }
 
 interface Barber {
@@ -174,10 +176,12 @@ const FinancialDashboard = () => {
         booking_type,
         status,
         created_at,
+        payment_method,
         barber_id,
         service_id,
         service:services(price, title),
-        barber:barbers(name)
+        barber:barbers(name),
+        appointment_payments(amount, payment_method)
       `)
       .gte('appointment_date', format(start, 'yyyy-MM-dd'))
       .lte('appointment_date', format(end, 'yyyy-MM-dd'));
@@ -241,10 +245,16 @@ const FinancialDashboard = () => {
     setProductSales((data as any) || []);
   };
 
+  // Helper to calculate appointment revenue considering split payments
+  const getAppointmentRevenue = (apt: Appointment) => {
+    const paymentsTotal = apt.appointment_payments?.reduce((pSum, p) => pSum + Number(p.amount), 0) || 0;
+    return paymentsTotal > 0 ? paymentsTotal : ((apt.service as any)?.price || 0);
+  };
+
   // Calculate stats
   const totalRevenue = appointments
     .filter(apt => apt.status === 'completed' || apt.status === 'confirmed')
-    .reduce((sum, apt) => sum + ((apt.service as any)?.price || 0), 0);
+    .reduce((sum, apt) => sum + getAppointmentRevenue(apt), 0);
   
   const totalProductRevenue = productSales.reduce((sum, sale) => sum + sale.total_price, 0);
   const totalProductCommission = productSales.reduce((sum, sale) => sum + sale.commission_value, 0);
@@ -272,7 +282,7 @@ const FinancialDashboard = () => {
         if (!grouped[dateKey]) {
           grouped[dateKey] = { date: dateKey, receita: 0, agendamentos: 0 };
         }
-        grouped[dateKey].receita += (apt.service as any)?.price || 0;
+        grouped[dateKey].receita += getAppointmentRevenue(apt);
         grouped[dateKey].agendamentos += 1;
       });
 
@@ -299,7 +309,7 @@ const FinancialDashboard = () => {
       .filter(apt => apt.status === 'completed' || apt.status === 'confirmed')
       .forEach((apt) => {
         const barberName = (apt.barber as any)?.name || 'Desconhecido';
-        grouped[barberName] = (grouped[barberName] || 0) + ((apt.service as any)?.price || 0);
+        grouped[barberName] = (grouped[barberName] || 0) + getAppointmentRevenue(apt);
       });
     productSales.forEach((sale) => {
       const barberName = (sale.barber as any)?.name || 'Desconhecido';
@@ -319,7 +329,7 @@ const FinancialDashboard = () => {
           grouped[serviceName] = { count: 0, revenue: 0 };
         }
         grouped[serviceName].count += 1;
-        grouped[serviceName].revenue += (apt.service as any)?.price || 0;
+        grouped[serviceName].revenue += getAppointmentRevenue(apt);
       });
     return Object.entries(grouped).map(([name, data]) => ({ 
       name, 
@@ -348,6 +358,40 @@ const FinancialDashboard = () => {
     }));
   };
 
+  // Revenue by payment method
+  const revenueByPaymentMethod = () => {
+    const grouped: Record<string, number> = {};
+    
+    appointments
+      .filter(apt => apt.status === 'completed' || apt.status === 'confirmed')
+      .forEach((apt) => {
+        if (apt.appointment_payments && apt.appointment_payments.length > 0) {
+            apt.appointment_payments.forEach(p => {
+                let method = p.payment_method || 'Outros';
+                // Capitalize
+                method = method.charAt(0).toUpperCase() + method.slice(1);
+                if (method === 'Cartao') method = 'Cartão';
+                
+                grouped[method] = (grouped[method] || 0) + Number(p.amount);
+            });
+        } else {
+            // Fallback
+            const price = getAppointmentRevenue(apt);
+            if (price > 0) {
+                let method = apt.payment_method || 'Não definido';
+                method = method.charAt(0).toUpperCase() + method.slice(1);
+                if (method === 'Cartao') method = 'Cartão';
+                
+                grouped[method] = (grouped[method] || 0) + price;
+            }
+        }
+      });
+      
+    return Object.entries(grouped)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value);
+  };
+
   // Chart data by date (including products)
   const chartDataByDateWithProducts = () => {
     const grouped: Record<string, { date: string; receita: number; receitaProdutos: number; agendamentos: number }> = {};
@@ -362,7 +406,7 @@ const FinancialDashboard = () => {
         if (!grouped[dateKey]) {
           grouped[dateKey] = { date: dateKey, receita: 0, receitaProdutos: 0, agendamentos: 0 };
         }
-        grouped[dateKey].receita += (apt.service as any)?.price || 0;
+        grouped[dateKey].receita += getAppointmentRevenue(apt);
         grouped[dateKey].agendamentos += 1;
       });
 
@@ -691,6 +735,31 @@ const FinancialDashboard = () => {
           </CardContent>
         </Card>
 
+        {/* Revenue by payment method */}
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <CardTitle>Receita por Método</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={revenueByPaymentMethod()} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis type="number" stroke="hsl(var(--muted-foreground))" />
+                <YAxis dataKey="name" type="category" stroke="hsl(var(--muted-foreground))" width={100} />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'hsl(var(--card))', 
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px'
+                  }}
+                  formatter={(value: number) => [`R$ ${value.toFixed(2)}`, 'Receita']}
+                />
+                <Bar dataKey="value" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
         {/* Revenue by barber */}
         <Card className="bg-card border-border">
           <CardHeader>
@@ -796,6 +865,7 @@ const FinancialDashboard = () => {
                     <th className="text-left py-3 px-2">Serviço</th>
                     <th className="text-left py-3 px-2">Barbeiro</th>
                     <th className="text-left py-3 px-2">Tipo</th>
+                    <th className="text-left py-3 px-2">Pagamento</th>
                     <th className="text-left py-3 px-2">Status</th>
                     <th className="text-right py-3 px-2">Valor</th>
                   </tr>
@@ -811,16 +881,39 @@ const FinancialDashboard = () => {
                       <td className="py-3 px-2">{(apt.barber as any)?.name || '-'}</td>
                       <td className="py-3 px-2">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          apt.booking_type === 'local' 
-                            ? 'bg-primary/20 text-primary' 
-                            : apt.booking_type === 'manual'
-                            ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
-                            : 'bg-blue-500/20 text-blue-400'
-                        }`} title={apt.booking_type === 'manual' ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' : ''}>
-                          {apt.booking_type === 'local' ? 'Local' : apt.booking_type === 'manual' ? '📝 Manual' : 'Online'}
+                        apt.booking_type === 'local' 
+                          ? 'bg-primary/20 text-primary' 
+                          : apt.booking_type === 'manual'
+                          ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                          : 'bg-blue-500/20 text-blue-400'
+                      }`} title={apt.booking_type === 'manual' ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' : ''}>
+                        {apt.booking_type === 'local' ? 'Local' : apt.booking_type === 'manual' ? '📝 Manual' : 'Online'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-2">
+                      {apt.appointment_payments && apt.appointment_payments.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {apt.appointment_payments.map((p, idx) => (
+                            <span key={idx} className="text-xs text-muted-foreground whitespace-nowrap">
+                              {p.payment_method === 'pix' ? 'Pix' : 
+                               p.payment_method === 'cartao' ? 'Cartão' : 
+                               p.payment_method === 'dinheiro' ? 'Dinheiro' : 'Outro'}: R$ {Number(p.amount).toFixed(2)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {apt.payment_method ? (
+                            <>
+                              {apt.payment_method === 'pix' ? 'Pix' : 
+                               apt.payment_method === 'cartao' ? 'Cartão' : 
+                               apt.payment_method === 'dinheiro' ? 'Dinheiro' : apt.payment_method}
+                            </>
+                          ) : '-'}
                         </span>
-                      </td>
-                      <td className="py-3 px-2">
+                      )}
+                    </td>
+                    <td className="py-3 px-2">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
                           apt.status === 'confirmed' ? 'bg-green-500/20 text-green-400' :
                           apt.status === 'completed' ? 'bg-primary/20 text-primary' :

@@ -31,9 +31,9 @@ const Footer = () => {
     maps_link: "",
     hours: "Seg-Sex: 9h-20h | Sáb: 9h-18h",
     social: {
-      instagram: "https://instagram.com/barbearia",
-      facebook: "https://facebook.com/barbearia",
-      whatsapp: "5511999999999"
+      instagram: "",
+      facebook: "",
+      whatsapp: ""
     }
   });
 
@@ -139,24 +139,28 @@ const Footer = () => {
           <div>
             <h3 className="text-xl font-bold mb-4 text-primary">Redes Sociais</h3>
             <div className="flex gap-4">
-              <a 
-                href={config.social.instagram}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-12 h-12 rounded-full bg-card border border-border hover:border-primary flex items-center justify-center transition-all duration-300 hover:shadow-gold"
-                aria-label="Instagram"
-              >
-                <Instagram className="w-5 h-5 text-primary" />
-              </a>
-              <a 
-                href={config.social.facebook}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-12 h-12 rounded-full bg-card border border-border hover:border-primary flex items-center justify-center transition-all duration-300 hover:shadow-gold"
-                aria-label="Facebook"
-              >
-                <Facebook className="w-5 h-5 text-primary" />
-              </a>
+              {config.social.instagram && (
+                <a 
+                  href={config.social.instagram}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-12 h-12 rounded-full bg-card border border-border hover:border-primary flex items-center justify-center transition-all duration-300 hover:shadow-gold"
+                  aria-label="Instagram"
+                >
+                  <Instagram className="w-5 h-5 text-primary" />
+                </a>
+              )}
+              {config.social.facebook && (
+                <a 
+                  href={config.social.facebook}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-12 h-12 rounded-full bg-card border border-border hover:border-primary flex items-center justify-center transition-all duration-300 hover:shadow-gold"
+                  aria-label="Facebook"
+                >
+                  <Facebook className="w-5 h-5 text-primary" />
+                </a>
+              )}
             </div>
           </div>
         </div>

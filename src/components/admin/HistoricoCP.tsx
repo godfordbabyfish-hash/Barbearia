@@ -36,6 +36,8 @@ interface Appointment {
   service?: { title: string; price: number } | null;
   barber?: { name: string } | null;
   client?: { name: string; phone?: string } | null;
+  payment_method?: string;
+  appointment_payments?: { amount: number; payment_method?: string }[];
 }
 
 const HistoricoCP = () => {
@@ -122,8 +124,10 @@ const HistoricoCP = () => {
           client_id,
           barber_id,
           service_id,
+          payment_method,
           service:services(title, price),
-          barber:barbers(name)
+          barber:barbers(name),
+          appointment_payments(amount, payment_method)
         `)
         // Filtrar apenas agendamentos locais e online (excluir manuais)
         .in('booking_type', ['local', 'online']);
@@ -399,6 +403,7 @@ const HistoricoCP = () => {
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[150px]">Cliente</th>
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[100px] sm:w-[120px]">Barbeiro</th>
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[150px]">Serviço</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[100px] sm:w-[120px]">Pagamento</th>
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[70px] sm:w-[80px]">Tipo</th>
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Status</th>
                       <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Ações</th>
@@ -441,6 +446,29 @@ const HistoricoCP = () => {
                               </div>
                             )}
                           </div>
+                        </td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          {apt.appointment_payments && apt.appointment_payments.length > 0 ? (
+                            <div className="flex flex-col gap-1">
+                              {apt.appointment_payments.map((p, idx) => (
+                                <span key={idx} className="text-xs text-muted-foreground whitespace-nowrap">
+                                  {p.payment_method === 'pix' ? 'Pix' : 
+                                   p.payment_method === 'cartao' ? 'Cartão' : 
+                                   p.payment_method === 'dinheiro' ? 'Dinheiro' : 'Outro'}: R$ {Number(p.amount).toFixed(2)}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-muted-foreground">
+                              {apt.payment_method ? (
+                                <>
+                                  {apt.payment_method === 'pix' ? 'Pix' : 
+                                   apt.payment_method === 'cartao' ? 'Cartão' : 
+                                   apt.payment_method === 'dinheiro' ? 'Dinheiro' : apt.payment_method}
+                                </>
+                              ) : '-'}
+                            </div>
+                          )}
                         </td>
                         <td className="py-2 sm:py-3 px-1 sm:px-2">{getTypeBadge(apt.booking_type)}</td>
                         <td className="py-2 sm:py-3 px-1 sm:px-2">{getStatusBadge(apt.status)}</td>
