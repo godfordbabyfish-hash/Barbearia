@@ -62,6 +62,9 @@ const BarbeiroDashboard = () => {
   const [actionDialogOpen, setActionDialogOpen] = useState(false);
   const [selectedAppointmentForAction, setSelectedAppointmentForAction] = useState<any | null>(null);
   const [loadingAdvances, setLoadingAdvances] = useState(false);
+  const [whatsappDialogOpen, setWhatsappDialogOpen] = useState(false);
+  const [whatsappAppointment, setWhatsappAppointment] = useState<any | null>(null);
+  const [whatsappNumber, setWhatsappNumber] = useState<string>('');
   
   // Estados para edição de agendamento
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -367,6 +370,54 @@ const BarbeiroDashboard = () => {
     }
   }, [selectedBarber]);
 
+  const formatWhatsappNumber = (raw: string) => {
+    const digits = (raw || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('55')) return digits;
+    if (digits.length >= 10 && digits.length <= 12) return `55${digits}`;
+    return digits;
+  };
+
+  const handleWhatsAppClick = (appointment: any) => {
+    const phone = appointment?.client?.phone || '';
+    if (phone) {
+      const n = formatWhatsappNumber(phone);
+      window.open(`https://wa.me/${n}`, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    setWhatsappAppointment(appointment);
+    setWhatsappNumber(appointment?.client?.phone || '');
+    setWhatsappDialogOpen(true);
+  };
+
+  const handleOpenWhatsAppWithInput = () => {
+    const n = formatWhatsappNumber(whatsappNumber);
+    if (!n) return;
+    window.open(`https://wa.me/${n}`, '_blank', 'noopener,noreferrer');
+    setWhatsappDialogOpen(false);
+    setWhatsappAppointment(null);
+    setWhatsappNumber('');
+  };
+
+  const handleSavePhoneAndOpenWhatsApp = async () => {
+    if (!whatsappAppointment?.client?.id) {
+      handleOpenWhatsAppWithInput();
+      return;
+    }
+    const n = formatWhatsappNumber(whatsappNumber);
+    if (!n) return;
+    const { error } = await (supabase as any)
+      .from('profiles')
+      .update({ phone: n })
+      .eq('id', whatsappAppointment.client.id);
+    if (!error) {
+      loadAppointments();
+    }
+    window.open(`https://wa.me/${n}`, '_blank', 'noopener,noreferrer');
+    setWhatsappDialogOpen(false);
+    setWhatsappAppointment(null);
+    setWhatsappNumber('');
+  };
   // Sistema de notificações com Service Worker
   const { isReady, showNotification } = useNotifications();
 
@@ -763,53 +814,34 @@ const BarbeiroDashboard = () => {
         }
       }
 
-      // 2. CRIAR/ATUALIZAR PERFIL COM UPSERT (otimizado como no cliente)
+      // 2. CRIAR/ATUALIZAR PERFIL COM UPSERT (telefone obrigatório)
+      if (!newAppointment.clientPhone?.trim()) {
+        toast.error('Informe o telefone do cliente');
+        return;
+      }
       const profileId = generateUUID();
       let finalProfileId = profileId;
       
-      // Se tem telefone, tentar buscar perfil existente primeiro
-      if (newAppointment.clientPhone?.trim()) {
-        const { data: existingProfile } = await (supabase as any)
+      // Buscar perfil existente por telefone
+      const { data: existingProfile } = await (supabase as any)
+        .from('profiles')
+        .select('id')
+        .eq('phone', newAppointment.clientPhone.trim())
+        .maybeSingle();
+      
+      if (existingProfile) {
+        finalProfileId = existingProfile.id;
+        await (supabase as any)
           .from('profiles')
-          .select('id')
-          .eq('phone', newAppointment.clientPhone.trim())
-          .maybeSingle();
-        
-        if (existingProfile) {
-          finalProfileId = existingProfile.id;
-          // Atualizar nome se necessário
-          await (supabase as any)
-            .from('profiles')
-            .update({ name: newAppointment.clientName.trim() })
-            .eq('id', existingProfile.id);
-        } else {
-          // Criar novo perfil com telefone
-          const { data: newProfile, error: profileError } = await (supabase as any)
-            .from('profiles')
-            .insert([{
-              id: profileId,
-              name: newAppointment.clientName.trim(),
-              phone: newAppointment.clientPhone.trim(),
-              is_temp_user: true,
-            }])
-            .select('id')
-            .single();
-
-          if (profileError || !newProfile?.id) {
-            console.error('Error creating profile:', profileError);
-            toast.error('Erro ao criar perfil do cliente: ' + (profileError?.message || 'Erro desconhecido'));
-            return;
-          }
-          finalProfileId = newProfile.id;
-        }
+          .update({ name: newAppointment.clientName.trim(), phone: newAppointment.clientPhone.trim() })
+          .eq('id', existingProfile.id);
       } else {
-        // Sem telefone, criar perfil temporário
         const { data: newProfile, error: profileError } = await (supabase as any)
           .from('profiles')
           .insert([{
             id: profileId,
             name: newAppointment.clientName.trim(),
-            phone: null,
+            phone: newAppointment.clientPhone.trim(),
             is_temp_user: true,
           }])
           .select('id')
@@ -1589,12 +1621,16 @@ const BarbeiroDashboard = () => {
 
             
 
-            <div className="mb-6 flex flex-col sm:flex-row gap-3">
+            <div className="mb-6 flex flex-row gap-2 items-stretch">
               <Dialog open={showNewAppointment} onOpenChange={setShowNewAppointment}>
                 <DialogTrigger asChild>
-                  <Button className="w-full sm:w-auto">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Novo Agendamento
+                  <Button 
+                    size="sm" 
+                    className="flex-1 min-w-0 h-8 px-1 text-xs gap-1"
+                    title="Novo Agendamento"
+                  >
+                    <Plus className="mr-1 h-3 w-3" />
+                    <span className="truncate">Novo</span>
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-md">
@@ -1611,14 +1647,15 @@ const BarbeiroDashboard = () => {
                       />
                     </div>
                     <div>
-                      <Label>Telefone (opcional)</Label>
+                      <Label>Telefone do Cliente *</Label>
                       <Input
                         value={newAppointment.clientPhone}
                         onChange={(e) => setNewAppointment({ ...newAppointment, clientPhone: e.target.value })}
                         placeholder="+55 11 99999-9999"
+                        required
                       />
                       <p className="text-xs text-muted-foreground mt-1">
-                        Opcional. Se não informado, será criado um perfil sem telefone.
+                        Obrigatório. O número será salvo no cadastro do cliente.
                       </p>
                     </div>
                     <div>
@@ -1728,9 +1765,13 @@ const BarbeiroDashboard = () => {
                 }}
               >
                 <DialogTrigger asChild>
-                  <Button variant="outline" className="w-full sm:w-auto">
-                    <ShoppingBag className="mr-2 h-4 w-4" />
-                    Vender Produto
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="flex-1 min-w-0 h-8 px-1 text-xs"
+                    title="Vender Produto"
+                  >
+                    <span className="truncate">Vender</span>
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-md">
@@ -1854,13 +1895,14 @@ const BarbeiroDashboard = () => {
                 </DialogContent>
               </Dialog>
               
-              <Button 
-                variant="outline" 
-                onClick={() => navigate('/fila')} 
-                className="w-full sm:w-auto"
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => navigate('/fila')}
+                className="flex-1 min-w-0 h-8 px-1 text-xs"
+                title="Fila da Barbearia"
               >
-                <Scissors className="mr-2 h-4 w-4" />
-                Fila da Barbearia
+                <span className="truncate">Fila</span>
               </Button>
             </div>
 
@@ -2345,18 +2387,29 @@ const BarbeiroDashboard = () => {
                                   )}
                                 </div>
                                 <p className="text-sm font-medium">Cliente: {appointment.client?.name ?? 'Cliente'}</p>
-                                {appointment.client?.phone ? (
-                                  <a 
-                                    href={`https://wa.me/${appointment.client.phone.replace(/\D/g, '')}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-sm text-primary hover:underline"
+                                <div className="flex items-center gap-2">
+                                  {appointment.client?.phone ? (
+                                    <a 
+                                      href={`https://wa.me/${formatWhatsappNumber(appointment.client.phone)}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-sm text-primary hover:underline"
+                                    >
+                                      Tel: {appointment.client.phone}
+                                    </a>
+                                  ) : (
+                                    <span className="text-sm text-muted-foreground">Sem telefone</span>
+                                  )}
+                                  <Button 
+                                    size="sm" 
+                                    className="bg-green-600 hover:bg-green-700 text-white h-8 px-2 text-xs"
+                                    onClick={() => handleWhatsAppClick(appointment)}
+                                    title="Falar no WhatsApp"
                                   >
-                                    Tel: {appointment.client.phone}
-                                  </a>
-                                ) : (
-                                  <p className="text-sm text-muted-foreground">Sem telefone</p>
-                                )}
+                                    <Smartphone className="h-4 w-4" />
+                                    WhatsApp
+                                  </Button>
+                                </div>
                                 <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
                                   <div className="flex items-center gap-2">
                                     <Calendar className="h-4 w-4" />
@@ -2425,6 +2478,15 @@ const BarbeiroDashboard = () => {
               )}
             </DialogHeader>
             <div className="space-y-3 pt-2">
+              <Button
+                className="w-full bg-green-600 hover:bg-green-700"
+                onClick={() => {
+                  if (!selectedAppointmentForAction) return;
+                  handleWhatsAppClick(selectedAppointmentForAction);
+                }}
+              >
+                Falar com o Cliente (WhatsApp)
+              </Button>
               <Button
                 className="w-full bg-green-600 hover:bg-green-700"
                 onClick={() => {
@@ -2697,6 +2759,47 @@ const BarbeiroDashboard = () => {
                   className="flex-1"
                 >
                   Confirmar Cancelamento
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog 
+          open={whatsappDialogOpen}
+          onOpenChange={(open) => {
+            setWhatsappDialogOpen(open);
+            if (!open) {
+              setWhatsappAppointment(null);
+              setWhatsappNumber('');
+            }
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Falar no WhatsApp</DialogTitle>
+              {whatsappAppointment && (
+                <DialogDescription>
+                  Cliente: <span className="font-semibold">{whatsappAppointment.client?.name ?? 'Cliente'}</span>
+                </DialogDescription>
+              )}
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <Label>Número do WhatsApp (cadastro)</Label>
+                <Input
+                  value={whatsappNumber}
+                  onChange={(e) => setWhatsappNumber(e.target.value)}
+                  placeholder="+55 11 99999-9999"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button 
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  onClick={handleSavePhoneAndOpenWhatsApp}
+                  disabled={!whatsappNumber}
+                >
+                  Salvar no perfil e abrir
                 </Button>
               </div>
             </div>
