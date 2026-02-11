@@ -121,7 +121,37 @@ export const UserManager = () => {
 
       if (data?.success) {
         const usersList = data.users || [];
-        setUsers(usersList);
+        const { data: barbersData } = await (supabase as any)
+          .from('barbers')
+          .select('id, user_id, name, image_url, whatsapp_phone, visible');
+        const usersMap = new Map<string, User>();
+        usersList.forEach((u: User) => {
+          usersMap.set(u.id, u);
+        });
+        const enriched: User[] = [];
+        usersMap.forEach((u) => enriched.push(u));
+        (barbersData || []).forEach((b: any) => {
+          if (!b?.user_id) return;
+          const existing = usersMap.get(b.user_id);
+          if (existing) {
+            const roles = Array.isArray(existing.roles) ? existing.roles : [];
+            if (!roles.includes('barbeiro')) roles.push('barbeiro');
+            existing.roles = roles;
+          } else {
+            enriched.push({
+              id: b.user_id,
+              email: '',
+              name: b.name || '',
+              phone: b.whatsapp_phone || '',
+              role: 'barbeiro',
+              roles: ['barbeiro'],
+              image_url: b.image_url || null,
+              createdAt: '',
+              lastSignIn: null,
+            });
+          }
+        });
+        setUsers(enriched);
       } else {
         toast.error('Erro ao carregar usuários', {
           description: data?.message || 'Erro desconhecido',
@@ -462,7 +492,7 @@ export const UserManager = () => {
 
   const filteredUsers = users.filter(user => {
     if (filterRole === 'all') return true;
-    return user.role === filterRole;
+    return user.role === filterRole || (Array.isArray(user.roles) && user.roles.includes(filterRole));
   });
 
   return (

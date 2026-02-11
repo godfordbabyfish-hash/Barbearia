@@ -336,15 +336,15 @@ const Navbar = () => {
               <span className="text-xl font-bold cursor-pointer" onClick={() => navigate('/')}>Barbearia Raimundos</span>
             </div>
             
-            {/* Home Button */}
+            {/* Dashboard Button (replace Home) */}
             <Button
-              onClick={() => navigate('/')}
+              onClick={handleDashboardClick}
               variant="outline"
               size="sm"
               className="flex items-center gap-2 border-primary/30 hover:border-primary hover:bg-primary/10 text-primary hover:text-primary transition-all duration-300"
             >
-              <Home className="w-4 h-4" />
-              <span className="font-medium">Início</span>
+              <Users className="w-4 h-4" />
+              <span className="font-medium">Meu Painel</span>
             </Button>
           </div>
 
@@ -463,13 +463,13 @@ const Navbar = () => {
               {/* Navigation Items */}
               <button 
                 onClick={() => {
-                  navigate('/');
+                  handleDashboardClick();
                   setIsMobileMenuOpen(false);
                 }}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg text-left text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all duration-200 group"
               >
-                <Home className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                <span className="font-medium">Início</span>
+                <Users className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                <span className="font-medium">Meu Painel</span>
               </button>
 
               <button 

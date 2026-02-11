@@ -5,12 +5,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { LogOut, Calendar, Clock, Scissors, Sparkles, Wind, Home, ShoppingBag, History, Settings } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import haircutImg from "@/assets/service-haircut.jpg";
@@ -100,7 +102,8 @@ const ClienteDashboard = () => {
         barber:barbers(name)
       `)
       .eq('client_id', user?.id)
-      .order('appointment_date', { ascending: false });
+      .order('appointment_date', { ascending: true })
+      .order('appointment_time', { ascending: true });
 
     if (error) {
       console.error('Error loading appointments:', error);
@@ -317,16 +320,56 @@ const ClienteDashboard = () => {
                 </div>
               </div>
             )}
-            <div className="flex flex-wrap gap-2 justify-start md:justify-end">
-              <Button onClick={() => navigate('/')} variant="outline">
+          </div>
+        </div>
+
+        <div className="hidden md:flex flex-wrap gap-2 justify-start md:justify-end mb-4">
+          <Button onClick={() => navigate('/cliente')} variant="outline" size="sm">
+            <Home className="mr-2 h-4 w-4" />
+            Meu Painel
+          </Button>
+          <Button onClick={() => navigate('/configuracoes')} variant="outline" size="sm">
+            <Settings className="mr-2 h-4 w-4" />
+            Configurações
+          </Button>
+          <Button onClick={signOut} variant="outline" size="sm">
+            <LogOut className="mr-2 h-4 w-4" />
+            Sair
+          </Button>
+        </div>
+
+        <div className="md:hidden flex justify-end mb-4">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">Menu</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => navigate('/')}>
                 <Home className="mr-2 h-4 w-4" />
                 Início
-              </Button>
-              <Button onClick={() => navigate('/shop')} variant="outline">
-                <ShoppingBag className="mr-2 h-4 w-4" />
-                Shop
-              </Button>
-              <Button onClick={() => {
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/configuracoes')}>
+                <Settings className="mr-2 h-4 w-4" />
+                Configurações
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={signOut}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Sair
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <Tabs defaultValue="agendamentos" className="w-full">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="agendamentos">Agendamentos</TabsTrigger>
+            <TabsTrigger value="historico">Histórico</TabsTrigger>
+            <TabsTrigger value="fila">Fila</TabsTrigger>
+          </TabsList>
+          
+          <div className="mb-6">
+            <Button
+              onClick={() => {
                 navigate('/');
                 setTimeout(() => {
                   const bookingSection = document.getElementById('agendamento');
@@ -336,27 +379,11 @@ const ClienteDashboard = () => {
                     window.scrollTo({ top: y, behavior: 'smooth' });
                   }
                 }, 300);
-              }} className="bg-primary">
-                Novo Agendamento
-              </Button>
-              <Button onClick={() => navigate('/configuracoes')} variant="outline">
-                <Settings className="mr-2 h-4 w-4" />
-                Configurações
-              </Button>
-              <Button onClick={signOut} variant="outline" className="text-destructive hover:text-destructive hover:bg-destructive/10">
-                <LogOut className="mr-2 h-4 w-4" />
-                Sair
-              </Button>
-            </div>
+              }}
+            >
+              Novo Agendamento
+            </Button>
           </div>
-        </div>
-
-        <Tabs defaultValue="agendamentos" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6">
-            <TabsTrigger value="agendamentos">Agendamentos</TabsTrigger>
-            <TabsTrigger value="historico">Histórico</TabsTrigger>
-            <TabsTrigger value="fila">Fila</TabsTrigger>
-          </TabsList>
 
           <TabsContent value="agendamentos" className="space-y-6">
             <div className="grid md:grid-cols-2 gap-6 mb-8">
@@ -391,21 +418,65 @@ const ClienteDashboard = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {appointments.filter(a => a.status === 'pending' || a.status === 'confirmed')[0] ? (
+                  {(() => {
+                    const upcoming = [...appointments]
+                      .filter(a => a.status === 'pending' || a.status === 'confirmed')
+                      .sort((a, b) => {
+                        const da = new Date(a.appointment_date + 'T00:00:00').getTime();
+                        const db = new Date(b.appointment_date + 'T00:00:00').getTime();
+                        if (da !== db) return da - db;
+                        const ta = (a.appointment_time || '00:00').slice(0,5);
+                        const tb = (b.appointment_time || '00:00').slice(0,5);
+                        return ta.localeCompare(tb);
+                      })[0];
+                    return upcoming ? (
                     <div className="space-y-2">
                       <p className="font-bold text-lg">
-                        {appointments.filter(a => a.status === 'pending' || a.status === 'confirmed')[0].service.title}
+                        {upcoming.service.title}
                       </p>
                       <p className="text-muted-foreground">
-                        {format(new Date(appointments.filter(a => a.status === 'pending' || a.status === 'confirmed')[0].appointment_date), "dd 'de' MMMM", { locale: ptBR })} às {appointments.filter(a => a.status === 'pending' || a.status === 'confirmed')[0].appointment_time.slice(0, 5)}
+                        {format(new Date(upcoming.appointment_date + 'T00:00:00'), "dd 'de' MMMM", { locale: ptBR })} às {upcoming.appointment_time.slice(0, 5)}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Com {appointments.filter(a => a.status === 'pending' || a.status === 'confirmed')[0].barber.name}
+                        Com {upcoming.barber.name}
                       </p>
+                      {(upcoming.status === 'pending' || upcoming.status === 'confirmed') && (
+                        <div className="pt-3 border-t border-border/50 flex justify-end">
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30"
+                              >
+                                Cancelar Agendamento
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Confirmar Cancelamento</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Você deseja cancelar este agendamento? Será solicitado o motivo em seguida.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <div className="flex justify-end gap-2">
+                                <AlertDialogCancel>Voltar</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleCancelClick(upcoming.id)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  Sim, cancelar
+                                </AlertDialogAction>
+                              </div>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-muted-foreground">Nenhum agendamento futuro</p>
-                  )}
+                  );
+                  })()}
                 </CardContent>
               </Card>
             </div>
@@ -539,7 +610,7 @@ const ClienteDashboard = () => {
                                 <h3 className="font-bold text-lg">{appointment.service.title}</h3>
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                   <Calendar className="h-3 w-3" />
-                                  {format(new Date(appointment.appointment_date), "dd 'de' MMMM, yyyy", { locale: ptBR })}
+                                  {format(new Date(appointment.appointment_date + 'T00:00:00'), "dd 'de' MMMM, yyyy", { locale: ptBR })}
                                   <Clock className="h-3 w-3 ml-2" />
                                   {appointment.appointment_time.slice(0, 5)}
                                 </div>
