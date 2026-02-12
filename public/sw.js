@@ -29,8 +29,8 @@ self.addEventListener('message', (event) => {
     
     self.registration.showNotification(title, {
       ...options,
-      badge: '/favicon.ico',
-      icon: '/favicon.ico',
+      badge: '/icon-192.png',
+      icon: '/icon-192.png',
       requireInteraction: true,
       silent: false,
       vibrate: [200, 100, 200],

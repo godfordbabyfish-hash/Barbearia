@@ -41,6 +41,14 @@ export const BarbeiroManager = () => {
     if (data) setBarbers(data);
   };
 
+  const normalizePhone = (raw: string) => {
+    const digits = (raw || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('55')) return digits;
+    if (digits.length >= 10 && digits <= '12') return `55${digits}`;
+    return digits;
+  };
+
   const handleCreateBarber = async () => {
     if (!newBarber.name || !newBarber.email || !newBarber.password || !newBarber.specialty || !newBarber.experience) {
       toast.error('Preencha todos os campos obrigatórios');
@@ -48,6 +56,8 @@ export const BarbeiroManager = () => {
     }
 
     try {
+      const normalizedPhone = normalizePhone(newBarber.phone);
+      const normalizedWhatsapp = normalizePhone(newBarber.whatsapp_phone);
       // Criar usuário
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: newBarber.email,
@@ -55,7 +65,7 @@ export const BarbeiroManager = () => {
         options: {
           data: {
             name: newBarber.name,
-            phone: newBarber.phone || '',
+            phone: normalizedPhone || '',
           }
         }
       });
@@ -69,7 +79,7 @@ export const BarbeiroManager = () => {
         .upsert({
           id: authData.user.id,
           name: newBarber.name,
-          phone: newBarber.phone || '',
+          phone: normalizedPhone || '',
         });
 
       if (profileError) throw profileError;
@@ -94,7 +104,7 @@ export const BarbeiroManager = () => {
           experience: newBarber.experience,
           rating: 5.0,
           visible: true,
-          whatsapp_phone: newBarber.whatsapp_phone || null,
+          whatsapp_phone: normalizedWhatsapp || null,
           order_index: barbers.length,
         }]);
 

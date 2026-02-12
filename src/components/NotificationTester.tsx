@@ -35,8 +35,8 @@ export const NotificationTester = () => {
       // Enviar notificação diretamente via registration
       await registration.showNotification('🧪 Teste de Notificação', {
         body: 'Esta é uma notificação de teste.\nSe você viu isso, o sistema está funcionando!',
-        icon: '/favicon.ico',
-        badge: '/favicon.ico',
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
         tag: 'test-notification',
         requireInteraction: true,
         silent: false,

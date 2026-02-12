@@ -6,6 +6,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { DollarSign, TrendingUp, Calendar, Users, Filter } from 'lucide-react';
+import { 
+  DropdownMenu, 
+  DropdownMenuTrigger, 
+  DropdownMenuContent, 
+  DropdownMenuLabel, 
+  DropdownMenuRadioGroup, 
+  DropdownMenuRadioItem 
+} from '@/components/ui/dropdown-menu';
 import { format, subDays, subMonths, subYears, startOfDay, endOfDay, endOfMonth, startOfWeek, startOfMonth, startOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
@@ -71,6 +79,7 @@ const FinancialDashboard = () => {
   const [filterProduct, setFilterProduct] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
   const [activeTab, setActiveTab] = useState<'overview' | 'commissions' | 'advances' | 'reports'>('overview');
+  const [showFilters, setShowFilters] = useState(false);
   
   const isManager = role === 'admin' || role === 'gestor';
 
@@ -440,7 +449,18 @@ const FinancialDashboard = () => {
   const renderContent = () => (
     <>
       {/* Filters */}
-      <Card className="bg-card border-border">
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 px-2 text-xs"
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          <Filter className="h-3 w-3 mr-1" />
+          {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+        </Button>
+      </div>
+      <Card className={`bg-card border-border ${showFilters ? '' : 'hidden'}`}>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
             <Filter className="h-5 w-5" />
@@ -448,34 +468,37 @@ const FinancialDashboard = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Período</label>
-              <Select value={period} onValueChange={(v) => setPeriod(v as any)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="day">Diário</SelectItem>
-                  <SelectItem value="week">Semanal</SelectItem>
-                  <SelectItem value="month">Mensal</SelectItem>
-                  <SelectItem value="year">Anual</SelectItem>
-                  <SelectItem value="custom">Personalizado</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid grid-cols-2 gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                  <Calendar className="h-3 w-3 mr-1" />
+                  Período: {period === 'day' ? 'Diário' : period === 'week' ? 'Semanal' : period === 'month' ? 'Mensal' : period === 'year' ? 'Anual' : 'Personalizado'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel className="text-xs">Período</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={period} onValueChange={(v) => setPeriod(v as any)}>
+                  <DropdownMenuRadioItem value="day">Diário</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="week">Semanal</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="month">Mensal</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="year">Anual</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="custom">Personalizado</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
             {period === 'custom' && (
               <>
-                <div>
-                  <label className="text-sm text-muted-foreground mb-1 block">Data inicial</label>
+                <div className="min-w-[160px]">
+                  <label className="text-xs text-muted-foreground mb-1 block">Data inicial</label>
                   <Input
                     type="date"
                     value={dateFrom}
                     onChange={(e) => setDateFrom(e.target.value)}
                   />
                 </div>
-                <div>
-                  <label className="text-sm text-muted-foreground mb-1 block">Data final</label>
+                <div className="min-w-[160px]">
+                  <label className="text-xs text-muted-foreground mb-1 block">Data final</label>
                   <Input
                     type="date"
                     value={dateTo}
@@ -484,76 +507,95 @@ const FinancialDashboard = () => {
                 </div>
               </>
             )}
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Tipo</label>
-              <Select value={filterType} onValueChange={(v) => setFilterType(v as any)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="local">Local</SelectItem>
-                  <SelectItem value="online">Online</SelectItem>
-                  <SelectItem value="manual">📝 Manual (Retroativo)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Barbeiro</label>
-              <Select value={filterBarber} onValueChange={setFilterBarber}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                  <Users className="h-3 w-3 mr-1" />
+                  Tipo: {filterType === 'all' ? 'Todos' : filterType === 'local' ? 'Local' : filterType === 'online' ? 'Online' : 'Manual'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel className="text-xs">Tipo</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={filterType} onValueChange={(v) => setFilterType(v as any)}>
+                  <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="local">Local</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="online">Online</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="manual">Manual (Retroativo)</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                  <Users className="h-3 w-3 mr-1" />
+                  Barbeiro: {barbers.find(b => b.id === filterBarber)?.name || 'Todos'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel className="text-xs">Barbeiro</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={filterBarber} onValueChange={setFilterBarber}>
+                  <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
                   {barbers.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                    <DropdownMenuRadioItem key={b.id} value={b.id}>{b.name}</DropdownMenuRadioItem>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Serviço</label>
-              <Select value={filterService} onValueChange={setFilterService}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                  Serviço: {services.find(s => s.id === filterService)?.title || 'Todos'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel className="text-xs">Serviço</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={filterService} onValueChange={setFilterService}>
+                  <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
                   {services.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
+                    <DropdownMenuRadioItem key={s.id} value={s.id}>{s.title}</DropdownMenuRadioItem>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Produto</label>
-              <Select value={filterProduct} onValueChange={setFilterProduct}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                  <DollarSign className="h-3 w-3 mr-1" />
+                  Produto: {products.find(p => p.id === filterProduct)?.name || 'Todos'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel className="text-xs">Produto</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={filterProduct} onValueChange={setFilterProduct}>
+                  <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
                   {products.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    <DropdownMenuRadioItem key={p.id} value={p.id}>{p.name}</DropdownMenuRadioItem>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Status</label>
-              <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="confirmed">Confirmados</SelectItem>
-                  <SelectItem value="completed">Concluídos</SelectItem>
-                  <SelectItem value="cancelled">Cancelados</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                  <Filter className="h-3 w-3 mr-1" />
+                  Status: {filterStatus === 'all' ? 'Todos' : filterStatus === 'confirmed' ? 'Confirmados' : filterStatus === 'completed' ? 'Concluídos' : 'Cancelados'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel className="text-xs">Status</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
+                  <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="confirmed">Confirmados</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="completed">Concluídos</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="cancelled">Cancelados</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </CardContent>
       </Card>
