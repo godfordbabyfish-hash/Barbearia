@@ -160,7 +160,7 @@ const Auth = () => {
             </TabsList>
 
             {/* Tab Cliente */}
-            <TabsContent value="cliente" className="space-y-6">
+            <TabsContent value="cliente" className="space-y-6" forceMount>
               <p className="text-center text-muted-foreground text-sm">
                 Digite seu CPF para acessar
               </p>
@@ -210,7 +210,7 @@ const Auth = () => {
             </TabsContent>
 
             {/* Tab Barbeiros */}
-            <TabsContent value="barbeiros" className="space-y-6">
+            <TabsContent value="barbeiros" className="space-y-6" forceMount>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>

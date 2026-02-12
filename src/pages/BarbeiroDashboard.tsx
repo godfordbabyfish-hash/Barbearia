@@ -1,19 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors } from 'lucide-react';
+import { Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
+import { Label } from "@/components/ui/label";
+import { 
+  DropdownMenu, 
+  DropdownMenuTrigger, 
+  DropdownMenuContent, 
+  DropdownMenuLabel, 
+  DropdownMenuRadioGroup, 
+  DropdownMenuRadioItem 
+} from "@/components/ui/dropdown-menu";
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useNotifications } from '@/hooks/useNotifications';
+import { sendWhatsAppMessage } from '@/services/whatsappService';
 import { useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import BarberFinancialDashboard from '@/components/BarberFinancialDashboard';
@@ -46,6 +55,7 @@ const BarbeiroDashboard = () => {
     time: '',
     isRetroactive: false, // Flag para agendamentos passados criados manualmente
   });
+  const [newAppointmentStep, setNewAppointmentStep] = useState<'service' | 'datetime' | 'client'>('service');
   const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
   const [appointmentToComplete, setAppointmentToComplete] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -77,6 +87,8 @@ const BarbeiroDashboard = () => {
   const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'completed' | 'cancelled' | 'confirmed'>('all');
   const [historyFilterService, setHistoryFilterService] = useState<string>('all');
   const [historyFilterPayment, setHistoryFilterPayment] = useState<'all' | 'pix' | 'dinheiro'>('all');
+  const [activeTab, setActiveTab] = useState<'agendamentos' | 'vendas' | 'horarios' | 'financeiro' | 'historico'>('agendamentos');
+  const [showHistoryFilters, setShowHistoryFilters] = useState(false);
   
   // Product sale dialog
   const [productSaleDialogOpen, setProductSaleDialogOpen] = useState(false);
@@ -88,11 +100,79 @@ const BarbeiroDashboard = () => {
   // Estado para prevenir submissões simultâneas de agendamentos
   const [creatingAppointment, setCreatingAppointment] = useState(false);
   const [hasBarberBreaks, setHasBarberBreaks] = useState(true);
+  const [serviceSelectOpen, setServiceSelectOpen] = useState(false);
   
   // Hooks for commission calculation
   const barberIdForCommissions = currentUserBarber?.id || selectedBarber;
   const { getCommissionPercentage: getIndividualProductCommissionPercentage } = useBarberProductCommissions(barberIdForCommissions);
   const { getProductCommissionPercentage: getFixedProductCommissionPercentage } = useBarberFixedCommissions(barberIdForCommissions);
+
+  const pastPendingCount = useMemo(() => {
+    const now = new Date();
+    const targetBarber = selectedBarber || currentUserBarber?.id;
+    if (!targetBarber) return 0;
+    let count = 0;
+    for (const a of appointments) {
+      if (a.barber_id !== targetBarber) continue;
+      if (!(a.status === 'pending' || a.status === 'confirmed')) continue;
+      const timeStr = (a.appointment_time || '00:00').slice(0, 5);
+      const aptDateTime = new Date(`${a.appointment_date}T${timeStr}:00`);
+      if (aptDateTime < now) count++;
+    }
+    return count;
+  }, [appointments, selectedBarber, currentUserBarber?.id]);
+
+  const sendBarberPendingWhatsApp = async (barberId: string) => {
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const { data, error } = await (supabase as any)
+        .from('appointments')
+        .select(`
+          id,
+          appointment_date,
+          appointment_time,
+          status,
+          client_name,
+          client:profiles(name),
+          service:services(title)
+        `)
+        .eq('barber_id', barberId)
+        .in('status', ['pending', 'confirmed'])
+        .lte('appointment_date', todayStr)
+        .order('appointment_date')
+        .order('appointment_time');
+      if (error) {
+        console.error('Error loading pending appointments for WhatsApp:', error);
+        return;
+      }
+      const now = new Date();
+      const pastPending = (data || []).filter((a: any) => {
+        const timeStr = (a.appointment_time || '00:00').slice(0, 5);
+        const dt = new Date(`${a.appointment_date}T${timeStr}:00`);
+        return dt < now;
+      });
+      if (pastPending.length === 0) return;
+      const b = (barbers.find((bb) => bb.id === barberId) || currentUserBarber);
+      const phone = b?.whatsapp_phone || '';
+      const barberName = b?.name || 'Barbeiro';
+      if (!phone) {
+        console.warn('Barber has no whatsapp_phone, skipping WhatsApp message');
+        return;
+      }
+      let msg = `🔔 *Pendências de Atendimento*\n*${barberName}*\n\n`;
+      pastPending.forEach((apt: any, idx: number) => {
+        const dd = new Date(apt.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR');
+        const hh = (apt.appointment_time || '').slice(0, 5);
+        const client = apt.client?.name || apt.client_name || 'Cliente';
+        const serv = apt.service?.title || 'Serviço';
+        msg += `${idx + 1}. ${dd} ${hh} — ${serv} — ${client}\n`;
+      });
+      msg += `\nTotal: ${pastPending.length}`;
+      await sendWhatsAppMessage(phone, msg);
+    } catch (err) {
+      console.error('Error sending WhatsApp pending list:', err);
+    }
+  };
 
 
   useEffect(() => {
@@ -117,6 +197,22 @@ const BarbeiroDashboard = () => {
       }
     })();
   }, []);
+  
+  useEffect(() => {
+    if (showNewAppointment) {
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      const todayStr = `${yyyy}-${mm}-${dd}`;
+      setNewAppointment((prev) => ({
+        ...prev,
+        barberId: prev.barberId || selectedBarber || currentUserBarber?.id || '',
+        date: prev.date || todayStr,
+      }));
+      setNewAppointmentStep('service');
+    }
+  }, [showNewAppointment]);
   useEffect(() => {
     const resolveName = async () => {
       if (!user) return;
@@ -420,6 +516,31 @@ const BarbeiroDashboard = () => {
   };
   // Sistema de notificações com Service Worker
   const { isReady, showNotification } = useNotifications();
+  const pendingNotifiedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const now = new Date();
+    const targetBarber = selectedBarber || currentUserBarber?.id;
+    if (!targetBarber) return;
+    const pastPending = appointments.filter((a) => {
+      if (a.barber_id !== targetBarber) return false;
+      if (!(a.status === 'pending' || a.status === 'confirmed')) return false;
+      const timeStr = (a.appointment_time || '00:00').slice(0, 5);
+      const aptDateTime = new Date(`${a.appointment_date}T${timeStr}:00`);
+      return aptDateTime < now;
+    });
+    if (pastPending.length === 0) return;
+    const unseen = pastPending.filter(a => !pendingNotifiedRef.current.has(a.id));
+    if (unseen.length === 0) return;
+    unseen.forEach(a => pendingNotifiedRef.current.add(a.id));
+    const msg = `Você tem ${pastPending.length} atendimento(s) pendente(s) já passados.`;
+    toast.info('Lembrete de pendências', { description: msg, duration: 2500 });
+    if (isReady && showNotification) {
+      showNotification('🔔 Pendências de atendimento', {
+        body: msg,
+      });
+    }
+  }, [appointments, selectedBarber, currentUserBarber?.id, isReady]);
 
   // Escutar novos agendamentos em tempo real
   useEffect(() => {
@@ -706,11 +827,6 @@ const BarbeiroDashboard = () => {
     const barberId = newAppointment.barberId || selectedBarber;
     
     // Validações básicas
-    if (!newAppointment.clientName?.trim()) {
-      toast.error('Nome do cliente é obrigatório');
-      return;
-    }
-    
     if (!newAppointment.serviceId) {
       toast.error('Selecione um serviço');
       return;
@@ -814,46 +930,24 @@ const BarbeiroDashboard = () => {
         }
       }
 
-      // 2. CRIAR/ATUALIZAR PERFIL COM UPSERT (telefone obrigatório)
-      if (!newAppointment.clientPhone?.trim()) {
-        toast.error('Informe o telefone do cliente');
+      // 2. CRIAR PERFIL TEMPORÁRIO (nome opcional; se vazio, usar 'Local')
+      const profileId = generateUUID();
+      const clientNameFinal = (newAppointment.clientName?.trim() || 'Local');
+      const { data: newProfile, error: profileError } = await (supabase as any)
+        .from('profiles')
+        .insert([{
+          id: profileId,
+          name: clientNameFinal,
+          is_temp_user: true,
+        }])
+        .select('id')
+        .single();
+      if (profileError || !newProfile?.id) {
+        console.error('Error creating profile:', profileError);
+        toast.error('Erro ao criar perfil do cliente: ' + (profileError?.message || 'Erro desconhecido'));
         return;
       }
-      const profileId = generateUUID();
-      let finalProfileId = profileId;
-      
-      // Buscar perfil existente por telefone
-      const { data: existingProfile } = await (supabase as any)
-        .from('profiles')
-        .select('id')
-        .eq('phone', newAppointment.clientPhone.trim())
-        .maybeSingle();
-      
-      if (existingProfile) {
-        finalProfileId = existingProfile.id;
-        await (supabase as any)
-          .from('profiles')
-          .update({ name: newAppointment.clientName.trim(), phone: newAppointment.clientPhone.trim() })
-          .eq('id', existingProfile.id);
-      } else {
-        const { data: newProfile, error: profileError } = await (supabase as any)
-          .from('profiles')
-          .insert([{
-            id: profileId,
-            name: newAppointment.clientName.trim(),
-            phone: newAppointment.clientPhone.trim(),
-            is_temp_user: true,
-          }])
-          .select('id')
-          .single();
-
-        if (profileError || !newProfile?.id) {
-          console.error('Error creating profile:', profileError);
-          toast.error('Erro ao criar perfil do cliente: ' + (profileError?.message || 'Erro desconhecido'));
-          return;
-        }
-        finalProfileId = newProfile.id;
-      }
+      const finalProfileId = newProfile.id;
 
       // 3. CRIAR AGENDAMENTO IMEDIATAMENTE
       const bookingType = 'manual';
@@ -913,6 +1007,7 @@ const BarbeiroDashboard = () => {
         time: '',
         isRetroactive: false,
       });
+      setNewAppointmentStep('service');
       loadAppointments();
 
       // 6. PROCESSAR NOTIFICAÇÕES EM BACKGROUND (não bloquear UI)
@@ -1270,6 +1365,7 @@ const BarbeiroDashboard = () => {
       setPayments([]);
       setCurrentPaymentAmount('');
       loadAppointments();
+      await sendBarberPendingWhatsApp(selectedAppointmentForAction?.barber_id || currentUserBarber?.id || selectedBarber);
 
     } catch (error: any) {
       console.error('Erro ao completar agendamento:', error);
@@ -1374,6 +1470,7 @@ const BarbeiroDashboard = () => {
       setPayments([]);
       setCurrentPaymentAmount('');
       loadAppointments();
+      await sendBarberPendingWhatsApp(selectedAppointmentForAction?.barber_id || currentUserBarber?.id || selectedBarber);
     } catch (error: any) {
       console.error('Erro ao completar agendamento:', error);
       toast.error('Erro ao processar: ' + error.message);
@@ -1504,32 +1601,14 @@ const BarbeiroDashboard = () => {
   const monthCompleted = completedAppointments.filter(a => new Date(a.appointment_date) >= monthAgo);
 
   return (
-    <div className="min-h-screen bg-background py-8 px-4">
+    <div className="min-h-screen bg-background py-6 px-4 overflow-x-hidden">
       <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col gap-4 md:flex-row md:justify-between md:items-center mb-8">
+        <div className="flex flex-col gap-2 md:flex-row md:justify-between md:items-center mb-4">
           <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <h1 className="text-4xl font-bold">
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold">
                 Painel do <span className="bg-gradient-gold bg-clip-text text-transparent">Barbeiro</span>
               </h1>
-              {currentUserBarber && (
-                <>
-                  <span className="text-4xl font-bold text-foreground">
-                    {currentUserBarber.name}
-                  </span>
-                  {currentUserBarber.image_url && (
-                    <img
-                      src={currentUserBarber.image_url}
-                      alt={currentUserBarber.name}
-                      className="w-14 h-14 rounded-full object-cover border-2 border-primary/50 shadow-lg"
-                      onError={(e) => {
-                        // Se a imagem falhar ao carregar, esconde o elemento
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  )}
-                </>
-              )}
             </div>
             {userRole === 'admin' && (
               <div className="mt-4">
@@ -1551,34 +1630,56 @@ const BarbeiroDashboard = () => {
           </div>
           <div className="flex flex-col gap-2 md:items-end">
             {user && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary text-sm font-bold">
-                  {(displayName || user.email || 'U').charAt(0).toUpperCase()}
-                </div>
+              <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-secondary/30">
+                <Avatar className="h-8 w-8">
+                  <AvatarImage src={currentUserBarber?.image_url || ''} alt={displayName || 'Usuário'} />
+                  <AvatarFallback className="bg-primary/20 text-primary text-sm font-bold">
+                    {(displayName || user.email || 'U').charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
                 <div className="text-sm font-medium text-foreground">
                   {displayName || 'Usuário'}
                 </div>
+                <div className="flex items-center gap-1 ml-2">
+                  <Button
+                    onClick={() => navigate('/configuracoes')}
+                    variant="ghost"
+                    className="h-8 w-8 p-0"
+                    aria-label="Configurações"
+                    title="Configurações"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                {pastPendingCount > 0 && (
+                  <span
+                    title="Pendências vencidas"
+                    className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                  >
+                    <Clock className="h-3 w-3" />
+                    {pastPendingCount}
+                  </span>
+                )}
+                  <Button
+                    onClick={async () => {
+                      await signOut();
+                      navigate('/');
+                    }}
+                    variant="ghost"
+                    className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                    aria-label="Sair"
+                    title="Sair"
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             )}
-            <div className="flex gap-2">
-              <Button onClick={() => navigate('/configuracoes')} variant="outline" className="w-full md:w-auto">
-                <Settings className="mr-2 h-4 w-4" />
-                Configurações
-              </Button>
-              <Button onClick={async () => {
-                await signOut();
-                navigate('/');
-              }} variant="outline" className="w-full md:w-auto text-destructive hover:text-destructive hover:bg-destructive/10">
-                <LogOut className="mr-2 h-4 w-4" />
-                Sair
-              </Button>
-            </div>
           </div>
         </div>
 
         {(currentUserBarber || selectedBarber) && (
           <>
-            <Tabs defaultValue="agendamentos" className="w-full">
+            <Tabs value={activeTab} onValueChange={setActiveTab as any} className="w-full">
               <TabsList className="grid w-full grid-cols-5 mb-6">
                 <TabsTrigger value="agendamentos">Agendamentos</TabsTrigger>
                 <TabsTrigger value="vendas">Vendas</TabsTrigger>
@@ -1587,7 +1688,7 @@ const BarbeiroDashboard = () => {
                 <TabsTrigger value="historico">Histórico</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="agendamentos" className="space-y-6">
+              <TabsContent value="agendamentos" className="space-y-6" forceMount>
               <div className="mb-8">
                 <Card className="bg-card border-border">
                   <CardHeader>
@@ -1635,120 +1736,130 @@ const BarbeiroDashboard = () => {
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-md">
                   <DialogHeader>
-                    <DialogTitle>Criar Novo Agendamento</DialogTitle>
+                    <DialogTitle>
+                      {newAppointmentStep === 'service' ? 'Selecionar Serviço' : newAppointmentStep === 'datetime' ? 'Data e Hora' : 'Cliente (opcional)'}
+                    </DialogTitle>
+                    <DialogDescription>
+                      {newAppointmentStep === 'service' ? 'Escolha o serviço.' : newAppointmentStep === 'datetime' ? 'Informe data (hoje por padrão) e horário.' : 'Se não informar, será marcado como Local.'}
+                    </DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-4">
-                    <div>
-                      <Label>Nome do Cliente</Label>
-                      <Input
-                        value={newAppointment.clientName}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, clientName: e.target.value })}
-                        placeholder="João Silva"
-                      />
-                    </div>
-                    <div>
-                      <Label>Telefone do Cliente *</Label>
-                      <Input
-                        value={newAppointment.clientPhone}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, clientPhone: e.target.value })}
-                        placeholder="+55 11 99999-9999"
-                        required
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Obrigatório. O número será salvo no cadastro do cliente.
-                      </p>
-                    </div>
-                    <div>
-                      <Label>Serviço</Label>
-                      <Select value={newAppointment.serviceId} onValueChange={(value) => setNewAppointment({ ...newAppointment, serviceId: value })}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione um serviço" />
-                        </SelectTrigger>
-                        <SelectContent>
+                  
+                  {newAppointmentStep === 'service' && (
+                    <div className="space-y-4">
+                      <div>
+                        <Label>Serviço</Label>
+                        <select
+                          className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                          value={newAppointment.serviceId}
+                          onChange={(e) => setNewAppointment({ ...newAppointment, serviceId: e.target.value })}
+                        >
+                          <option value="" disabled>Selecione um serviço</option>
                           {services.map((service) => (
-                            <SelectItem key={service.id} value={service.id}>
+                            <option key={service.id} value={service.id}>
                               {service.title} - R$ {service.price}
-                            </SelectItem>
+                            </option>
                           ))}
-                        </SelectContent>
-                      </Select>
+                        </select>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button 
+                          className="flex-1"
+                          onClick={() => setNewAppointmentStep('datetime')}
+                          disabled={!newAppointment.serviceId}
+                        >
+                          Continuar
+                        </Button>
+                        <Button variant="outline" onClick={() => setShowNewAppointment(false)}>
+                          Cancelar
+                        </Button>
+                      </div>
                     </div>
-                    <div>
-                      <Label>Barbeiro</Label>
-                      <Select value={newAppointment.barberId || selectedBarber} onValueChange={(value) => setNewAppointment({ ...newAppointment, barberId: value })}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {barbers.map((barber) => (
-                            <SelectItem key={barber.id} value={barber.id}>
-                              {barber.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                  )}
+
+                  {newAppointmentStep === 'datetime' && (
+                    <div className="space-y-4">
+                      <div>
+                        <Label>Data</Label>
+                        <Input
+                          type="date"
+                          value={newAppointment.date}
+                          onChange={(e) => setNewAppointment({ ...newAppointment, date: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label>Horário</Label>
+                        <Input
+                          type="time"
+                          value={newAppointment.time}
+                          onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <div className="flex items-center justify-between p-3 border border-border rounded-lg bg-secondary/30">
+                        <div className="flex-1">
+                          <Label htmlFor="retroactive" className="text-sm font-medium cursor-pointer">
+                            Agendamento Retroativo (Passado)
+                          </Label>
+                        </div>
+                        <Switch
+                          id="retroactive"
+                          checked={newAppointment.isRetroactive}
+                          onCheckedChange={(checked) => setNewAppointment({ ...newAppointment, isRetroactive: checked })}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button 
+                          className="flex-1"
+                          onClick={() => setNewAppointmentStep('client')}
+                          disabled={!newAppointment.time}
+                        >
+                          Continuar
+                        </Button>
+                        <Button variant="outline" onClick={() => setNewAppointmentStep('service')}>
+                          Voltar
+                        </Button>
+                      </div>
                     </div>
-                    <div>
-                      <Label>Data</Label>
-                      <Input
-                        type="date"
-                        value={newAppointment.date}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, date: e.target.value })}
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Você pode criar agendamentos em qualquer data, mesmo fora do horário de funcionamento
-                      </p>
-                    </div>
-                    <div>
-                      <Label>Horário</Label>
-                      <Input
-                        type="time"
-                        value={newAppointment.time}
-                        onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })}
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Você pode criar agendamentos em qualquer horário, mesmo fora do expediente
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-between p-3 border border-border rounded-lg bg-secondary/30">
-                      <div className="flex-1">
-                        <Label htmlFor="retroactive" className="text-sm font-medium cursor-pointer">
-                          Agendamento Retroativo (Passado)
-                        </Label>
+                  )}
+
+                  {newAppointmentStep === 'client' && (
+                    <div className="space-y-4">
+                      <div>
+                        <Label>Nome do Cliente (opcional)</Label>
+                        <Input
+                          value={newAppointment.clientName}
+                          onChange={(e) => setNewAppointment({ ...newAppointment, clientName: e.target.value })}
+                          placeholder="Local"
+                        />
                         <p className="text-xs text-muted-foreground mt-1">
-                          Marque para criar agendamentos de datas/horários passados. Será sinalizado como manual.
+                          Se vazio, será registrado como Local.
                         </p>
                       </div>
-                      <Switch
-                        id="retroactive"
-                        checked={newAppointment.isRetroactive}
-                        onCheckedChange={(checked) => setNewAppointment({ ...newAppointment, isRetroactive: checked })}
-                      />
+                      <div className="flex gap-2">
+                        <Button 
+                          onClick={handleCreateAppointment} 
+                          className="flex-1"
+                          disabled={creatingAppointment}
+                        >
+                          {creatingAppointment ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Criando...
+                            </>
+                          ) : (
+                            'Criar Agendamento'
+                          )}
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          onClick={() => setNewAppointmentStep('datetime')}
+                          disabled={creatingAppointment}
+                        >
+                          Voltar
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button 
-                        onClick={handleCreateAppointment} 
-                        className="flex-1"
-                        disabled={creatingAppointment}
-                      >
-                        {creatingAppointment ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Criando...
-                          </>
-                        ) : (
-                          'Criar Agendamento'
-                        )}
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        onClick={() => setShowNewAppointment(false)}
-                        disabled={creatingAppointment}
-                      >
-                        Cancelar
-                      </Button>
-                    </div>
-                  </div>
+                  )}
                 </DialogContent>
               </Dialog>
 
@@ -1907,47 +2018,47 @@ const BarbeiroDashboard = () => {
             </div>
 
             <Card className="bg-card border-border">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5" />
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Users className="h-4 w-4" />
                   Agendamentos por Barbeiro
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-4 sm:p-6">
+              <CardContent className="p-3 sm:p-4">
                 <Tabs defaultValue="hoje" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 mb-4">
+                  <TabsList className="grid w-full grid-cols-2 mb-3">
                     <TabsTrigger value="hoje">Agendamentos de Hoje</TabsTrigger>
                     <TabsTrigger value="futuros">Agendamentos Futuros</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="hoje">
                     {appointmentsByBarber.length > 0 ? (
-                      <div className="space-y-6">
+                      <div className="space-y-4">
                         {appointmentsByBarber.map(({ barber, appointments, todayCount, upcomingCount }) => {
                           const today = new Date().toISOString().split('T')[0];
                           const list = appointments.filter(a => a.appointment_date === today);
                           return (
-                            <div key={barber.id} className="border border-border rounded-lg p-4 bg-secondary/30">
-                              <div className="flex items-center gap-4 mb-4 pb-3 border-b border-border">
-                                <Avatar className="h-12 w-12 border-2 border-primary/20">
+                            <div key={barber.id} className="border border-border rounded-lg p-3 bg-secondary/30">
+                              <div className="flex items-center gap-3 mb-3 pb-2 border-b border-border">
+                                <Avatar className="h-10 w-10 border-2 border-primary/20">
                                   <AvatarImage src={barber.photo_url || ''} alt={barber.name} />
-                                  <AvatarFallback className="bg-primary/20 text-primary font-bold text-lg">
+                                  <AvatarFallback className="bg-primary/20 text-primary font-bold text-base">
                                     {barber.name.charAt(0).toUpperCase()}
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1">
-                                  <h3 className="font-bold text-lg">{barber.name}</h3>
-                                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                  <h3 className="font-bold text-base">{barber.name}</h3>
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                     <span className="flex items-center gap-1">
-                                      <Calendar className="h-4 w-4" />
+                                      <Calendar className="h-3 w-3" />
                                       Hoje: {todayCount}
                                     </span>
                                     <span className="flex items-center gap-1">
-                                      <Clock className="h-4 w-4" />
+                                      <Clock className="h-3 w-3" />
                                       Próximos: {upcomingCount}
                                     </span>
                                     <span className="flex items-center gap-1">
-                                      <User className="h-4 w-4" />
+                                      <User className="h-3 w-3" />
                                       Total: {appointments.length}
                                     </span>
                                   </div>
@@ -1957,7 +2068,7 @@ const BarbeiroDashboard = () => {
                               {list.length > 0 ? (
                                 <div className="space-y-3">
                                   {list.map((appointment) => {
-                                    const clientName = appointment.client_name || appointment.client?.name || 'Cliente';
+                                    const clientName = appointment.client_name || appointment.client?.name || 'Local';
                                     const clientInitial = clientName.charAt(0).toUpperCase();
                                     const appointmentTime = appointment.appointment_time.slice(0, 5);
                                     const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
@@ -2028,32 +2139,32 @@ const BarbeiroDashboard = () => {
 
                   <TabsContent value="futuros">
                     {appointmentsByBarber.length > 0 ? (
-                      <div className="space-y-6">
+                      <div className="space-y-4">
                         {appointmentsByBarber.map(({ barber, appointments, todayCount, upcomingCount }) => {
                           const today = new Date().toISOString().split('T')[0];
                           const list = appointments.filter(a => a.appointment_date > today);
                           return (
-                            <div key={barber.id} className="border border-border rounded-lg p-4 bg-secondary/30">
-                              <div className="flex items-center gap-4 mb-4 pb-3 border-b border-border">
-                                <Avatar className="h-12 w-12 border-2 border-primary/20">
+                            <div key={barber.id} className="border border-border rounded-lg p-3 bg-secondary/30">
+                              <div className="flex items-center gap-3 mb-3 pb-2 border-b border-border">
+                                <Avatar className="h-10 w-10 border-2 border-primary/20">
                                   <AvatarImage src={barber.photo_url || ''} alt={barber.name} />
-                                  <AvatarFallback className="bg-primary/20 text-primary font-bold text-lg">
+                                  <AvatarFallback className="bg-primary/20 text-primary font-bold text-base">
                                     {barber.name.charAt(0).toUpperCase()}
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1">
-                                  <h3 className="font-bold text-lg">{barber.name}</h3>
-                                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                  <h3 className="font-bold text-base">{barber.name}</h3>
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                     <span className="flex items-center gap-1">
-                                      <Calendar className="h-4 w-4" />
+                                      <Calendar className="h-3 w-3" />
                                       Hoje: {todayCount}
                                     </span>
                                     <span className="flex items-center gap-1">
-                                      <Clock className="h-4 w-4" />
+                                      <Clock className="h-3 w-3" />
                                       Próximos: {upcomingCount}
                                     </span>
                                     <span className="flex items-center gap-1">
-                                      <User className="h-4 w-4" />
+                                      <User className="h-3 w-3" />
                                       Total: {appointments.length}
                                     </span>
                                   </div>
@@ -2063,7 +2174,7 @@ const BarbeiroDashboard = () => {
                               {list.length > 0 ? (
                                 <div className="space-y-3">
                                   {list.map((appointment) => {
-                                    const clientName = appointment.client_name || appointment.client?.name || 'Cliente';
+                                    const clientName = appointment.client_name || appointment.client?.name || 'Local';
                                     const clientInitial = clientName.charAt(0).toUpperCase();
                                     const appointmentTime = appointment.appointment_time.slice(0, 5);
                                     const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
@@ -2136,28 +2247,28 @@ const BarbeiroDashboard = () => {
             </Card>
           </TabsContent>
 
-          <TabsContent value="vendas" className="space-y-6">
+          <TabsContent value="vendas" className="space-y-6" forceMount>
             <ProductSalesManager barberId={currentUserBarber?.id || selectedBarber} />
           </TabsContent>
 
-          <TabsContent value="horarios" className="space-y-6">
+          <TabsContent value="horarios" className="space-y-6" forceMount>
             <BarberBreakManager barberId={currentUserBarber?.id || selectedBarber} />
           </TabsContent>
 
           {/* Duplicate Financeiro Tab Removed */}
 
-      <TabsContent value="financeiro" className="space-y-6">
-        <BarberFinancialDashboard barberId={selectedBarber} />
+      <TabsContent value="financeiro" className="space-y-6" forceMount>
+        <BarberFinancialDashboard barberId={selectedBarber} isActive={activeTab === 'financeiro'} />
         <Card className="bg-card border-border">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center justify-between">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center justify-between">
                       <span>Meus Vales</span>
                       {loadingAdvances ? (
                         <Loader2 className="h-4 w-4 animate-spin text-primary" />
                       ) : null}
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-2">
+                  <CardContent className="space-y-1">
                     {advances.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
                         Nenhum vale registrado.
@@ -2178,7 +2289,7 @@ const BarbeiroDashboard = () => {
                           {advances.slice(0, 5).map((adv) => (
                             <div
                               key={adv.id}
-                              className="flex items-center justify-between border border-border/60 rounded-md px-3 py-2"
+                              className="flex items-center justify-between border border-border/60 rounded-md px-2 py-1 text-xs"
                             >
                               <div className="space-y-1">
                                 <p className="font-medium">
@@ -2265,69 +2376,105 @@ const BarbeiroDashboard = () => {
                 </Card>
               </TabsContent>
 
-              <TabsContent value="historico" className="space-y-6">
+              <TabsContent value="historico" className="space-y-6" forceMount>
                 <Card className="bg-card border-border">
-                  <CardHeader>
-                    <CardTitle>Histórico de Serviços</CardTitle>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">Histórico de Serviços</CardTitle>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => setShowHistoryFilters((v) => !v)}
+                      >
+                        {showHistoryFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     {/* Filtros */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 pb-4 border-b border-border">
-                      <div>
-                        <Label className="text-sm text-muted-foreground mb-1 block">Período</Label>
-                        <Select value={historyFilterPeriod} onValueChange={(v) => setHistoryFilterPeriod(v as any)}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">Todos</SelectItem>
-                            <SelectItem value="today">Hoje</SelectItem>
-                            <SelectItem value="week">Última Semana</SelectItem>
-                            <SelectItem value="month">Último Mês</SelectItem>
-                            <SelectItem value="year">Último Ano</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-sm text-muted-foreground mb-1 block">Status</Label>
-                        <Select value={historyFilterStatus} onValueChange={(v) => setHistoryFilterStatus(v as any)}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">Todos</SelectItem>
-                            <SelectItem value="completed">Concluído</SelectItem>
-                            <SelectItem value="confirmed">Confirmado</SelectItem>
-                            <SelectItem value="cancelled">Cancelado</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-sm text-muted-foreground mb-1 block">Serviço</Label>
-                        <Select value={historyFilterService} onValueChange={setHistoryFilterService}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">Todos</SelectItem>
-                            {services.map((service) => (
-                              <SelectItem key={service.id} value={service.id}>{service.title}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-sm text-muted-foreground mb-1 block">Pagamento</Label>
-                        <Select value={historyFilterPayment} onValueChange={(v) => setHistoryFilterPayment(v as any)}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">Todos</SelectItem>
-                            <SelectItem value="pix">Pix</SelectItem>
-                            <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                          </SelectContent>
-                        </Select>
+                    <div className={`mb-4 pb-3 border-b border-border ${showHistoryFilters ? '' : 'hidden'}`}>
+                        <div className="grid grid-cols-2 gap-2">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                              <Calendar className="h-3 w-3 mr-1" />
+                              Período: {
+                                historyFilterPeriod === 'all' ? 'Todos' :
+                                historyFilterPeriod === 'today' ? 'Hoje' :
+                                historyFilterPeriod === 'week' ? 'Última Semana' :
+                                historyFilterPeriod === 'month' ? 'Último Mês' : 'Último Ano'
+                              }
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">Período</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={historyFilterPeriod} onValueChange={(v) => setHistoryFilterPeriod(v as any)}>
+                              <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="today">Hoje</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="week">Última Semana</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="month">Último Mês</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="year">Último Ano</DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                              <Filter className="h-3 w-3 mr-1" />
+                              Status: {
+                                historyFilterStatus === 'all' ? 'Todos' :
+                                historyFilterStatus === 'completed' ? 'Concluído' :
+                                historyFilterStatus === 'confirmed' ? 'Confirmado' : 'Cancelado'
+                              }
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">Status</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={historyFilterStatus} onValueChange={(v) => setHistoryFilterStatus(v as any)}>
+                              <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="completed">Concluído</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="confirmed">Confirmado</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="cancelled">Cancelado</DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                              <Scissors className="h-3 w-3 mr-1" />
+                              Serviço: {services.find(s => s.id === historyFilterService)?.title || 'Todos'}
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">Serviço</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={historyFilterService} onValueChange={setHistoryFilterService}>
+                              <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                              {services.map((service) => (
+                                <DropdownMenuRadioItem key={service.id} value={service.id}>{service.title}</DropdownMenuRadioItem>
+                              ))}
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                              <CreditCard className="h-3 w-3 mr-1" />
+                              Pagamento: {historyFilterPayment === 'all' ? 'Todos' : historyFilterPayment === 'pix' ? 'Pix' : 'Dinheiro'}
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">Pagamento</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={historyFilterPayment} onValueChange={(v) => setHistoryFilterPayment(v as any)}>
+                              <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="pix">Pix</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="dinheiro">Dinheiro</DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
 
@@ -2336,7 +2483,7 @@ const BarbeiroDashboard = () => {
                       return filteredAppointments.length > 0 ? (
                         <div className="space-y-3">
                           {filteredAppointments.map((appointment) => (
-                          <div key={appointment.id} className={`p-4 rounded-lg border ${
+                          <div key={appointment.id} className={`p-3 rounded-lg border ${
                             appointment.status === 'completed' ? 'bg-green-500/10 border-green-500/30' :
                             appointment.status === 'confirmed' ? 'bg-blue-500/10 border-blue-500/30' :
                             appointment.status === 'cancelled' ? 'bg-red-500/10 border-red-500/30' :
@@ -2345,7 +2492,7 @@ const BarbeiroDashboard = () => {
                             <div className="flex justify-between items-start">
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="font-bold text-lg">{appointment.service?.title || 'Serviço'}</p>
+                                  <p className="font-bold text-base">{appointment.service?.title || 'Serviço'}</p>
                                   <span className={`px-2 py-1 rounded text-xs font-medium ${
                                     appointment.status === 'completed' ? 'bg-green-500/20 text-green-400' :
                                     appointment.status === 'confirmed' ? 'bg-blue-500/20 text-blue-400' :
@@ -2386,37 +2533,37 @@ const BarbeiroDashboard = () => {
                                     </>
                                   )}
                                 </div>
-                                <p className="text-sm font-medium">Cliente: {appointment.client?.name ?? 'Cliente'}</p>
+                                <p className="text-xs font-medium">Cliente: {appointment.client?.name ?? 'Cliente'}</p>
                                 <div className="flex items-center gap-2">
                                   {appointment.client?.phone ? (
                                     <a 
                                       href={`https://wa.me/${formatWhatsappNumber(appointment.client.phone)}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="text-sm text-primary hover:underline"
+                                      className="text-xs text-primary hover:underline"
                                     >
                                       Tel: {appointment.client.phone}
                                     </a>
                                   ) : (
-                                    <span className="text-sm text-muted-foreground">Sem telefone</span>
+                                    <span className="text-xs text-muted-foreground">Sem telefone</span>
                                   )}
                                   <Button 
                                     size="sm" 
-                                    className="bg-green-600 hover:bg-green-700 text-white h-8 px-2 text-xs"
+                                    className="bg-green-600 hover:bg-green-700 text-white h-7 px-2 text-xs"
                                     onClick={() => handleWhatsAppClick(appointment)}
                                     title="Falar no WhatsApp"
                                   >
-                                    <Smartphone className="h-4 w-4" />
+                                    <Smartphone className="h-3 w-3" />
                                     WhatsApp
                                   </Button>
                                 </div>
-                                <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground mt-2">
                                   <div className="flex items-center gap-2">
-                                    <Calendar className="h-4 w-4" />
+                                    <Calendar className="h-3 w-3" />
                                     <span>{new Date(appointment.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <Clock className="h-4 w-4" />
+                                    <Clock className="h-3 w-3" />
                                     <span className="font-bold text-primary">{appointment.appointment_time.slice(0, 5)}</span>
                                   </div>
                                   {appointment.service?.price && (
@@ -2430,7 +2577,7 @@ const BarbeiroDashboard = () => {
                                     <img 
                                       src={appointment.photo_url} 
                                       alt="Foto do corte" 
-                                      className="w-full max-w-xs h-48 object-cover rounded-lg border border-border"
+                                      className="w-full max-w-xs h-40 object-cover rounded-lg border border-border"
                                     />
                                   </div>
                                 )}
@@ -2471,9 +2618,8 @@ const BarbeiroDashboard = () => {
               {selectedAppointmentForAction && (
                 <DialogDescription>
                   Serviço: <span className="font-semibold">{selectedAppointmentForAction.service?.title || 'Serviço'}</span><br />
-                  Cliente: <span className="font-semibold">{selectedAppointmentForAction.client?.name ?? 'Cliente'}</span><br />
-                  Data: {new Date(selectedAppointmentForAction.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR')} às{' '}
-                  {selectedAppointmentForAction.appointment_time.slice(0, 5)}
+                  Cliente: <span className="font-semibold">{selectedAppointmentForAction.client?.name || selectedAppointmentForAction.client_name || 'Local'}</span><br />
+                  Data: {new Date(selectedAppointmentForAction.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {selectedAppointmentForAction.appointment_time.slice(0, 5)}
                 </DialogDescription>
               )}
             </DialogHeader>
@@ -2546,7 +2692,14 @@ const BarbeiroDashboard = () => {
         >
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Concluir Agendamento</DialogTitle>
+              <DialogTitle>Concluir Atendimento</DialogTitle>
+              {appointmentToComplete && selectedAppointmentForAction && (
+                <DialogDescription>
+                  Cliente: <span className="font-semibold">{selectedAppointmentForAction.client?.name || selectedAppointmentForAction.client_name || 'Local'}</span><br />
+                  Serviço: <span className="font-semibold">{selectedAppointmentForAction.service?.title || 'Serviço'}</span><br />
+                  Data: {new Date(selectedAppointmentForAction.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {selectedAppointmentForAction.appointment_time.slice(0, 5)}
+                </DialogDescription>
+              )}
             </DialogHeader>
             <div className="space-y-4 py-4">
               <p className="text-sm text-muted-foreground">

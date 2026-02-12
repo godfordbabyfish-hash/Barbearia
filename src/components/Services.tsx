@@ -96,7 +96,7 @@ const Services = () => {
                 className="group overflow-hidden border-border hover:border-primary transition-all duration-300 hover:shadow-gold cursor-pointer"
                 onClick={() => handleServiceClick(service)}
               >
-                <div className="relative h-48 md:h-56 lg:h-64 overflow-hidden">
+                <div className="relative h-24 md:h-56 lg:h-64 overflow-hidden">
                   <img
                     src={imageUrl}
                     alt={service.title}
@@ -104,17 +104,17 @@ const Services = () => {
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-background/90 to-transparent"></div>
                   <div className="absolute bottom-2 md:bottom-4 left-2 md:left-4">
-                    <Icon className="w-4 h-4 md:w-6 md:h-6 lg:w-8 lg:h-8 text-primary" />
+                    <Icon className="w-3 h-3 md:w-6 md:h-6 lg:w-8 lg:h-8 text-primary" />
                   </div>
                 </div>
-                <CardContent className="p-3 md:p-6 lg:p-6">
-                  <h3 className="text-sm md:text-lg lg:text-2xl font-bold mb-1 md:mb-2 group-hover:text-primary transition-colors break-words">
+                <CardContent className="p-2 md:p-6 lg:p-6">
+                  <h3 className="text-xs md:text-lg lg:text-2xl font-bold mb-1 md:mb-2 group-hover:text-primary transition-colors break-words whitespace-normal leading-tight">
                     {service.title}
                   </h3>
                   <p className="text-xs md:text-sm lg:text-base text-muted-foreground mb-2 md:mb-4 line-clamp-2">
                     {service.description}
                   </p>
-                  <p className="text-lg md:text-2xl lg:text-3xl font-bold text-primary">
+                  <p className="text-sm md:text-2xl lg:text-3xl font-bold text-primary">
                     R$ {service.price.toFixed(2)}
                   </p>
                 </CardContent>

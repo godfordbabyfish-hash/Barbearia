@@ -290,97 +290,172 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
             <p className="text-sm mt-2">Clique em "Nova Venda" para começar.</p>
           </div>
         ) : (
-          <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
-            <div className="relative w-full overflow-hidden" style={{ maxWidth: '100%' }}>
-              <table className="w-full caption-bottom text-sm" style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%' }}>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="px-1 sm:px-2" style={{ width: '15%' }}>Data</TableHead>
-                    <TableHead className="px-1 sm:px-2" style={{ width: '20%' }}>Produto</TableHead>
-                    <TableHead className="text-center px-1 sm:px-2" style={{ width: '10%' }}>Qtd</TableHead>
-                    <TableHead className="text-right px-1 sm:px-2" style={{ width: '15%' }}>Total</TableHead>
-                    <TableHead className="text-right px-1 sm:px-2" style={{ width: '15%' }}>Comissão</TableHead>
-                    <TableHead className="text-center px-1 sm:px-2" style={{ width: '15%' }}>Status</TableHead>
-                    <TableHead className="text-center px-1 sm:px-2" style={{ width: '10%' }}>Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sales.map((sale) => {
-                    const product = sale.product as Product | undefined;
-                    return (
-                      <TableRow key={sale.id}>
-                        <TableCell className="px-1 sm:px-2">
-                          <div className="text-xs sm:text-sm">
-                            <div>{format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}</div>
-                            <div className="text-muted-foreground">{sale.sale_time}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="px-1 sm:px-2">
-                          <span className="truncate block text-xs sm:text-sm" title={product?.name || 'Produto desconhecido'}>
-                            {product?.name || 'Produto desconhecido'}
-                          </span>
-                          {sale.notes && (
-                             <div className="text-xs text-muted-foreground truncate" title={sale.notes}>{sale.notes}</div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center px-1 sm:px-2 text-xs sm:text-sm">
-                          {sale.quantity}
-                        </TableCell>
-                        <TableCell className="text-right px-1 sm:px-2">
-                          <span className="font-semibold text-xs sm:text-sm">
-                            R$ {sale.total_price.toFixed(2)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right px-1 sm:px-2">
-                          <span className="font-semibold text-green-600 text-xs sm:text-sm">
-                            R$ {sale.commission_value.toFixed(2)}
-                          </span>
-                          <div className="text-xs text-muted-foreground">
-                            ({sale.commission_percentage.toFixed(1)}%)
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center px-1 sm:px-2">
-                          {sale.status === 'confirmed' && (
-                            <Badge variant="default" className="bg-green-600 hover:bg-green-700 text-xs">Confirmado</Badge>
-                          )}
-                          {sale.status === 'pending' && (
-                            <Badge variant="outline" className="border-yellow-500 text-yellow-600 bg-yellow-50 text-xs">Pendente</Badge>
-                          )}
-                          {sale.status === 'cancelled' && (
-                            <Badge variant="destructive" className="text-xs">Cancelado</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center px-1 sm:px-2">
-                          {sale.status === 'pending' && (
-                            <div className="flex gap-1 justify-center">
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
-                                onClick={() => handleUpdateStatus(sale.id, 'confirmed')}
-                                title="Confirmar Venda"
-                              >
-                                <CheckCircle className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                onClick={() => handleUpdateStatus(sale.id, 'cancelled')}
-                                title="Cancelar Venda"
-                              >
-                                <XCircle className="h-4 w-4" />
-                              </Button>
+          <>
+            {/* Desktop/Tablet */}
+            <div className="hidden sm:block w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+              <div className="relative w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+                <table className="w-full caption-bottom text-sm" style={{ tableLayout: 'fixed', width: '100%', maxWidth: '100%' }}>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="px-2" style={{ width: '15%' }}>Data</TableHead>
+                      <TableHead className="px-2" style={{ width: '25%' }}>Produto</TableHead>
+                      <TableHead className="text-center px-2" style={{ width: '10%' }}>Qtd</TableHead>
+                      <TableHead className="text-right px-2" style={{ width: '15%' }}>Total</TableHead>
+                      <TableHead className="text-right px-2" style={{ width: '15%' }}>Comissão</TableHead>
+                      <TableHead className="text-center px-2" style={{ width: '10%' }}>Status</TableHead>
+                      <TableHead className="text-center px-2" style={{ width: '10%' }}>Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sales.map((sale) => {
+                      const product = sale.product as Product | undefined;
+                      return (
+                        <TableRow key={sale.id}>
+                          <TableCell className="px-2">
+                            <div className="text-sm">
+                              <div>{format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}</div>
+                              <div className="text-muted-foreground">{sale.sale_time}</div>
                             </div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </table>
+                          </TableCell>
+                          <TableCell className="px-2">
+                            <span className="truncate block text-sm" title={product?.name || 'Produto desconhecido'}>
+                              {product?.name || 'Produto desconhecido'}
+                            </span>
+                            {sale.notes && (
+                              <div className="text-xs text-muted-foreground truncate" title={sale.notes}>{sale.notes}</div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center px-2">
+                            {sale.quantity}
+                          </TableCell>
+                          <TableCell className="text-right px-2">
+                            <span className="font-semibold">
+                              R$ {sale.total_price.toFixed(2)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right px-2">
+                            <span className="font-semibold text-green-600">
+                              R$ {sale.commission_value.toFixed(2)}
+                            </span>
+                            <div className="text-xs text-muted-foreground">
+                              ({sale.commission_percentage.toFixed(1)}%)
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center px-2">
+                            {sale.status === 'confirmed' && (
+                              <Badge variant="default" className="bg-green-600 hover:bg-green-700 text-xs">Confirmado</Badge>
+                            )}
+                            {sale.status === 'pending' && (
+                              <Badge variant="outline" className="border-yellow-500 text-yellow-600 bg-yellow-50 text-xs">Pendente</Badge>
+                            )}
+                            {sale.status === 'cancelled' && (
+                              <Badge variant="destructive" className="text-xs">Cancelado</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center px-2">
+                            {sale.status === 'pending' && (
+                              <div className="flex gap-1 justify-center">
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                  onClick={() => handleUpdateStatus(sale.id, 'confirmed')}
+                                  title="Confirmar Venda"
+                                >
+                                  <CheckCircle className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  onClick={() => handleUpdateStatus(sale.id, 'cancelled')}
+                                  title="Cancelar Venda"
+                                >
+                                  <XCircle className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </table>
+              </div>
             </div>
-          </div>
+
+            {/* Mobile cards */}
+            <div className="sm:hidden space-y-3">
+              {sales.map((sale) => {
+                const product = sale.product as Product | undefined;
+                return (
+                  <div key={sale.id} className="rounded-lg border border-border p-3 bg-secondary/20">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <p className="font-semibold text-sm truncate" title={product?.name || 'Produto desconhecido'}>
+                            {product?.name || 'Produto desconhecido'}
+                          </p>
+                          <span className="text-xs text-muted-foreground">
+                            {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM', { locale: ptBR })} • {sale.sale_time}
+                          </span>
+                        </div>
+                        {sale.notes && (
+                          <p className="text-xs text-muted-foreground mt-1 truncate">{sale.notes}</p>
+                        )}
+                        <div className="mt-2 grid grid-cols-3 gap-2 items-center">
+                          <div className="text-xs">
+                            <span className="text-muted-foreground">Qtd</span>
+                            <div className="font-medium">{sale.quantity}</div>
+                          </div>
+                          <div className="text-xs text-right">
+                            <span className="text-muted-foreground">Total</span>
+                            <div className="font-semibold">R$ {sale.total_price.toFixed(2)}</div>
+                          </div>
+                          <div className="text-xs text-right">
+                            <span className="text-muted-foreground">Comissão</span>
+                            <div className="font-semibold text-green-600">R$ {sale.commission_value.toFixed(2)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between">
+                      <div>
+                        {sale.status === 'confirmed' && (
+                          <Badge variant="default" className="bg-green-600 hover:bg-green-700 text-xs">Confirmado</Badge>
+                        )}
+                        {sale.status === 'pending' && (
+                          <Badge variant="outline" className="border-yellow-500 text-yellow-600 bg-yellow-50 text-xs">Pendente</Badge>
+                        )}
+                        {sale.status === 'cancelled' && (
+                          <Badge variant="destructive" className="text-xs">Cancelado</Badge>
+                        )}
+                      </div>
+                      {sale.status === 'pending' && (
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className="h-8 px-3 bg-green-600 hover:bg-green-700"
+                            onClick={() => handleUpdateStatus(sale.id, 'confirmed')}
+                          >
+                            Confirmar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="h-8 px-3"
+                            onClick={() => handleUpdateStatus(sale.id, 'cancelled')}
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
 
         {/* Dialog para nova venda */}

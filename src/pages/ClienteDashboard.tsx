@@ -10,15 +10,16 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { LogOut, Calendar, Clock, Scissors, Sparkles, Wind, Home, ShoppingBag, History, Settings } from 'lucide-react';
+import { LogOut, Calendar, Clock, Scissors, Sparkles, Wind, Home, ShoppingBag, History, Settings, Filter } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import haircutImg from "@/assets/service-haircut.jpg";
 import beardImg from "@/assets/service-beard.jpg";
 import stylingImg from "@/assets/service-styling.jpg";
 import FilaDaBarbearia from '@/pages/FilaDaBarbearia';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 
 const iconMap: Record<string, any> = {
   Scissors,
@@ -66,6 +67,48 @@ const ClienteDashboard = () => {
     loadServiceStats();
     loadServices();
   }, [user, role]);
+
+  useEffect(() => {
+    if (!user) return;
+    const channel = (supabase as any)
+      .channel(`client-appointments-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'appointments',
+          filter: `client_id=eq.${user.id}`
+        },
+        (payload: any) => {
+          const status = payload?.new?.status || payload?.old?.status;
+          if (status === 'completed') {
+            toast.success('Atendimento concluído', {
+              description: 'Seu agendamento foi atualizado para concluído.',
+              duration: 2500,
+            });
+          }
+          if (status === 'cancelled') {
+            toast.warning('Agendamento cancelado', {
+              description: 'Um agendamento seu foi cancelado.',
+              duration: 2500,
+            });
+          }
+          loadAppointments();
+          loadServiceStats();
+        }
+      )
+      .subscribe((status: string) => {
+        if (status !== 'SUBSCRIBED') {
+          console.warn('Realtime channel status:', status);
+        }
+      });
+    return () => {
+      try {
+        (supabase as any).removeChannel(channel);
+      } catch {}
+    };
+  }, [user?.id]);
 
   const loadDisplayName = async () => {
     if (!user) return;
@@ -303,61 +346,80 @@ const ClienteDashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background py-8 px-4">
+    <div className="min-h-screen bg-background py-6 px-4 overflow-x-hidden">
       <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-8">
-          <h1 className="text-4xl font-bold">
+        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-3">
+          <h1 className="text-2xl font-bold">
             Meus <span className="bg-gradient-gold bg-clip-text text-transparent">Agendamentos</span>
           </h1>
-          <div className="flex flex-col gap-2 md:items-end">
-            {user && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/20 text-primary text-sm font-bold">
+        </div>
+
+        <div className="hidden md:flex items-center justify-between mb-2">
+          {user && (
+            <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-secondary/30">
+              <Avatar className="h-8 w-8">
+                <AvatarImage src={(user as any)?.user_metadata?.avatar_url || ''} alt={displayName || 'Usuário'} />
+                <AvatarFallback className="bg-primary/20 text-primary text-sm font-bold">
                   {(displayName || user.email || 'U').charAt(0).toUpperCase()}
-                </div>
-                <div className="text-sm font-medium text-foreground">
-                  {displayName || 'Usuário'}
-                </div>
+                </AvatarFallback>
+              </Avatar>
+              <div className="text-sm font-medium text-foreground">{displayName || 'Usuário'}</div>
+              <div className="flex items-center gap-1 ml-2">
+                <Button
+                  onClick={() => navigate('/configuracoes')}
+                  variant="ghost"
+                  className="h-8 w-8 p-0"
+                  aria-label="Configurações"
+                  title="Configurações"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+                <Button
+                  onClick={signOut}
+                  variant="ghost"
+                  className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  aria-label="Sair"
+                  title="Sair"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
-        <div className="hidden md:flex flex-wrap gap-2 justify-start md:justify-end mb-4">
-          <Button onClick={() => navigate('/cliente')} variant="outline" size="sm">
-            <Home className="mr-2 h-4 w-4" />
-            Meu Painel
-          </Button>
-          <Button onClick={() => navigate('/configuracoes')} variant="outline" size="sm">
-            <Settings className="mr-2 h-4 w-4" />
-            Configurações
-          </Button>
-          <Button onClick={signOut} variant="outline" size="sm">
-            <LogOut className="mr-2 h-4 w-4" />
-            Sair
-          </Button>
-        </div>
-
-        <div className="md:hidden flex justify-end mb-4">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">Menu</Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => navigate('/')}>
-                <Home className="mr-2 h-4 w-4" />
-                Início
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/configuracoes')}>
-                <Settings className="mr-2 h-4 w-4" />
-                Configurações
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={signOut}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Sair
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+        <div className="md:hidden flex items-center justify-between mb-3">
+          {user && (
+            <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-secondary/30">
+              <Avatar className="h-8 w-8">
+                <AvatarImage src={(user as any)?.user_metadata?.avatar_url || ''} alt={displayName || 'Usuário'} />
+                <AvatarFallback className="bg-primary/20 text-primary text-sm font-bold">
+                  {(displayName || user.email || 'U').charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="text-sm font-medium text-foreground">{displayName || 'Usuário'}</div>
+              <div className="flex items-center gap-1 ml-2">
+                <Button
+                  onClick={() => navigate('/configuracoes')}
+                  variant="ghost"
+                  className="h-8 w-8 p-0"
+                  aria-label="Configurações"
+                  title="Configurações"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+                <Button
+                  onClick={signOut}
+                  variant="ghost"
+                  className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  aria-label="Sair"
+                  title="Sair"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         <Tabs defaultValue="agendamentos" className="w-full">
@@ -388,13 +450,13 @@ const ClienteDashboard = () => {
           <TabsContent value="agendamentos" className="space-y-6">
             <div className="grid md:grid-cols-2 gap-6 mb-8">
               <Card className="bg-card border-border">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
+                <CardHeader className="py-3">
+                  <CardTitle className="flex items-center gap-2 text-base md:text-lg">
                     <Scissors className="h-5 w-5 text-primary" />
                     Serviços Mais Usados
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-2">
                   {serviceStats.length > 0 ? (
                     <div className="space-y-3">
                       {serviceStats.map((stat: any) => (
@@ -411,13 +473,13 @@ const ClienteDashboard = () => {
               </Card>
 
               <Card className="bg-card border-border">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
+                <CardHeader className="py-3">
+                  <CardTitle className="flex items-center gap-2 text-base md:text-lg">
                     <Calendar className="h-5 w-5 text-primary" />
                     Próximo Agendamento
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pt-2">
                   {(() => {
                     const upcoming = [...appointments]
                       .filter(a => a.status === 'pending' || a.status === 'confirmed')
@@ -484,10 +546,10 @@ const ClienteDashboard = () => {
             {/* Services Section */}
             {services.length > 0 && (
               <div className="mb-8">
-                <h2 className="text-3xl font-bold mb-6">
+                <h2 className="text-xl md:text-2xl font-bold mb-4">
                   Nossos <span className="bg-gradient-gold bg-clip-text text-transparent">Serviços</span>
                 </h2>
-                <div className="grid md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-3 gap-2 md:gap-6">
                   {services.map((service) => {
                     const Icon = iconMap[service.icon] || Scissors;
                     const imageUrl = service.image_url || defaultImages[service.title] || haircutImg;
@@ -498,26 +560,26 @@ const ClienteDashboard = () => {
                         className="group overflow-hidden border-border hover:border-primary transition-all duration-300 hover:shadow-gold cursor-pointer"
                         onClick={() => navigate('/', { state: { preSelectedService: service, scrollToBooking: true } })}
                       >
-                        <div className="relative h-48 overflow-hidden">
+                        <div className="relative h-24 md:h-48 overflow-hidden">
                           <img
                             src={imageUrl}
                             alt={service.title}
                             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-background/90 to-transparent"></div>
-                          <div className="absolute bottom-3 left-3">
-                            <Icon className="w-6 h-6 text-primary" />
+                          <div className="absolute bottom-2 left-2 md:bottom-3 md:left-3">
+                            <Icon className="w-4 h-4 md:w-6 md:h-6 text-primary" />
                           </div>
                         </div>
-                        <CardContent className="p-4">
-                          <h3 className="text-xl font-bold mb-2 group-hover:text-primary transition-colors flex items-center gap-2">
+                        <CardContent className="p-2 md:p-4">
+                          <h3 className="text-base md:text-xl font-bold mb-1 group-hover:text-primary transition-colors flex items-center gap-2 whitespace-normal break-words leading-tight">
                             <Icon className="w-5 h-5" />
                             {service.title}
                           </h3>
-                          <p className="text-muted-foreground text-sm mb-3">
+                          <p className="text-muted-foreground text-xs md:text-sm mb-2">
                             {service.description}
                           </p>
-                          <p className="text-2xl font-bold text-primary">
+                          <p className="text-sm md:text-2xl font-bold text-primary">
                             R$ {service.price.toFixed(2)}
                           </p>
                         </CardContent>
@@ -552,50 +614,73 @@ const ClienteDashboard = () => {
                   </CardHeader>
                   <CardContent>
                     {/* Filtros */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 pb-4 border-b border-border">
-                      <div>
-                        <Label className="text-sm text-muted-foreground mb-1 block">Período</Label>
-                        <Select value={historyFilterPeriod} onValueChange={(v) => setHistoryFilterPeriod(v as any)}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">Todos</SelectItem>
-                            <SelectItem value="today">Hoje</SelectItem>
-                            <SelectItem value="week">Última Semana</SelectItem>
-                            <SelectItem value="month">Último Mês</SelectItem>
-                            <SelectItem value="year">Último Ano</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-sm text-muted-foreground mb-1 block">Status</Label>
-                        <Select value={historyFilterStatus} onValueChange={(v) => setHistoryFilterStatus(v as any)}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">Todos</SelectItem>
-                            <SelectItem value="completed">Concluído</SelectItem>
-                            <SelectItem value="confirmed">Confirmado</SelectItem>
-                            <SelectItem value="cancelled">Cancelado</SelectItem>
-                            <SelectItem value="pending">Pendente</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-sm text-muted-foreground mb-1 block">Serviço</Label>
-                        <Select value={historyFilterService} onValueChange={setHistoryFilterService}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">Todos</SelectItem>
-                            {services.map((service) => (
-                              <SelectItem key={service.id} value={service.id}>{service.title}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                    <div className="mb-6 pb-4 border-b border-border">
+                        <div className="grid grid-cols-2 gap-2">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                              <Calendar className="h-3 w-3 mr-1" />
+                              Período: {
+                                historyFilterPeriod === 'all' ? 'Todos' :
+                                historyFilterPeriod === 'today' ? 'Hoje' :
+                                historyFilterPeriod === 'week' ? 'Última Semana' :
+                                historyFilterPeriod === 'month' ? 'Último Mês' : 'Último Ano'
+                              }
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">Período</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={historyFilterPeriod} onValueChange={(v) => setHistoryFilterPeriod(v as any)}>
+                              <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="today">Hoje</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="week">Última Semana</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="month">Último Mês</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="year">Último Ano</DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                              <Filter className="h-3 w-3 mr-1" />
+                              Status: {
+                                historyFilterStatus === 'all' ? 'Todos' :
+                                historyFilterStatus === 'completed' ? 'Concluído' :
+                                historyFilterStatus === 'confirmed' ? 'Confirmado' :
+                                historyFilterStatus === 'cancelled' ? 'Cancelado' : 'Pendente'
+                              }
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">Status</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={historyFilterStatus} onValueChange={(v) => setHistoryFilterStatus(v as any)}>
+                              <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="completed">Concluído</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="confirmed">Confirmado</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="cancelled">Cancelado</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="pending">Pendente</DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                              <Scissors className="h-3 w-3 mr-1" />
+                              Serviço: {services.find(s => s.id === historyFilterService)?.title || 'Todos'}
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">Serviço</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={historyFilterService} onValueChange={setHistoryFilterService}>
+                              <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                              {services.map((service) => (
+                                <DropdownMenuRadioItem key={service.id} value={service.id}>{service.title}</DropdownMenuRadioItem>
+                              ))}
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </div>
 

@@ -6,9 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  DropdownMenu, 
+  DropdownMenuTrigger, 
+  DropdownMenuContent, 
+  DropdownMenuLabel, 
+  DropdownMenuRadioGroup, 
+  DropdownMenuRadioItem 
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { Loader2, Plus, Trash2, Users, Filter } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -335,44 +343,43 @@ const BarberAdvancesManager = () => {
         </CardHeader>
         <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
           <div className="space-y-3 sm:space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            <div className="space-y-2">
-              <Label>Filtrar por Barbeiro</Label>
-              <Select
-                value={selectedBarberId}
-                onValueChange={setSelectedBarberId}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {barbers.map((barber) => (
-                    <SelectItem key={barber.id} value={barber.id}>
-                      {barber.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                    <Users className="h-3 w-3 mr-1" />
+                    Barbeiro: {barbers.find(b => b.id === selectedBarberId)?.name || 'Todos'}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuLabel className="text-xs">Barbeiro</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup value={selectedBarberId} onValueChange={setSelectedBarberId}>
+                    <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                    {barbers.map((barber) => (
+                      <DropdownMenuRadioItem key={barber.id} value={barber.id}>{barber.name}</DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                    <Filter className="h-3 w-3 mr-1" />
+                    Status: {statusFilter === 'all' ? 'Todos' : statusFilter === 'pending' ? 'Pendentes' : statusFilter === 'approved' ? 'Aprovados' : 'Rejeitados'}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuLabel className="text-xs">Status</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+                    <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="pending">Pendentes</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="approved">Aprovados</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="rejected">Rejeitados</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select
-                value={statusFilter}
-                onValueChange={(v) => setStatusFilter(v as any)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="pending">Pendentes</SelectItem>
-                  <SelectItem value="approved">Aprovados</SelectItem>
-                  <SelectItem value="rejected">Rejeitados</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
 
           {loading ? (
             <div className="flex items-center justify-center py-8">

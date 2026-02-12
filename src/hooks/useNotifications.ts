@@ -46,8 +46,8 @@ export const useNotifications = () => {
             console.log('📢 Enviando notificação de teste...');
             await reg.showNotification('🎉 Sistema de Notificações Ativo', {
               body: 'Você receberá alertas de novos agendamentos.',
-              icon: '/favicon.ico',
-              badge: '/favicon.ico',
+              icon: '/icon-192.png',
+              badge: '/icon-192.png',
               tag: 'test-notification',
               requireInteraction: false,
               silent: false,
@@ -111,8 +111,8 @@ export const useNotifications = () => {
       // Usar diretamente o registration.showNotification
       await registration.showNotification(title, {
         body: options.body,
-        icon: '/favicon.ico',
-        badge: '/favicon.ico',
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
         requireInteraction: true,
         silent: false,
         tag: 'appointment-notification',

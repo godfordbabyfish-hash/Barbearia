@@ -208,31 +208,31 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Minha Disponibilidade Semanal */}
       <Card className="bg-card border-border">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5 text-primary" />
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Clock className="h-4 w-4 text-primary" />
             Minha Disponibilidade Semanal
           </CardTitle>
-          <p className="text-sm text-muted-foreground mt-2">
-            Configure seus horários de disponibilidade por dia da semana. Se marcar um dia como "Fechado", você não aparecerá para agendamentos nesse dia.
+          <p className="text-xs text-muted-foreground mt-1">
+            Configure seus horários de disponibilidade por dia da semana.
           </p>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
+        <CardContent className="pt-2">
+          <div className="space-y-3">
             {dayOrder.map((dayKey) => {
               const barberDayHours = availability[dayKey];
               const shopDayHours = operatingHours[dayKey];
               
               return (
-                <div key={dayKey} className="p-4 bg-secondary/30 rounded-lg border border-border">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold text-lg">{dayNames[dayKey]}</h3>
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2">
-                        <Label htmlFor={`closed-${dayKey}`} className="text-sm cursor-pointer">
+                <div key={dayKey} className="p-3 bg-secondary/30 rounded-lg border border-border">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-sm">{dayNames[dayKey]}</h3>
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <Label htmlFor={`closed-${dayKey}`} className="text-xs cursor-pointer">
                           {barberDayHours.closed ? 'Fechado' : 'Disponível'}
                         </Label>
                         <Switch
@@ -247,29 +247,29 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
                   </div>
                   
                   {!barberDayHours.closed && (
-                    <div className="grid grid-cols-2 gap-4 mt-3">
+                    <div className="grid grid-cols-2 gap-3 mt-2">
                       <div>
-                        <Label htmlFor={`open-${dayKey}`} className="text-sm">Horário de Abertura</Label>
+                        <Label htmlFor={`open-${dayKey}`} className="text-xs">Horário de Abertura</Label>
                         <Input
                           id={`open-${dayKey}`}
                           type="time"
                           value={barberDayHours.open}
                           onChange={(e) => handleAvailabilityChange(dayKey, 'open', e.target.value)}
-                          className="mt-1"
+                          className="mt-1 h-8 text-xs"
                         />
                       </div>
                       <div>
-                        <Label htmlFor={`close-${dayKey}`} className="text-sm">Horário de Fechamento</Label>
+                        <Label htmlFor={`close-${dayKey}`} className="text-xs">Horário de Fechamento</Label>
                         <Input
                           id={`close-${dayKey}`}
                           type="time"
                           value={barberDayHours.close}
                           onChange={(e) => handleAvailabilityChange(dayKey, 'close', e.target.value)}
-                          className="mt-1"
+                          className="mt-1 h-8 text-xs"
                         />
                       </div>
                       <div className="col-span-2">
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-[11px] text-muted-foreground">
                           Programação da barbearia: {shopDayHours.open} - {shopDayHours.close}
                         </p>
                       </div>
@@ -284,24 +284,24 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
 
       {/* Programação da Barbearia (Referência) */}
       <Card className="bg-card border-border">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CalendarIcon className="h-5 w-5 text-primary" />
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CalendarIcon className="h-4 w-4 text-primary" />
             Programação da Barbearia (Referência)
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
+        <CardContent className="pt-2">
+          <div className="space-y-3">
             {dayOrder.map((dayKey) => {
               const dayHours = operatingHours[dayKey];
               const barberDayHours = availability[dayKey];
               const dayBreaks = getBreaksForDay(dayKey);
               
               return (
-                <div key={dayKey} className="p-4 bg-secondary/30 rounded-lg border border-border">
+                <div key={dayKey} className="p-3 bg-secondary/30 rounded-lg border border-border">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-lg">{dayNames[dayKey]}</h3>
-                    <div className="flex gap-3 items-center">
+                    <h3 className="font-semibold text-sm">{dayNames[dayKey]}</h3>
+                    <div className="flex gap-2 items-center">
                       {dayHours.closed ? (
                         <span className="px-2 py-1 rounded text-xs font-medium bg-red-500/20 text-red-400">
                           Barbearia Fechada
@@ -325,7 +325,7 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
                   
                   {!dayHours.closed && !barberDayHours.closed && dayBreaks.length > 0 && (
                     <div className="mt-3 space-y-2">
-                      <p className="text-sm text-muted-foreground mb-2">Suas pausas neste dia:</p>
+                      <p className="text-xs text-muted-foreground mb-2">Suas pausas neste dia:</p>
                       {dayBreaks.map((breakItem) => (
                         <div
                           key={breakItem.id}
@@ -333,7 +333,7 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
                         >
                           <div className="flex items-center gap-2">
                             <Clock className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-sm font-medium">
+                            <span className="text-xs font-medium">
                               {breakItem.start_time} - {breakItem.end_time}
                             </span>
                             {!isBreakWithinHours(breakItem) && (
@@ -371,10 +371,10 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
 
       {/* Gerenciar Pausas */}
       <Card className="bg-card border-border">
-        <CardHeader>
+        <CardHeader className="pb-2">
           <div className="flex justify-between items-center">
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-primary" />
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Clock className="h-4 w-4 text-primary" />
               Gerenciar Horários de Pausa
             </CardTitle>
             <Dialog open={dialogOpen} onOpenChange={(open) => {
@@ -514,28 +514,28 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
             </Dialog>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-2">
           {breaks.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">
               Nenhuma pausa cadastrada. Clique em "Adicionar Pausa" para criar uma.
             </p>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-4">
               {Object.entries(breaksByDate).map(([date, dateBreaks]) => (
                 <div key={date} className="space-y-2">
-                  <div className="flex items-center gap-2 text-lg font-semibold text-primary mb-2">
-                    <CalendarIcon className="h-5 w-5" />
+                  <div className="flex items-center gap-2 text-sm font-semibold text-primary mb-2">
+                    <CalendarIcon className="h-4 w-4" />
                     {format(new Date(date + 'T00:00:00'), 'EEEE, dd/MM/yyyy', { locale: ptBR })}
                   </div>
                   <div className="space-y-2">
                     {dateBreaks.map((breakItem) => (
                       <div
                         key={breakItem.id}
-                        className="flex items-center justify-between p-3 bg-secondary rounded-lg border border-border"
+                        className="flex items-center justify-between p-2 bg-secondary rounded-lg border border-border"
                       >
-                        <div className="flex items-center gap-3">
-                          <Clock className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-sm font-medium">
                             {breakItem.start_time} - {breakItem.end_time}
                           </span>
                         </div>
@@ -545,14 +545,14 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
                             variant="ghost"
                             onClick={() => handleEdit(breakItem)}
                           >
-                            <Edit className="h-4 w-4" />
+                            <Edit className="h-3 w-3" />
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => handleDelete(breakItem.id)}
                           >
-                            <Trash2 className="h-4 w-4 text-destructive" />
+                            <Trash2 className="h-3 w-3 text-destructive" />
                           </Button>
                         </div>
                       </div>

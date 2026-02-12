@@ -74,3 +74,27 @@ export const formatAppointmentForWhatsApp = (appointment: any, action: 'created'
     barberName: appointment.barbers?.name || appointment.barber?.name,
   };
 };
+
+/**
+ * Send a freeform WhatsApp message to a phone number via Edge Function, with browser fallback
+ */
+export const sendWhatsAppMessage = async (phone: string, message: string): Promise<boolean> => {
+  let cleaned = (phone || '').replace(/\D/g, '');
+  if (!cleaned) return false;
+  if (!cleaned.startsWith('55') && cleaned.length >= 10 && cleaned.length <= 12) {
+    cleaned = `55${cleaned}`;
+  }
+  try {
+    const { data, error } = await supabase.functions.invoke('whatsapp-notify', {
+      body: { action: 'send-message', phone: cleaned, message },
+    });
+    if (error) {
+      console.error('WhatsApp server error:', error);
+      return false;
+    }
+    return !!data?.success;
+  } catch (err) {
+    console.error('WhatsApp invoke failed:', err);
+    return false;
+  }
+};

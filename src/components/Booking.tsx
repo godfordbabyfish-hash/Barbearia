@@ -1108,34 +1108,30 @@ const Booking = () => {
         </div>
 
         {step === "service" ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
             {services.map((service, index) => (
               <Card 
                 key={index} 
                 className="group bg-card border-border hover:border-primary/50 transition-all duration-300 overflow-hidden hover:shadow-gold cursor-pointer"
                 onClick={() => handleServiceSelect(service)}
               >
-                <div className="relative h-48 md:h-56 lg:h-64 overflow-hidden">
+                <div className="relative h-24 md:h-56 lg:h-64 overflow-hidden">
                   <img 
                     src={service.image_url || defaultImages[service.title] || haircutImg} 
                     alt={service.title}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-card to-transparent"></div>
-                  <div className="absolute bottom-2 md:bottom-4 left-2 md:left-4 right-2 md:right-4">
-                  <div className="flex items-start gap-1 md:gap-2 mb-1 md:mb-2">
-                      {(() => {
-                        const IconComponent = (Icons as any)[service.icon] || Scissors;
-                        return <IconComponent className="w-3 h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 text-primary mt-0.5 flex-shrink-0" />;
-                      })()}
-                      <h3 className="text-xs md:text-base lg:text-2xl font-bold text-foreground break-words">{service.title}</h3>
-                    </div>
+                  <div className="absolute bottom-2 md:bottom-4 left-2 md:left-4">
+                    {(() => {
+                      const IconComponent = (Icons as any)[service.icon] || Scissors;
+                      return <IconComponent className="w-3 h-3 md:w-4 md:h-4 lg:w-5 lg:h-5 text-primary" />;
+                    })()}
                   </div>
                 </div>
                 
-                <CardContent className="p-3 md:p-4 lg:p-6">
-                  <h3 className="text-xs md:text-base lg:text-2xl font-bold mb-1 md:mb-2 break-words">{service.title}</h3>
-                  <p className="text-xs md:text-sm lg:text-base text-muted-foreground mb-2 md:mb-4 line-clamp-2">{service.description}</p>
+                <CardContent className="p-2 md:p-4 lg:p-6">
+                  <h3 className="text-xs md:text-base lg:text-2xl font-bold mb-1 md:mb-2 break-words whitespace-normal leading-tight">{service.title}</h3>
                   <div className="flex items-center justify-between">
                     <span className="text-sm md:text-xl lg:text-3xl font-bold text-primary">R$ {service.price.toFixed(2)}</span>
                   </div>
@@ -1482,10 +1478,10 @@ const Booking = () => {
 
       {/* Modal de confirmação para barbeiro indisponível hoje */}
       <Dialog open={unavailableBarberDialogOpen} onOpenChange={setUnavailableBarberDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-full max-w-[95vw] sm:max-w-md p-4 sm:p-6">
           <DialogHeader>
-            <DialogTitle>Barbeiro Indisponível Hoje</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-base sm:text-lg">Barbeiro Indisponível Hoje</DialogTitle>
+            <DialogDescription className="text-sm sm:text-base whitespace-normal break-words leading-relaxed">
               {selectedUnavailableBarber && (
                 <>
                   O barbeiro <strong>{selectedUnavailableBarber.name}</strong> não possui horários disponíveis para hoje.
@@ -1495,17 +1491,17 @@ const Booking = () => {
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="flex gap-3 pt-4">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-4">
             <Button
               variant="outline"
               onClick={handleCancelUnavailableBarber}
-              className="flex-1"
+              className="flex-1 text-sm sm:text-base"
             >
               Não, escolher outro barbeiro
             </Button>
             <Button
               onClick={handleConfirmUnavailableBarber}
-              className="flex-1 bg-primary hover:bg-primary/90"
+              className="flex-1 bg-primary hover:bg-primary/90 text-sm sm:text-base"
             >
               Sim, agendar mesmo assim
             </Button>

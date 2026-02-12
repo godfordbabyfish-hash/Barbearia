@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -9,7 +9,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { DollarSign, TrendingUp, Calendar, Users, Plus, Banknote } from 'lucide-react';
+import { DollarSign, TrendingUp, Calendar, Users, Plus, Banknote, Filter } from 'lucide-react';
+import { 
+  DropdownMenu, 
+  DropdownMenuTrigger, 
+  DropdownMenuContent, 
+  DropdownMenuLabel, 
+  DropdownMenuRadioGroup, 
+  DropdownMenuRadioItem 
+} from '@/components/ui/dropdown-menu';
 import { format, startOfDay, endOfDay, startOfWeek, startOfMonth, endOfMonth, startOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -40,6 +48,7 @@ interface ProductSale {
   sale_time: string;
   total_price: number;
   commission_value: number;
+  product_id?: string;
   product?: { name: string } | null;
 }
 
@@ -47,9 +56,10 @@ const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', '#22c55e', '#3b8
 
 interface BarberFinancialDashboardProps {
   barberId: string;
+  isActive?: boolean;
 }
 
-const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) => {
+const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancialDashboardProps) => {
   // Hooks for different commission types (priority: individual > fixed)
   const { calculateCommission: calculateIndividualCommission } = useBarberCommissions(barberId);
   const { calculateServiceCommission: calculateFixedServiceCommission, calculateProductCommission: calculateFixedProductCommission } = useBarberFixedCommissions(barberId);
@@ -65,6 +75,9 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
   const [filterService, setFilterService] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
   const [totalAdvances, setTotalAdvances] = useState(0);
+  const latestQueryIdRef = useRef(0);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
   
   // Estados para solicitação de vale
   const [advanceDialogOpen, setAdvanceDialogOpen] = useState(false);
@@ -96,12 +109,28 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
     loadServices();
   }, []);
 
+  const reloadData = () => {
+    if (!barberId) return;
+    const id = ++latestQueryIdRef.current;
+    loadAppointments(id);
+    loadProductSales(id);
+    loadAdvances(id);
+  };
+
   useEffect(() => {
-    if (barberId) {
-      loadAppointments();
-      loadProductSales();
-      loadAdvances();
+    if (!barberId) return;
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
     }
+    debounceRef.current = setTimeout(() => {
+      reloadData();
+    }, 250);
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+    };
   }, [barberId, period, dateFrom, dateTo, filterType, filterService, filterStatus]);
 
   // Realtime subscription - separate effect to avoid re-subscribing on filter changes
@@ -119,8 +148,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
           filter: `barber_id=eq.${barberId}`
         },
         (payload) => {
-          // Reload appointments when any change occurs
-          loadAppointments();
+          reloadData();
         }
       )
       .subscribe();
@@ -136,7 +164,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
           filter: `barber_id=eq.${barberId}`
         },
         () => {
-          loadProductSales();
+          reloadData();
         }
       )
       .subscribe();
@@ -191,7 +219,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
     return { start, end };
   };
 
-  const loadAppointments = async () => {
+  const loadAppointments = async (currentId?: number) => {
     if (!barberId) return;
 
     const { start, end } = getDateRange();
@@ -235,10 +263,12 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
       return;
     }
 
-    setAppointments((data as any) || []);
+    if (currentId === latestQueryIdRef.current) {
+      setAppointments((data as any) || []);
+    }
   };
 
-  const loadProductSales = async () => {
+  const loadProductSales = async (currentId?: number) => {
     if (!barberId) return;
 
     const { start, end } = getDateRange();
@@ -253,6 +283,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
         sale_time,
         total_price,
         commission_value,
+      product_id,
         product:products(name)
       `)
       .eq('barber_id', barberId)
@@ -269,10 +300,12 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
       return;
     }
 
-    setProductSales((data as any) || []);
+    if (currentId === latestQueryIdRef.current) {
+      setProductSales((data as any) || []);
+    }
   };
 
-  const loadAdvances = async () => {
+  const loadAdvances = async (currentId?: number) => {
     if (!barberId) return;
 
     const { start, end } = getDateRange();
@@ -297,7 +330,9 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
     }
 
     const total = (data || []).reduce((sum, adv: any) => sum + Number(adv.amount || 0), 0);
-    setTotalAdvances(total);
+    if (currentId === latestQueryIdRef.current) {
+      setTotalAdvances(total);
+    }
   };
 
   // Função para solicitar vale
@@ -380,7 +415,20 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
     return sum + commission;
   }, 0);
   
-  const productCommission = productSales.reduce((sum, sale) => sum + sale.commission_value, 0);
+  const productCommission = productSales.reduce((sum, sale) => {
+    const existing = Number(sale.commission_value || 0);
+    const price = Number(sale.total_price || 0);
+    if (existing > 0) {
+      return sum + existing;
+    }
+    const individual = sale.product_id 
+      ? calculateIndividualProductCommission(barberId, sale.product_id, price)
+      : 0;
+    if (individual > 0) {
+      return sum + individual;
+    }
+    return sum + calculateFixedProductCommission(barberId, price);
+  }, 0);
   const totalCommission = serviceCommission + productCommission;
   const netCommission = totalCommission - totalAdvances;
   
@@ -446,6 +494,13 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
     }));
   };
 
+  // Precompute chart datasets and a global key to keep mounts stable across filter changes
+  const chartByDateData = chartDataByDate();
+  const chartByTypeData = chartDataByType;
+  const chartByStatusData = chartDataByStatus;
+  const chartByServiceData = commissionByService();
+  const chartGlobalKey = `${barberId}-${period}-${dateFrom}-${dateTo}-${filterType}-${filterService}-${filterStatus}`;
+
   const getPeriodLabel = () => {
     if (period === 'custom' && dateFrom && dateTo) {
       return `${format(new Date(dateFrom), 'dd/MM/yyyy', { locale: ptBR })} até ${format(new Date(dateTo), 'dd/MM/yyyy', { locale: ptBR })}`;
@@ -471,40 +526,54 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 px-2 text-xs"
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          <Filter className="h-3 w-3 mr-1" />
+          {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+        </Button>
+      </div>
       {/* Filters */}
-      <Card className="bg-card border-border">
+      <Card className={`bg-card border-border ${showFilters ? '' : 'hidden'}`}>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">Filtros</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Período</label>
-              <Select value={period} onValueChange={(v) => setPeriod(v as any)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="day">Diário</SelectItem>
-                  <SelectItem value="week">Semanal</SelectItem>
-                  <SelectItem value="month">Mensal</SelectItem>
-                  <SelectItem value="year">Anual</SelectItem>
-                  <SelectItem value="custom">Personalizado</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid grid-cols-2 gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                  <Calendar className="h-3 w-3 mr-1" />
+                  Período: {period === 'day' ? 'Diário' : period === 'week' ? 'Semanal' : period === 'month' ? 'Mensal' : period === 'year' ? 'Anual' : 'Personalizado'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel className="text-xs">Período</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={period} onValueChange={(v) => setPeriod(v as any)}>
+                  <DropdownMenuRadioItem value="day">Diário</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="week">Semanal</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="month">Mensal</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="year">Anual</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="custom">Personalizado</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
             {period === 'custom' && (
               <>
-                <div>
-                  <label className="text-sm text-muted-foreground mb-1 block">Data inicial</label>
+                <div className="min-w-[160px]">
+                  <label className="text-xs text-muted-foreground mb-1 block">Data inicial</label>
                   <Input
                     type="date"
                     value={dateFrom}
                     onChange={(e) => setDateFrom(e.target.value)}
                   />
                 </div>
-                <div>
-                  <label className="text-sm text-muted-foreground mb-1 block">Data final</label>
+                <div className="min-w-[160px]">
+                  <label className="text-xs text-muted-foreground mb-1 block">Data final</label>
                   <Input
                     type="date"
                     value={dateTo}
@@ -513,61 +582,70 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
                 </div>
               </>
             )}
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Tipo</label>
-              <Select value={filterType} onValueChange={(v) => setFilterType(v as any)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="local">Local</SelectItem>
-                  <SelectItem value="online">Online</SelectItem>
-                  <SelectItem value="manual">Manual (Barbeiro)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Serviço</label>
-              <Select value={filterService} onValueChange={setFilterService}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                  <Users className="h-3 w-3 mr-1" />
+                  Tipo: {filterType === 'all' ? 'Todos' : filterType === 'local' ? 'Local' : filterType === 'online' ? 'Online' : 'Manual'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel className="text-xs">Tipo</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={filterType} onValueChange={(v) => setFilterType(v as any)}>
+                  <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="local">Local</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="online">Online</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="manual">Manual (Barbeiro)</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                  Serviço: {(services.find(s => s.id === filterService)?.title || 'Todos')}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel className="text-xs">Serviço</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={filterService} onValueChange={setFilterService}>
+                  <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
                   {services.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
+                    <DropdownMenuRadioItem key={s.id} value={s.id}>{s.title}</DropdownMenuRadioItem>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Status</label>
-              <Select value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="confirmed">Confirmados</SelectItem>
-                  <SelectItem value="completed">Concluídos</SelectItem>
-                  <SelectItem value="cancelled">Cancelados</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                  <Filter className="h-3 w-3 mr-1" />
+                  Status: {filterStatus === 'all' ? 'Todos' : filterStatus === 'confirmed' ? 'Confirmados' : filterStatus === 'completed' ? 'Concluídos' : 'Cancelados'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuLabel className="text-xs">Status</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
+                  <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="confirmed">Confirmados</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="completed">Concluídos</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="cancelled">Cancelados</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </CardContent>
       </Card>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card className="bg-card border-border">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Minha Comissão Líquida ({getPeriodLabel()})</CardTitle>
             <DollarSign className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">
+            <div className="text-xl font-bold text-primary">
               R$ {netCommission.toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -582,7 +660,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
             <Calendar className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">{totalAppointments}</div>
+            <div className="text-xl font-bold text-primary">{totalAppointments}</div>
             <p className="text-xs text-muted-foreground">
               {localCount} local • {onlineCount} online{manualCount > 0 ? ` • ${manualCount} manual` : ''}
             </p>
@@ -685,7 +763,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
           </div>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold text-primary">
+          <div className="text-xl font-bold text-primary">
             R$ {totalAdvances.toFixed(2)}
           </div>
           <p className="text-xs text-muted-foreground">
@@ -700,7 +778,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
             <TrendingUp className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">
+            <div className="text-xl font-bold text-primary">
               {totalAppointments > 0 
                 ? Math.round(((confirmedCount + completedCount) / totalAppointments) * 100) 
                 : 0}%
@@ -717,7 +795,7 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
             <Users className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">
+            <div className="text-xl font-bold text-primary">
               R$ {(confirmedCount + completedCount) > 0 
                 ? (totalCommission / (confirmedCount + completedCount)).toFixed(2) 
                 : '0.00'}
@@ -728,31 +806,37 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
       </div>
 
       {/* Charts */}
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-2 gap-4">
         {/* Commission over time */}
         <Card className="bg-card border-border">
-          <CardHeader>
-            <CardTitle>Comissão e Agendamentos</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Comissão e Agendamentos</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartDataByDate()}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" />
-                <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" />
-                <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'hsl(var(--card))', 
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }} 
-                />
-                <Legend />
-                <Bar yAxisId="left" dataKey="receita" fill="hsl(var(--primary))" name="Comissão (R$)" radius={[4, 4, 0, 0]} />
-                <Bar yAxisId="right" dataKey="agendamentos" fill="hsl(var(--secondary))" name="Agendamentos" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {chartByDateData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem dados para o período selecionado.</p>
+            ) : (
+              <div key={`by-date-${chartGlobalKey}`}>
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={chartByDateData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" />
+                    <YAxis yAxisId="left" stroke="hsl(var(--muted-foreground))" />
+                    <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'hsl(var(--card))', 
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px'
+                      }} 
+                    />
+                    <Legend />
+                    <Bar yAxisId="left" dataKey="receita" fill="hsl(var(--primary))" name="Comissão (R$)" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                    <Bar yAxisId="right" dataKey="agendamentos" fill="hsl(var(--secondary))" name="Agendamentos" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -762,31 +846,38 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
             <CardTitle>Distribuição por Tipo</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={chartDataByType}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {chartDataByType.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'hsl(var(--card))', 
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }} 
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            {chartByTypeData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem dados de tipo no período.</p>
+            ) : (
+              <div key={`by-type-${chartGlobalKey}`}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={chartByTypeData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      isAnimationActive={false}
+                    >
+                      {chartByTypeData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'hsl(var(--card))', 
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px'
+                      }} 
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -796,27 +887,33 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
             <CardTitle>Comissão por Serviço</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={commissionByService()} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis type="number" stroke="hsl(var(--muted-foreground))" />
-                <YAxis dataKey="name" type="category" stroke="hsl(var(--muted-foreground))" width={120} />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'hsl(var(--card))', 
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }}
-                  formatter={(value: number, name: string) => [
-                    name === 'receita' ? `R$ ${value.toFixed(2)}` : value,
-                    name === 'receita' ? 'Comissão' : 'Quantidade'
-                  ]}
-                />
-                <Legend />
-                <Bar dataKey="quantidade" fill="hsl(var(--secondary))" name="Quantidade" radius={[0, 4, 4, 0]} />
-                <Bar dataKey="receita" fill="hsl(var(--primary))" name="Comissão (R$)" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {chartByServiceData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem serviços concluídos/confirmados no período.</p>
+            ) : (
+              <div key={`by-service-${chartGlobalKey}`}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={chartByServiceData} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis type="number" stroke="hsl(var(--muted-foreground))" />
+                    <YAxis dataKey="name" type="category" stroke="hsl(var(--muted-foreground))" width={120} />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'hsl(var(--card))', 
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px'
+                      }}
+                      formatter={(value: number, name: string) => [
+                        name === 'receita' ? `R$ ${value.toFixed(2)}` : value,
+                        name === 'receita' ? 'Comissão' : 'Quantidade'
+                      ]}
+                    />
+                    <Legend />
+                    <Bar dataKey="quantidade" fill="hsl(var(--secondary))" name="Quantidade" radius={[0, 4, 4, 0]} isAnimationActive={false} />
+                    <Bar dataKey="receita" fill="hsl(var(--primary))" name="Comissão (R$)" radius={[0, 4, 4, 0]} isAnimationActive={false} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -826,31 +923,38 @@ const BarberFinancialDashboard = ({ barberId }: BarberFinancialDashboardProps) =
             <CardTitle>Distribuição por Status</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={chartDataByStatus}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {chartDataByStatus.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'hsl(var(--card))', 
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }} 
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            {chartByStatusData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem status para mostrar no período.</p>
+            ) : (
+              <div key={`by-status-${chartGlobalKey}`}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={chartByStatusData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      isAnimationActive={false}
+                    >
+                      {chartByStatusData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'hsl(var(--card))', 
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px'
+                      }} 
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
