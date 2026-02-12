@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors, Filter } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, addMinutes as addMinutesDate } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Label } from "@/components/ui/label";
@@ -34,6 +34,7 @@ import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { listAdvancesByBarber, approveAdvance, rejectAdvance } from '@/integrations/supabase/barberAdvances';
 import { generateUUID } from '@/utils/uuid';
+import { useOperatingHours } from '@/hooks/useOperatingHours';
 
 const BarbeiroDashboard = () => {
   const navigate = useNavigate();
@@ -101,6 +102,9 @@ const BarbeiroDashboard = () => {
   const [creatingAppointment, setCreatingAppointment] = useState(false);
   const [hasBarberBreaks, setHasBarberBreaks] = useState(true);
   const [serviceSelectOpen, setServiceSelectOpen] = useState(false);
+  const { getTimeSlotsForDate, isDateOpen } = useOperatingHours();
+  const [availableNewSlots, setAvailableNewSlots] = useState<string[]>([]);
+  const [loadingNewSlots, setLoadingNewSlots] = useState(false);
   
   // Hooks for commission calculation
   const barberIdForCommissions = currentUserBarber?.id || selectedBarber;
@@ -346,6 +350,88 @@ const BarbeiroDashboard = () => {
       toast.error('Erro ao carregar dados');
     }
   };
+
+  const addMinutesToTime = (time: string, minutes: number) => {
+    const [h, m] = time.split(':').map(Number);
+    const base = new Date(2000, 0, 1, h, m, 0, 0);
+    const out = addMinutesDate(base, minutes);
+    const hh = String(out.getHours()).padStart(2, '0');
+    const mm = String(out.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  };
+
+  const loadAvailableSlotsForNewAppointment = async () => {
+    try {
+      const barberId = newAppointment.barberId || selectedBarber || currentUserBarber?.id || '';
+      if (!barberId || !newAppointment.serviceId || !newAppointment.date) {
+        setAvailableNewSlots([]);
+        return;
+      }
+      const selectedService = services.find(s => s.id === newAppointment.serviceId);
+      const serviceDuration = selectedService?.duration || 30;
+      const dateObj = new Date(newAppointment.date + 'T12:00:00');
+      if (!isDateOpen(dateObj)) {
+        setAvailableNewSlots([]);
+        return;
+      }
+      setLoadingNewSlots(true);
+      const [{ data: appts }, { data: breaks }] = await Promise.all([
+        (supabase as any)
+          .from('appointments')
+          .select('appointment_time, service:services(duration), status')
+          .eq('barber_id', barberId)
+          .eq('appointment_date', newAppointment.date)
+          .neq('status', 'cancelled'),
+        (supabase as any)
+          .from('barber_breaks')
+          .select('start_time, end_time')
+          .eq('barber_id', barberId)
+          .eq('date', newAppointment.date),
+      ]);
+      const daySlots = getTimeSlotsForDate(dateObj);
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      const isToday = newAppointment.date === todayStr;
+      const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const overlaps = (s1: string, e1: string, s2: string, e2: string) => s1 < e2 && e1 > s2;
+      const aptRanges = (appts || []).map((a: any) => {
+        const dur = a.service?.duration || 30;
+        return { start: a.appointment_time.slice(0,5), end: addMinutesToTime(a.appointment_time.slice(0,5), dur) };
+      });
+      const breakRanges = (breaks || []).map((b: any) => ({ start: b.start_time.slice(0,5), end: b.end_time.slice(0,5) }));
+      const fitsInHours = (slot: string) => {
+        // Ensure each 30-min block within service duration exists within operating hours
+        const blocks = Math.ceil(serviceDuration / 30);
+        let cursor = slot;
+        for (let i = 0; i < blocks; i++) {
+          if (!daySlots.includes(cursor)) return false;
+          cursor = addMinutesToTime(cursor, 30);
+        }
+        return true;
+      };
+      const result = daySlots.filter((slot) => {
+        if (!newAppointment.isRetroactive && isToday && slot <= currentHHMM) return false;
+        if (!fitsInHours(slot)) return false;
+        const slotEnd = addMinutesToTime(slot, serviceDuration);
+        if (aptRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return false;
+        if (breakRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return false;
+        return true;
+      });
+      setAvailableNewSlots(result);
+    } catch (err) {
+      console.error('Error loading available slots:', err);
+      setAvailableNewSlots([]);
+    } finally {
+      setLoadingNewSlots(false);
+    }
+  };
+
+  useEffect(() => {
+    if (newAppointmentStep === 'datetime') {
+      loadAvailableSlotsForNewAppointment();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newAppointmentStep, newAppointment.serviceId, newAppointment.date, selectedBarber, currentUserBarber?.id, newAppointment.isRetroactive]);
 
   // Load products for sale
   const loadProductsForSale = async () => {
@@ -1098,13 +1184,7 @@ const BarbeiroDashboard = () => {
     }
   };
 
-  const addMinutesToTime = (time: string, minutes: number) => {
-    const [hours, mins] = time.split(':').map(Number);
-    const totalMinutes = hours * 60 + mins + minutes;
-    const newHours = Math.floor(totalMinutes / 60);
-    const newMins = totalMinutes % 60;
-    return `${String(newHours).padStart(2, '0')}:${String(newMins).padStart(2, '0')}`;
-  };
+ 
 
   const handleUpdateStatus = async (id: string, status: string) => {
     // Se for para concluir, abre o dialog para adicionar foto
@@ -1786,14 +1866,27 @@ const BarbeiroDashboard = () => {
                           onChange={(e) => setNewAppointment({ ...newAppointment, date: e.target.value })}
                         />
                       </div>
-                      <div>
-                        <Label>Horário</Label>
-                        <Input
-                          type="time"
-                          value={newAppointment.time}
-                          onChange={(e) => setNewAppointment({ ...newAppointment, time: e.target.value })}
-                          required
-                        />
+                      <div className="space-y-2">
+                        <Label>Horários Disponíveis</Label>
+                        {loadingNewSlots ? (
+                          <div className="text-center py-6 text-muted-foreground">Carregando horários...</div>
+                        ) : availableNewSlots.length === 0 ? (
+                          <div className="text-center py-6 text-muted-foreground">Nenhum horário disponível</div>
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                            {availableNewSlots.map((slot) => (
+                              <Button
+                                key={slot}
+                                type="button"
+                                onClick={() => setNewAppointment({ ...newAppointment, time: slot })}
+                                className={newAppointment.time === slot ? "bg-primary text-primary-foreground border border-primary" : ""}
+                                variant={newAppointment.time === slot ? "default" : "outline"}
+                              >
+                                {slot}
+                              </Button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center justify-between p-3 border border-border rounded-lg bg-secondary/30">
                         <div className="flex-1">
