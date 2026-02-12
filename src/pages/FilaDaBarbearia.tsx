@@ -38,6 +38,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const [selectedSlot, setSelectedSlot] = useState("");
   const [quickBookingOpen, setQuickBookingOpen] = useState(false);
   const [quickBookingPreselectedBarberId, setQuickBookingPreselectedBarberId] = useState<string | null>(null);
+  const [currentUserBarberId, setCurrentUserBarberId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
   const { role } = useAuth();
@@ -148,9 +149,8 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         services(title, duration),
         barbers(name)
       `)
-      .gte("appointment_date", today)
+      .eq("appointment_date", today)
       .neq("status", "completed")
-      .order("appointment_date")
       .order("appointment_time");
 
     if (error) {
@@ -229,6 +229,20 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
 
     console.log("Loaded barbers:", data);
     setBarbers(data || []);
+
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth?.user?.id || null;
+      if (uid && Array.isArray(data)) {
+        const me = data.find((b: any) => b.user_id === uid);
+        if (me?.id) {
+          setCurrentUserBarberId(me.id);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not resolve current barber id:", e);
+      setCurrentUserBarberId(null);
+    }
   };
 
   const calculateAvailableSlots = async () => {
@@ -308,11 +322,8 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     setAvailableSlotsByBarber(next);
   }, [barbers, appointments, today, hoursLoading, barberBreaksByBarber]);
 
-  const localAppointments = appointments.filter((apt) => apt.booking_type === "local" && apt.appointment_date === today);
+  const localAppointments = appointments.filter((apt) => apt.booking_type === "local");
   const onlineAppointments = appointments.filter((apt) => apt.booking_type === "online");
-  const futureAppointments = appointments
-    .filter((apt) => apt.appointment_date > today)
-    .sort((a, b) => a.appointment_date.localeCompare(b.appointment_date) || a.appointment_time.localeCompare(b.appointment_time));
 
   const inProgressCount = appointments.filter((apt) => apt.status === "in_progress").length;
   const waitingCount = appointments.filter((apt) => apt.status === "confirmed" || apt.status === "pending").length;
@@ -322,16 +333,10 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     // Filtrar agendamentos de hoje e futuros (pendentes e confirmados)
     const relevantAppointments = appointments
       .filter(a => {
-        const isToday = a.appointment_date === today;
-        const isFuture = a.appointment_date > today;
         const isActiveStatus = a.status === 'pending' || a.status === 'confirmed' || a.status === 'in_progress';
-        return (isToday || isFuture) && isActiveStatus;
+        return isActiveStatus;
       })
       .sort((a, b) => {
-        // Ordenar por data primeiro, depois por horário
-        if (a.appointment_date !== b.appointment_date) {
-          return a.appointment_date.localeCompare(b.appointment_date);
-        }
         return a.appointment_time.localeCompare(b.appointment_time);
       });
 
@@ -342,13 +347,22 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         barber,
         appointments: barberAppointments,
         todayCount: barberAppointments.filter(a => a.appointment_date === today).length,
-        upcomingCount: barberAppointments.filter(a => a.appointment_date > today).length,
+        upcomingCount: 0,
         inProgressCount: barberAppointments.filter(a => a.status === 'in_progress').length
       };
     });
 
-    // Ordenar barbeiros: primeiro os que têm agendamentos hoje, depois por nome
+    // Ordenar barbeiros:
+    // 1) o barbeiro logado primeiro (se identificado),
+    // 2) depois quem tem agendamentos hoje,
+    // 3) por nome
     return appointmentsByBarber.sort((a, b) => {
+      if (currentUserBarberId) {
+        const aIsMe = a.barber.id === currentUserBarberId;
+        const bIsMe = b.barber.id === currentUserBarberId;
+        if (aIsMe && !bIsMe) return -1;
+        if (!aIsMe && bIsMe) return 1;
+      }
       if (a.todayCount > 0 && b.todayCount === 0) return -1;
       if (a.todayCount === 0 && b.todayCount > 0) return 1;
       return a.barber.name.localeCompare(b.barber.name);
@@ -426,9 +440,8 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
         <Tabs defaultValue="barbeiros" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
-            <TabsTrigger value="barbeiros">Agendamentos por Barbeiro</TabsTrigger>
-            <TabsTrigger value="futuros">Agendamentos Futuros</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-1 mb-6">
+            <TabsTrigger value="barbeiros">Agendamentos de Hoje</TabsTrigger>
           </TabsList>
 
           <TabsContent value="barbeiros">
@@ -457,10 +470,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                             <Clock className="h-3 w-3" />
                             Hoje: {todayCount}
                           </span>
-                          <span className="flex items-center gap-1">
-                            <Users className="h-3 w-3" />
-                            Próximos: {upcomingCount}
-                          </span>
+                          {/* Removido contador de futuros */}
                           {inProgressCount > 0 && (
                             <span className="flex items-center gap-1 text-warning">
                               <Scissors className="h-3 w-3" />
@@ -562,57 +572,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
             </div>
           </TabsContent>
 
-          <TabsContent value="futuros">
-            {futureAppointments.length === 0 ? (
-              <div className="text-center py-16">
-                <p className="text-muted-foreground">Nenhum agendamento futuro</p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {Array.from(new Set(futureAppointments.map(a => a.appointment_date)))
-                  .sort()
-                  .map(date => {
-                    const items = futureAppointments.filter(a => a.appointment_date === date);
-                    return (
-                      <div key={date} className="bg-card border border-border rounded-xl overflow-hidden">
-                        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                          <div className="font-bold text-primary">
-                            {format(new Date(date + 'T12:00:00'), "dd 'de' MMMM, yyyy")}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {items.length} agendamentos
-                          </div>
-                        </div>
-                        <div className="p-3 space-y-2">
-                          {items.map(apt => (
-                            <div key={apt.id} className="flex items-center gap-3 p-2 bg-secondary/40 rounded-lg border border-border/50">
-                              <div className="min-w-[48px] text-center">
-                                <div className="text-xs font-semibold text-primary">
-                                  {apt.appointment_time.slice(0, 5)}
-                                </div>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="text-sm font-semibold truncate">
-                                  {apt.services.title} • {apt.barbers?.name || ''}
-                                </div>
-                                <div className="text-xs text-muted-foreground truncate">
-                                  {apt.client_name || apt.profiles.name}
-                                </div>
-                              </div>
-                              <div className="text-xs px-2 py-1 rounded-full border">
-                                {apt.status === 'confirmed' ? 'Confirmado' :
-                                 apt.status === 'cancelled' ? 'Cancelado' :
-                                 apt.status === 'in_progress' ? 'Em atendimento' : 'Pendente'}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
-          </TabsContent>
+          {/* Removida aba de agendamentos futuros */}
         </Tabs>
 
         {!isReadOnly && (

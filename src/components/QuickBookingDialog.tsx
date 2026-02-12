@@ -6,6 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, X, ArrowLeft, Star, Scissors } from "lucide-react";
 import { useOperatingHours } from "@/hooks/useOperatingHours";
+import { useAuth } from "@/contexts/AuthContext";
+import { addMinutes } from "date-fns";
 import { getAvailableSlotsForBarber } from "@/utils/availability";
 
 interface Barber {
@@ -47,6 +49,11 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
   const [barberSlots, setBarberSlots] = useState<string[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const { getTimeSlotsForDate, isDateOpen } = useOperatingHours();
+  const { user, role } = useAuth();
+  const [currentUserBarberId, setCurrentUserBarberId] = useState<string>("");
+  const [showCloseOption, setShowCloseOption] = useState(false);
+  const [slotClosedInfo, setSlotClosedInfo] = useState<{ closed: boolean; breakId?: string; breakStart?: string; breakEnd?: string } | null>(null);
+  const [slotState, setSlotState] = useState<Record<string, 'available' | 'break' | 'booked' | 'past'>>({});
 
   const isBarberPreselected = Boolean(preselectedBarberId);
   const effectiveTimeSlot = isBarberPreselected ? selectedTimeSlot : timeSlot;
@@ -59,6 +66,18 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       setSelectedTimeSlot("");
       setSelectedServiceId("");
       setClientName("");
+      if (role === "barbeiro" && user?.id) {
+        (async () => {
+          const { data } = await (supabase as any)
+            .from("barbers")
+            .select("id")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          setCurrentUserBarberId(data?.id || "");
+        })();
+      } else {
+        setCurrentUserBarberId("");
+      }
       if (preselectedBarberId) {
         setStep("time");
         loadSlotsForBarber(preselectedBarberId);
@@ -74,23 +93,64 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       const dateObj = new Date(date + "T12:00:00");
       if (!isDateOpen(dateObj)) {
         setBarberSlots([]);
+        setSlotState({});
         return;
       }
-      const { data } = await supabase
+      const { data: appts } = await supabase
         .from("appointments")
         .select("appointment_time, services(duration)")
         .eq("barber_id", barberId)
         .eq("appointment_date", date)
         .neq("status", "cancelled");
-      const barberAppointments = (data ?? []).map((a: any) => ({
+      const barberAppointments = (appts ?? []).map((a: any) => ({
         appointment_time: a.appointment_time,
         duration: a.services?.duration,
       }));
-      const slots = getAvailableSlotsForBarber(dateObj, getTimeSlotsForDate, barberAppointments, { filterPastSlots: true });
-      setBarberSlots(slots);
+      const { data: breaks } = await (supabase as any)
+        .from("barber_breaks")
+        .select("start_time, end_time")
+        .eq("barber_id", barberId)
+        .eq("date", date);
+
+      const allSlots = getTimeSlotsForDate(dateObj);
+      const now = new Date();
+      const isToday = new Date().toISOString().split('T')[0] === date;
+      const timeToMinutes = (t: string) => {
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+      };
+      const addMin = (t: string, mins: number) => {
+        const h = Math.floor((timeToMinutes(t) + mins) / 60);
+        const m = (timeToMinutes(t) + mins) % 60;
+        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      };
+      const apptRanges = barberAppointments.map(a => ({
+        start: a.appointment_time,
+        end: addMin(a.appointment_time, a.duration ?? 30)
+      }));
+      const breakRanges = (breaks || []).map((b: any) => ({ start: b.start_time, end: b.end_time }));
+      const computeState = (slot: string): 'available'|'break'|'booked'|'past' => {
+        if (isToday) {
+          const [ch, cm] = [now.getHours(), now.getMinutes()];
+          const [sh, sm] = slot.split(':').map(Number);
+          if (sh < ch || (sh === ch && sm <= cm)) return 'past';
+        }
+        const slotEnd = addMin(slot, 30);
+        const overlaps = (s1: string, e1: string, s2: string, e2: string) => s1 < e2 && e1 > s2;
+        if (breakRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return 'break';
+        if (apptRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return 'booked';
+        return 'available';
+      };
+      const states: Record<string,'available'|'break'|'booked'|'past'> = {};
+      allSlots.forEach(s => { states[s] = computeState(s); });
+      // Show only non-past slots
+      const futureSlots = allSlots.filter(s => states[s] !== 'past');
+      setSlotState(states);
+      setBarberSlots(futureSlots);
     } catch (e) {
       console.error("Error loading barber slots:", e);
       setBarberSlots([]);
+      setSlotState({});
     } finally {
       setLoadingSlots(false);
     }
@@ -173,6 +233,37 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
 
   const handleTimeSelect = (slot: string) => {
     setSelectedTimeSlot(slot);
+    if (role === "barbeiro" && selectedBarberId && selectedBarberId === currentUserBarberId) {
+      setShowCloseOption(true);
+      (async () => {
+        try {
+          const { data: breaks } = await (supabase as any)
+            .from("barber_breaks")
+            .select("id, start_time, end_time")
+            .eq("barber_id", selectedBarberId)
+            .eq("date", date);
+          const timeToMinutes = (t: string) => {
+            const [h, m] = t.split(":").map(Number);
+            return h * 60 + m;
+          };
+          const slotStart = timeToMinutes(slot);
+          const slotEnd = slotStart + 30;
+          const found = (breaks || []).find((b: any) => {
+            const bs = timeToMinutes(b.start_time);
+            const be = timeToMinutes(b.end_time);
+            return slotStart < be && slotEnd > bs;
+          });
+          if (found) {
+            setSlotClosedInfo({ closed: true, breakId: found.id, breakStart: found.start_time, breakEnd: found.end_time });
+          } else {
+            setSlotClosedInfo({ closed: false });
+          }
+        } catch {
+          setSlotClosedInfo({ closed: false });
+        }
+      })();
+      return;
+    }
     setStep("client");
   };
 
@@ -411,7 +502,6 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
           <X className="h-6 w-6" />
         </button>
 
-        {/* Header */}
         <div className="text-center mb-6">
           <h2 
             className="text-3xl font-bold mb-2"
@@ -468,7 +558,144 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
               </h3>
               <p className="text-gray-400 text-sm mt-1">Selecione um horário para continuar</p>
             </div>
-            {loadingSlots ? (
+            {showCloseOption ? (
+              <div className="flex flex-col items-center justify-center py-6 gap-3">
+                <div className="text-white font-semibold">Escolha uma ação para {selectedBarber?.name}</div>
+                <div className="flex flex-wrap gap-2 justify-center w-full">
+                  <Button
+                    onClick={async () => {
+                      try {
+                        const { data: { session } } = await supabase.auth.getSession();
+                        if (!session || !user?.id) {
+                          toast.error("Faça login como barbeiro para fechar horário");
+                          return;
+                        }
+                        if (selectedBarberId !== currentUserBarberId) {
+                          toast.error("Você só pode fechar horários do seu perfil");
+                          return;
+                        }
+                        const start = new Date(`${date}T${selectedTimeSlot}:00`);
+                        const end = addMinutes(start, 30);
+                        const endStr = `${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`;
+                        if (slotClosedInfo?.closed) {
+                          toast.error("Este horário já está fechado");
+                          return;
+                        }
+                        const { error } = await (supabase as any)
+                          .from("barber_breaks")
+                          .insert({
+                            barber_id: selectedBarberId,
+                            date,
+                            start_time: selectedTimeSlot,
+                            end_time: endStr,
+                          });
+                        if (error) {
+                          toast.error("Erro ao fechar horário");
+                          return;
+                        }
+                        toast.success("Horário fechado para você");
+                        setShowCloseOption(false);
+                        await loadSlotsForBarber(selectedBarberId);
+                      } catch {
+                        toast.error("Erro ao fechar horário");
+                      }
+                    }}
+                    className="bg-red-600 hover:bg-red-700 px-3 py-2 text-sm rounded-md w-full sm:w-auto"
+                    disabled={slotClosedInfo?.closed === true}
+                  >
+                    Fechar este horário
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        const { data: { session } } = await supabase.auth.getSession();
+                        if (!session || !user?.id) {
+                          toast.error("Faça login como barbeiro para abrir horário");
+                          return;
+                        }
+                        if (selectedBarberId !== currentUserBarberId) {
+                          toast.error("Você só pode abrir horários do seu perfil");
+                          return;
+                        }
+                        if (!slotClosedInfo?.closed || !slotClosedInfo.breakId || !slotClosedInfo.breakStart || !slotClosedInfo.breakEnd) {
+                          toast.error("Não há bloqueio para este horário");
+                          return;
+                        }
+                        const timeToMinutes = (t: string) => {
+                          const [h, m] = t.split(":").map(Number);
+                          return h * 60 + m;
+                        };
+                        const minutesToTime = (n: number) => {
+                          const h = String(Math.floor(n / 60)).padStart(2, "0");
+                          const m = String(n % 60).padStart(2, "0");
+                          return `${h}:${m}`;
+                        };
+                        const slotStart = timeToMinutes(selectedTimeSlot);
+                        const slotEnd = slotStart + 30;
+                        const breakStart = timeToMinutes(slotClosedInfo.breakStart);
+                        const breakEnd = timeToMinutes(slotClosedInfo.breakEnd);
+                        if (breakStart === slotStart && breakEnd === slotEnd) {
+                          // Delete the exact 30-min break
+                          const { error } = await (supabase as any)
+                            .from("barber_breaks")
+                            .delete()
+                            .eq("id", slotClosedInfo.breakId);
+                          if (error) throw error;
+                        } else if (breakStart === slotStart && breakEnd > slotEnd) {
+                          // Shrink from start: move start_time to slotEnd
+                          const { error } = await (supabase as any)
+                            .from("barber_breaks")
+                            .update({ start_time: minutesToTime(slotEnd) })
+                            .eq("id", slotClosedInfo.breakId);
+                          if (error) throw error;
+                        } else if (breakStart < slotStart && breakEnd === slotEnd) {
+                          // Shrink from end: move end_time to slotStart
+                          const { error } = await (supabase as any)
+                            .from("barber_breaks")
+                            .update({ end_time: minutesToTime(slotStart) })
+                            .eq("id", slotClosedInfo.breakId);
+                          if (error) throw error;
+                        } else {
+                          // Split into two breaks
+                          const { error: updateErr } = await (supabase as any)
+                            .from("barber_breaks")
+                            .update({ end_time: minutesToTime(slotStart) })
+                            .eq("id", slotClosedInfo.breakId);
+                          if (updateErr) throw updateErr;
+                          const { error: insertErr } = await (supabase as any)
+                            .from("barber_breaks")
+                            .insert({
+                              barber_id: selectedBarberId,
+                              date,
+                              start_time: minutesToTime(slotEnd),
+                              end_time: minutesToTime(breakEnd),
+                            });
+                          if (insertErr) throw insertErr;
+                        }
+                        toast.success("Horário aberto");
+                        setShowCloseOption(false);
+                        await loadSlotsForBarber(selectedBarberId);
+                      } catch {
+                        toast.error("Erro ao abrir horário");
+                      }
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 px-3 py-2 text-sm rounded-md w-full sm:w-auto"
+                    disabled={slotClosedInfo?.closed !== true}
+                  >
+                    Abrir este horário
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setShowCloseOption(false);
+                      setStep("client");
+                    }}
+                    className="bg-green-600 hover:bg-green-700 px-3 py-2 text-sm rounded-md w-full sm:w-auto"
+                  >
+                    Seguir atendimento local
+                  </Button>
+                </div>
+              </div>
+            ) : loadingSlots ? (
               <div className="flex flex-col items-center justify-center py-8">
                 <Loader2 className="h-8 w-8 animate-spin" style={{ color: "#FFD700" }} />
                 <p className="text-gray-400 mt-2">Carregando horários...</p>
@@ -477,21 +704,40 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
               <p className="text-gray-400 text-center py-6">Nenhum horário disponível para este barbeiro hoje.</p>
             ) : (
               <div className="flex flex-wrap gap-2 justify-center">
-                {barberSlots.map((slot) => (
+                {barberSlots.map((slot) => {
+                  const state = slotState[slot] || 'available';
+                  const isSelected = selectedTimeSlot === slot;
+                  const bg =
+                    state === 'break' ? '#8b0000' : // vermelho escuro
+                    state === 'booked' ? '#3a3a3a' :
+                    isSelected ? '#FFD700' : '#2a2a2a';
+                  const color =
+                    state === 'break' ? '#fff' :
+                    state === 'booked' ? '#bbb' :
+                    isSelected ? '#000' : '#fff';
+                  const border =
+                    isSelected ? '#FFD700' :
+                    state === 'break' ? '#ff4d4d' :
+                    'transparent';
+                  const disabled = state !== 'available';
+                  return (
                   <button
                     key={slot}
                     type="button"
-                    onClick={() => handleTimeSelect(slot)}
+                    onClick={() => !disabled && handleTimeSelect(slot)}
                     className="px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105"
                     style={{
-                      backgroundColor: selectedTimeSlot === slot ? "#FFD700" : "#2a2a2a",
-                      color: selectedTimeSlot === slot ? "#000" : "#fff",
-                      border: `2px solid ${selectedTimeSlot === slot ? "#FFD700" : "transparent"}`,
+                      backgroundColor: bg,
+                      color,
+                      border: `2px solid ${border}`,
+                      opacity: disabled ? 0.7 : 1,
+                      cursor: disabled ? 'not-allowed' : 'pointer'
                     }}
+                    disabled={disabled}
                   >
                     {slot}
                   </button>
-                ))}
+                )})}
               </div>
             )}
           </>
