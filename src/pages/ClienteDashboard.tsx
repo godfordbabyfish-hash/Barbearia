@@ -152,8 +152,29 @@ const ClienteDashboard = () => {
       console.error('Error loading appointments:', error);
       toast.error('Erro ao carregar agendamentos');
     } else {
-      console.log('Loaded appointments:', data);
-      setAppointments(data || []);
+      try {
+        const base = data || [];
+        const ids = base.map((a: any) => a.id);
+        if (ids.length > 0) {
+          const { data: pays } = await (supabase as any)
+            .from('appointment_payments')
+            .select('appointment_id')
+            .in('appointment_id', ids);
+          const paidIds = new Set((pays || []).map((p: any) => p.appointment_id));
+          const reconciled = base.map((a: any) => {
+            const hasImplicitCompletion = Boolean(a?.photo_url) || Boolean(a?.payment_method);
+            if ((paidIds.has(a.id) || hasImplicitCompletion) && a.status !== 'completed') {
+              return { ...a, status: 'completed' };
+            }
+            return a;
+          });
+          setAppointments(reconciled);
+        } else {
+          setAppointments(base);
+        }
+      } catch {
+        setAppointments(data || []);
+      }
     }
   };
 
@@ -187,27 +208,39 @@ const ClienteDashboard = () => {
     const { data, error } = await (supabase as any)
       .from('appointments')
       .select(`
+        id,
         service_id,
+        appointment_date,
+        appointment_time,
+        status,
+        photo_url,
+        payment_method,
         service:services(title)
       `)
       .eq('client_id', user?.id)
-      .eq('status', 'completed');
+      .neq('status', 'cancelled');
 
     if (error) {
       console.error('Error loading stats:', error);
     } else {
-      // Count occurrences of each service
-      const stats = data?.reduce((acc: any, curr: any) => {
-        const serviceTitle = curr.service.title;
-        acc[serviceTitle] = (acc[serviceTitle] || 0) + 1;
-        return acc;
-      }, {});
-
-      const statsArray = Object.entries(stats || {}).map(([title, count]) => ({
-        title,
-        count,
-      })).sort((a: any, b: any) => b.count - a.count);
-
+      const now = new Date();
+      const toDateTime = (apt: any) => {
+        const time = (apt.appointment_time || '00:00').slice(0, 5);
+        return new Date(`${apt.appointment_date}T${time}:00`);
+      };
+      
+      const counts: Record<string, number> = {};
+      (data || []).forEach((apt: any) => {
+        const inPast = toDateTime(apt) < now;
+        const derivedCompleted = apt.status === 'completed' || Boolean(apt.photo_url) || Boolean(apt.payment_method) || inPast;
+        if (!derivedCompleted) return;
+        const title = apt.service?.title || 'Serviço';
+        counts[title] = (counts[title] || 0) + 1;
+      });
+      
+      const statsArray = Object.entries(counts).map(([title, count]) => ({ title, count }))
+        .sort((a: any, b: any) => b.count - a.count);
+      
       setServiceStats(statsArray);
     }
   };
@@ -228,14 +261,29 @@ const ClienteDashboard = () => {
 
   // Função para filtrar agendamentos do histórico
   const getFilteredHistoryAppointments = () => {
-    let filtered = [...appointments];
+    const now = new Date();
+    const toDateTime = (apt: any) => {
+      const time = (apt.appointment_time || '00:00').slice(0, 5);
+      return new Date(`${apt.appointment_date}T${time}:00`);
+    };
+    const withDerived = appointments.map((apt: any) => {
+      const inPast = toDateTime(apt) < now;
+      const hasImplicitCompletion = Boolean(apt?.photo_url) || Boolean(apt?.payment_method);
+      const derivedStatus = apt.status === 'cancelled'
+        ? 'cancelled'
+        : (apt.status === 'completed' || hasImplicitCompletion || inPast)
+          ? 'completed'
+          : apt.status;
+      return { ...apt, _derivedStatus: derivedStatus };
+    });
+    let filtered = [...withDerived];
 
     // Filtro por período
     if (historyFilterPeriod !== 'all') {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      filtered = filtered.filter(apt => {
+      filtered = filtered.filter((apt: any) => {
         const aptDate = new Date(apt.appointment_date + 'T00:00:00');
         aptDate.setHours(0, 0, 0, 0);
         
@@ -262,12 +310,12 @@ const ClienteDashboard = () => {
 
     // Filtro por status
     if (historyFilterStatus !== 'all') {
-      filtered = filtered.filter(apt => apt.status === historyFilterStatus);
+      filtered = filtered.filter((apt: any) => apt._derivedStatus === historyFilterStatus);
     }
 
     // Filtro por serviço
     if (historyFilterService !== 'all') {
-      filtered = filtered.filter(apt => apt.service_id === historyFilterService);
+      filtered = filtered.filter((apt: any) => apt.service_id === historyFilterService);
     }
 
     return filtered;
@@ -481,16 +529,15 @@ const ClienteDashboard = () => {
                 </CardHeader>
                 <CardContent className="pt-2">
                   {(() => {
-                    const upcoming = [...appointments]
-                      .filter(a => a.status === 'pending' || a.status === 'confirmed')
-                      .sort((a, b) => {
-                        const da = new Date(a.appointment_date + 'T00:00:00').getTime();
-                        const db = new Date(b.appointment_date + 'T00:00:00').getTime();
-                        if (da !== db) return da - db;
-                        const ta = (a.appointment_time || '00:00').slice(0,5);
-                        const tb = (b.appointment_time || '00:00').slice(0,5);
-                        return ta.localeCompare(tb);
-                      })[0];
+                    const now = new Date();
+                    const toDateTime = (apt: any) => {
+                      const time = (apt.appointment_time || '00:00').slice(0, 5);
+                      return new Date(`${apt.appointment_date}T${time}:00`);
+                    };
+                    const upcoming = appointments
+                      .filter(a => (a.status === 'pending' || a.status === 'confirmed'))
+                      .filter(a => toDateTime(a) >= now)
+                      .sort((a, b) => toDateTime(a).getTime() - toDateTime(b).getTime())[0];
                     return upcoming ? (
                     <div className="space-y-2">
                       <p className="font-bold text-lg">
@@ -688,7 +735,20 @@ const ClienteDashboard = () => {
                       {(() => {
                         const filteredAppointments = getFilteredHistoryAppointments();
                         return filteredAppointments.length > 0 ? (
-                          filteredAppointments.map((appointment) => (
+                          filteredAppointments.map((appointment) => {
+                            const now = new Date();
+                            const toDateTime = (apt: any) => {
+                              const time = (apt.appointment_time || '00:00').slice(0, 5);
+                              return new Date(`${apt.appointment_date}T${time}:00`);
+                            };
+                            const inPast = toDateTime(appointment) < now;
+                            const hasImplicitCompletion = Boolean(appointment?.photo_url) || Boolean(appointment?.payment_method);
+                            const derivedStatus = appointment.status === 'cancelled'
+                              ? 'cancelled'
+                              : (appointment.status === 'completed' || hasImplicitCompletion || inPast)
+                                ? 'completed'
+                                : appointment.status;
+                            return (
                           <div key={appointment.id} className="p-4 bg-secondary rounded-lg">
                             <div className="flex justify-between items-start mb-2">
                               <div>
@@ -705,14 +765,14 @@ const ClienteDashboard = () => {
                               </div>
                               <div className="flex flex-col items-end gap-2">
                                 <span className={`px-2 py-1 rounded-full text-xs font-bold border ${
-                                  appointment.status === 'completed' ? 'bg-green-500/20 text-green-500 border-green-500/50' :
-                                  appointment.status === 'confirmed' ? 'bg-blue-500/20 text-blue-500 border-blue-500/50' :
-                                  appointment.status === 'cancelled' ? 'bg-red-500/20 text-red-500 border-red-500/50' :
+                                  derivedStatus === 'completed' ? 'bg-green-500/20 text-green-500 border-green-500/50' :
+                                  derivedStatus === 'confirmed' ? 'bg-blue-500/20 text-blue-500 border-blue-500/50' :
+                                  derivedStatus === 'cancelled' ? 'bg-red-500/20 text-red-500 border-red-500/50' :
                                   'bg-yellow-500/20 text-yellow-500 border-yellow-500/50'
                                 }`}>
-                                  {appointment.status === 'completed' ? 'Concluído' :
-                                   appointment.status === 'confirmed' ? 'Confirmado' :
-                                   appointment.status === 'cancelled' ? 'Cancelado' : 'Pendente'}
+                                  {derivedStatus === 'completed' ? 'Concluído' :
+                                   derivedStatus === 'confirmed' ? 'Confirmado' :
+                                   derivedStatus === 'cancelled' ? 'Cancelado' : 'Pendente'}
                                 </span>
                                 <span className="font-bold text-primary">
                                   R$ {appointment.service.price.toFixed(2)}
@@ -720,7 +780,7 @@ const ClienteDashboard = () => {
                               </div>
                             </div>
                             
-                            {(appointment.status === 'pending' || appointment.status === 'confirmed') && (
+                            {(derivedStatus === 'pending' || derivedStatus === 'confirmed') && !inPast && (
                               <div className="mt-3 pt-3 border-t border-border/50 flex justify-end">
                                 <Button 
                                   variant="outline" 
@@ -733,7 +793,7 @@ const ClienteDashboard = () => {
                               </div>
                             )}
                           </div>
-                          ))
+                          )})
                         ) : (
                           <div className="text-center py-8 text-muted-foreground">
                             <History className="h-12 w-12 mx-auto mb-3 opacity-20" />

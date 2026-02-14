@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Home, MapPin, Globe, Clock, Users, Scissors, LayoutDashboard } from "lucide-react";
+import { Home, MapPin, Globe, Clock, Users, Scissors, LayoutDashboard, Ban } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { QuickBookingDialog } from "@/components/QuickBookingDialog";
 import { format, addMinutes } from "date-fns";
@@ -297,6 +297,20 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const today = format(new Date(), "yyyy-MM-dd");
   const todayDate = new Date();
 
+  const isBarberClosedToday = (barber: any) => {
+    try {
+      const availability = typeof barber.availability === "string"
+        ? JSON.parse(barber.availability)
+        : barber.availability;
+      if (!availability) return false;
+      const dayKeyMap = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const;
+      const dayKey = dayKeyMap[todayDate.getDay()];
+      return Boolean(availability?.[dayKey]?.closed);
+    } catch {
+      return false;
+    }
+  };
+
   // Compute available slots per barber (for barber cards)
   useEffect(() => {
     if (hoursLoading || barbers.length === 0 || !isDateOpen(todayDate)) {
@@ -305,14 +319,27 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     }
     loadBreaksForToday();
     const next: Record<string, string[]> = {};
-    barbers.forEach((barber: { id: string }) => {
+    barbers.forEach((barber: any) => {
+      // Respeitar disponibilidade do barbeiro (dia fechado)
       const barberAppointmentsToday = appointments
         .filter((a) => a.barber_id === barber.id && a.appointment_date === today)
         .map((a) => ({
           appointment_time: a.appointment_time,
           duration: a.services?.duration,
         }));
-      next[barber.id] = getAvailableSlotsForBarber(
+      // Se o barbeiro marcou o dia como fechado, não exibir slots
+      let isClosed = false;
+      try {
+        const availability = typeof barber.availability === "string"
+          ? JSON.parse(barber.availability)
+          : barber.availability;
+        if (availability) {
+          const dayKeyMap = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const;
+          const dayKey = dayKeyMap[todayDate.getDay()];
+          isClosed = Boolean(availability?.[dayKey]?.closed);
+        }
+      } catch {}
+      next[barber.id] = isClosed ? [] : getAvailableSlotsForBarber(
         todayDate,
         getTimeSlotsForDate,
         barberAppointmentsToday,
@@ -446,14 +473,15 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
 
           <TabsContent value="barbeiros">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
-              {appointmentsByBarber.slice(0, 3).map(({ barber, appointments, todayCount, upcomingCount, inProgressCount }) => {
+              {appointmentsByBarber.map(({ barber, appointments, todayCount, upcomingCount, inProgressCount }) => {
                 const slots = availableSlotsByBarber[barber.id] ?? [];
+                const closedToday = isBarberClosedToday(barber);
                 return (
                 <button
                   key={barber.id}
                   type="button"
-                  onClick={isReadOnly ? undefined : () => handleBarberCardClick(barber.id)}
-                  className={`bg-card border-2 border-border rounded-xl shadow-lg transition-all duration-300 flex flex-col text-left ${isReadOnly ? '' : 'hover:shadow-xl hover:border-primary hover:bg-primary/5 cursor-pointer'}`} style={{ minHeight: '400px' }}
+                  onClick={isReadOnly || closedToday ? undefined : () => handleBarberCardClick(barber.id)}
+                  className={`bg-card border-2 rounded-xl shadow-lg transition-all duration-300 flex flex-col text-left ${closedToday ? 'border-destructive/40 opacity-80 cursor-not-allowed' : 'border-border'} ${isReadOnly || closedToday ? '' : 'hover:shadow-xl hover:border-primary hover:bg-primary/5 cursor-pointer'}`} style={{ minHeight: '400px' }}
                 >
                   <div className="p-4 border-b border-border">
                     <div className="flex flex-col items-center gap-3">
@@ -465,6 +493,14 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                       </Avatar>
                       <div className="text-center">
                         <h3 className="font-bold text-lg text-primary">{barber.name}</h3>
+                        {closedToday && (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-destructive/20 text-destructive border border-destructive/30">
+                              <Ban className="h-3 w-3" />
+                              Indisponível hoje
+                            </span>
+                          </div>
+                        )}
                         <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground mt-1">
                           <span className="flex items-center gap-1">
                             <Clock className="h-3 w-3" />

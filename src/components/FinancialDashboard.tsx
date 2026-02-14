@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { DollarSign, TrendingUp, Calendar, Users, Filter } from 'lucide-react';
 import { 
@@ -14,7 +15,7 @@ import {
   DropdownMenuRadioGroup, 
   DropdownMenuRadioItem 
 } from '@/components/ui/dropdown-menu';
-import { format, subDays, subMonths, subYears, startOfDay, endOfDay, endOfMonth, startOfWeek, startOfMonth, startOfYear } from 'date-fns';
+import { format, subDays, subMonths, subYears, startOfDay, endOfDay, endOfMonth, startOfWeek, startOfMonth, startOfYear, parse } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import { IndividualCommissionManager } from '@/components/IndividualCommissionManager';
@@ -157,7 +158,9 @@ const FinancialDashboard = () => {
   const getDateRange = () => {
     const today = new Date();
     if (period === 'custom' && dateFrom && dateTo) {
-      return { start: startOfDay(new Date(dateFrom)), end: endOfDay(new Date(dateTo)) };
+      const startParsed = startOfDay(parse(dateFrom, 'yyyy-MM-dd', new Date()));
+      const endParsed = endOfDay(parse(dateTo, 'yyyy-MM-dd', new Date()));
+      return { start: startParsed, end: endParsed };
     }
     switch (period) {
       case 'day':
@@ -435,7 +438,9 @@ const FinancialDashboard = () => {
 
   const getPeriodLabel = () => {
     if (period === 'custom' && dateFrom && dateTo) {
-      return `${format(new Date(dateFrom), 'dd/MM/yyyy', { locale: ptBR })} até ${format(new Date(dateTo), 'dd/MM/yyyy', { locale: ptBR })}`;
+      const startLabel = format(parse(dateFrom, 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR });
+      const endLabel = format(parse(dateTo, 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: ptBR });
+      return `${startLabel} até ${endLabel}`;
     }
     switch (period) {
       case 'day': return 'Hoje';

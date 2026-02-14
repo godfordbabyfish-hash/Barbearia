@@ -105,6 +105,7 @@ const BarbeiroDashboard = () => {
   const { getTimeSlotsForDate, isDateOpen } = useOperatingHours();
   const [availableNewSlots, setAvailableNewSlots] = useState<string[]>([]);
   const [loadingNewSlots, setLoadingNewSlots] = useState(false);
+  const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
   
   // Hooks for commission calculation
   const barberIdForCommissions = currentUserBarber?.id || selectedBarber;
@@ -126,6 +127,26 @@ const BarbeiroDashboard = () => {
     return count;
   }, [appointments, selectedBarber, currentUserBarber?.id]);
 
+  const pastPendingList = useMemo(() => {
+    const now = new Date();
+    const targetBarber = selectedBarber || currentUserBarber?.id;
+    if (!targetBarber) return [];
+    return appointments
+      .filter((a) => {
+        if (a.barber_id !== targetBarber) return false;
+        if (!(a.status === 'pending' || a.status === 'confirmed')) return false;
+        const timeStr = (a.appointment_time || '00:00').slice(0, 5);
+        const dt = new Date(`${a.appointment_date}T${timeStr}:00`);
+        return dt < now;
+      })
+      .sort((a, b) => {
+        if (a.appointment_date !== b.appointment_date) {
+          return b.appointment_date.localeCompare(a.appointment_date);
+        }
+        return b.appointment_time.localeCompare(a.appointment_time);
+      });
+  }, [appointments, selectedBarber, currentUserBarber?.id]);
+
   const sendBarberPendingWhatsApp = async (barberId: string) => {
     try {
       const todayStr = new Date().toISOString().split('T')[0];
@@ -136,6 +157,8 @@ const BarbeiroDashboard = () => {
           appointment_date,
           appointment_time,
           status,
+          photo_url,
+          payment_method,
           client_name,
           client:profiles(name),
           service:services(title)
@@ -149,8 +172,19 @@ const BarbeiroDashboard = () => {
         console.error('Error loading pending appointments for WhatsApp:', error);
         return;
       }
+      const ids = (data || []).map((a: any) => a.id);
+      let paidIds = new Set<string>();
+      if (ids.length > 0) {
+        const { data: pays } = await (supabase as any)
+          .from('appointment_payments')
+          .select('appointment_id')
+          .in('appointment_id', ids);
+        paidIds = new Set((pays || []).map((p: any) => p.appointment_id));
+      }
       const now = new Date();
       const pastPending = (data || []).filter((a: any) => {
+        if (paidIds.has(a.id)) return false;
+        if (a.photo_url || a.payment_method) return false;
         const timeStr = (a.appointment_time || '00:00').slice(0, 5);
         const dt = new Date(`${a.appointment_date}T${timeStr}:00`);
         return dt < now;
@@ -2098,7 +2132,92 @@ const BarbeiroDashboard = () => {
                   </div>
                 </DialogContent>
               </Dialog>
-              
+
+              <Dialog open={pendingDialogOpen} onOpenChange={setPendingDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 min-w-0 h-8 px-1 text-xs gap-1"
+                    title="Pendências vencidas"
+                  >
+                    <Clock className="mr-1 h-3 w-3" />
+                    <span className="truncate">Pendências{pastPendingCount > 0 ? ` (${pastPendingCount})` : ''}</span>
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Pendências vencidas</DialogTitle>
+                    <DialogDescription>Agendamentos passados que ainda precisam ser concluídos.</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+                    {pastPendingList.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Nenhuma pendência vencida encontrada.</p>
+                    ) : (
+                      pastPendingList.map((appointment) => {
+                        const clientName = appointment.client_name || appointment.client?.name || 'Local';
+                        const appointmentTime = (appointment.appointment_time || '').slice(0, 5);
+                        const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
+                        const bookingTypeLabel =
+                          appointment.booking_type === 'local'
+                            ? 'Local'
+                            : appointment.booking_type === 'manual'
+                            ? 'Manual'
+                            : 'Online';
+                        const bookingTypeColor =
+                          appointment.booking_type === 'local'
+                            ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                            : appointment.booking_type === 'manual'
+                            ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                            : 'bg-green-500/20 text-green-400 border-green-500/30';
+                        return (
+                          <div
+                            key={appointment.id}
+                            className="p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-red-500/5 border-red-500/30"
+                            onClick={() => {
+                              setPendingDialogOpen(false);
+                              handleAppointmentClick(appointment);
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                <Avatar className="h-9 w-9 border border-border">
+                                  <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
+                                  <AvatarFallback className="bg-secondary text-foreground font-semibold text-xs">
+                                    {(clientName || 'C').charAt(0).toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1">
+                                  <p className="font-semibold text-sm">{appointment.service?.title || 'Serviço'}</p>
+                                  <p className="text-xs text-muted-foreground">Cliente: {clientName}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="px-2 py-1 rounded text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+                                  {format(appointmentDate, 'dd/MM', { locale: ptBR })} às {appointmentTime}
+                                </span>
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
+                                  {bookingTypeLabel}
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                    appointment.status === 'confirmed'
+                                      ? 'bg-green-500/20 text-green-400'
+                                      : 'bg-yellow-500/20 text-yellow-400'
+                                  }`}
+                                >
+                                  {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+
               <Button
                 size="sm"
                 variant="outline"
@@ -2109,6 +2228,7 @@ const BarbeiroDashboard = () => {
                 <span className="truncate">Fila</span>
               </Button>
             </div>
+            
 
             <Card className="bg-card border-border">
               <CardHeader className="pb-2">

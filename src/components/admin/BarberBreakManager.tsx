@@ -14,6 +14,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useOperatingHours, dayNames, dayOrder, getDayKey, OperatingHours, DayHours } from '@/hooks/useOperatingHours';
 import { useBarberAvailability, BarberAvailability, defaultBarberAvailability } from '@/hooks/useBarberAvailability';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface BarberBreakManagerProps {
   barberId: string;
@@ -23,6 +25,7 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
   const { breaks, loading, createBreak, updateBreak, deleteBreak, checkConflict } = useBarberBreaks(barberId);
   const { operatingHours, loading: hoursLoading } = useOperatingHours();
   const { availability, loading: availabilityLoading, updateDayAvailability } = useBarberAvailability(barberId);
+  const { role } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingBreak, setEditingBreak] = useState<BarberBreak | null>(null);
   const [formData, setFormData] = useState({
@@ -36,6 +39,49 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
     dayKey: keyof BarberAvailability;
     dayHours: DayHours;
   } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const isManager = role === 'admin' || role === 'gestor';
+
+  useEffect(() => {
+    if (selectedIds.length > 0 && breaks.length > 0) {
+      const valid = new Set(breaks.map(b => b.id));
+      setSelectedIds(prev => prev.filter(id => valid.has(id)));
+    }
+  }, [breaks]);
+
+  const toggleSelect = (id: string, checked: boolean | string) => {
+    setSelectedIds(prev => {
+      const isChecked = checked === true || checked === 'indeterminate';
+      return isChecked ? (prev.includes(id) ? prev : [...prev, id]) : prev.filter(x => x !== id);
+    });
+  };
+
+  const selectAll = () => setSelectedIds(breaks.map(b => b.id));
+  const clearSelection = () => setSelectedIds([]);
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!confirm('Tem certeza que deseja excluir as pausas selecionadas?')) return;
+    setBulkDeleting(true);
+    try {
+      const results = await Promise.allSettled(
+        selectedIds.map(async (id) => {
+          const { error } = await deleteBreak(id);
+          return { id, error };
+        })
+      );
+      const anyError = results.some(r => r.status === 'fulfilled' && (r as any).value.error);
+      if (anyError) {
+        toast.warning('Algumas pausas podem não ter sido excluídas');
+      } else {
+        toast.success('Pausas excluídas com sucesso');
+      }
+      setSelectedIds([]);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   useEffect(() => {
     if (dialogOpen && !editingBreak) {
@@ -209,6 +255,230 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
 
   return (
     <div className="space-y-4">
+      {/* Gerenciar Pausas */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-2">
+          <div className="flex justify-between items-center">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Clock className="h-4 w-4 text-primary" />
+              Gerenciar Horários de Pausa
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              {isManager && (
+                <>
+                  <Button variant="outline" size="sm" onClick={selectAll} disabled={breaks.length === 0}>
+                    Selecionar tudo
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={clearSelection} disabled={selectedIds.length === 0}>
+                    Limpar seleção
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleBulkDelete}
+                    disabled={selectedIds.length === 0 || bulkDeleting}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Excluir selecionadas
+                  </Button>
+                </>
+              )}
+              <Dialog open={dialogOpen} onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (!open) {
+                setEditingBreak(null);
+                setConflictInfo(null);
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Adicionar Pausa
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>
+                    {editingBreak ? 'Editar Pausa' : 'Nova Pausa'}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div>
+                    <Label htmlFor="date">Data</Label>
+                    <Input
+                      id="date"
+                      type="date"
+                      value={formData.date}
+                      onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                      min={format(new Date(), 'yyyy-MM-dd')}
+                      required
+                    />
+                    {formData.date && (() => {
+                      const selectedDate = new Date(formData.date + 'T00:00:00');
+                      const dayKey = getDayKey(selectedDate);
+                      const dayHours = operatingHours[dayKey];
+                      return (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {dayHours.closed ? (
+                            <span className="text-red-400">⚠️ A barbearia está fechada neste dia</span>
+                          ) : (
+                            <span>Horário de funcionamento: {dayHours.open} - {dayHours.close}</span>
+                          )}
+                        </p>
+                      );
+                    })()}
+                  </div>
+                  <div>
+                    <Label htmlFor="startTime">Horário de Início da Pausa</Label>
+                    <Input
+                      id="startTime"
+                      type="time"
+                      value={formData.startTime}
+                      onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="endTime">Horário de Fim da Pausa</Label>
+                    <Input
+                      id="endTime"
+                      type="time"
+                      value={formData.endTime}
+                      onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
+                      required
+                    />
+                    {formData.date && formData.startTime && formData.endTime && (() => {
+                      const selectedDate = new Date(formData.date + 'T00:00:00');
+                      const dayKey = getDayKey(selectedDate);
+                      const dayHours = operatingHours[dayKey];
+                      const withinHours = !dayHours.closed && 
+                        formData.startTime >= dayHours.open && 
+                        formData.endTime <= dayHours.close;
+                      
+                      if (!withinHours && !dayHours.closed) {
+                        return (
+                          <p className="text-xs text-yellow-400 mt-1">
+                            ⚠️ A pausa está fora do horário de funcionamento ({dayHours.open} - {dayHours.close})
+                          </p>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+
+                  {checkingConflict && (
+                    <p className="text-sm text-muted-foreground">Verificando conflitos...</p>
+                  )}
+
+                  {conflictInfo?.hasConflict && conflictInfo.appointment && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        <strong>Não é possível criar pausa neste horário.</strong>
+                        <br />
+                        Existe agendamento com:
+                        <br />
+                        <strong>Cliente:</strong> {conflictInfo.appointment.clientName}
+                        <br />
+                        <strong>Serviço:</strong> {conflictInfo.appointment.serviceTitle}
+                        <br />
+                        <strong>Horário:</strong> {conflictInfo.appointment.appointmentTime} às {conflictInfo.appointment.appointmentEndTime}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {formData.startTime && formData.endTime && formData.endTime <= formData.startTime && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        Horário de fim deve ser maior que horário de início
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  <div className="flex gap-2 pt-4">
+                    <Button
+                      onClick={handleSave}
+                      disabled={!!conflictInfo?.hasConflict || checkingConflict || (formData.endTime && formData.endTime <= formData.startTime)}
+                      className="flex-1"
+                    >
+                      {editingBreak ? 'Atualizar' : 'Criar'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setDialogOpen(false);
+                        setEditingBreak(null);
+                        setConflictInfo(null);
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-2">
+          {breaks.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">
+              Nenhuma pausa cadastrada. Clique em "Adicionar Pausa" para criar uma.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {Object.entries(breaksByDate).map(([date, dateBreaks]) => (
+                <div key={date} className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-primary mb-2">
+                    <CalendarIcon className="h-4 w-4" />
+                    {format(new Date(date + 'T00:00:00'), 'EEEE, dd/MM/yyyy', { locale: ptBR })}
+                  </div>
+                  <div className="space-y-2">
+                    {dateBreaks.map((breakItem) => (
+                      <div
+                        key={breakItem.id}
+                        className="flex items-center justify-between p-2 bg-secondary rounded-lg border border-border"
+                      >
+                        <div className="flex items-center gap-2">
+                          {isManager && (
+                            <Checkbox
+                              checked={selectedIds.includes(breakItem.id)}
+                              onCheckedChange={(checked) => toggleSelect(breakItem.id, checked as any)}
+                              className="mr-1"
+                            />
+                          )}
+                          <Clock className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-sm font-medium">
+                            {breakItem.start_time} - {breakItem.end_time}
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleEdit(breakItem)}
+                          >
+                            <Edit className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDelete(breakItem.id)}
+                          >
+                            <Trash2 className="h-3 w-3 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Minha Disponibilidade Semanal */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
@@ -369,201 +639,7 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
         </CardContent>
       </Card>
 
-      {/* Gerenciar Pausas */}
-      <Card className="bg-card border-border">
-        <CardHeader className="pb-2">
-          <div className="flex justify-between items-center">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Clock className="h-4 w-4 text-primary" />
-              Gerenciar Horários de Pausa
-            </CardTitle>
-            <Dialog open={dialogOpen} onOpenChange={(open) => {
-              setDialogOpen(open);
-              if (!open) {
-                setEditingBreak(null);
-                setConflictInfo(null);
-              }
-            }}>
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Adicionar Pausa
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>
-                    {editingBreak ? 'Editar Pausa' : 'Nova Pausa'}
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div>
-                    <Label htmlFor="date">Data</Label>
-                    <Input
-                      id="date"
-                      type="date"
-                      value={formData.date}
-                      onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                      min={format(new Date(), 'yyyy-MM-dd')}
-                      required
-                    />
-                    {formData.date && (() => {
-                      const selectedDate = new Date(formData.date + 'T00:00:00');
-                      const dayKey = getDayKey(selectedDate);
-                      const dayHours = operatingHours[dayKey];
-                      return (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {dayHours.closed ? (
-                            <span className="text-red-400">⚠️ A barbearia está fechada neste dia</span>
-                          ) : (
-                            <span>Horário de funcionamento: {dayHours.open} - {dayHours.close}</span>
-                          )}
-                        </p>
-                      );
-                    })()}
-                  </div>
-                  <div>
-                    <Label htmlFor="startTime">Horário de Início da Pausa</Label>
-                    <Input
-                      id="startTime"
-                      type="time"
-                      value={formData.startTime}
-                      onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="endTime">Horário de Fim da Pausa</Label>
-                    <Input
-                      id="endTime"
-                      type="time"
-                      value={formData.endTime}
-                      onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-                      required
-                    />
-                    {formData.date && formData.startTime && formData.endTime && (() => {
-                      const selectedDate = new Date(formData.date + 'T00:00:00');
-                      const dayKey = getDayKey(selectedDate);
-                      const dayHours = operatingHours[dayKey];
-                      const withinHours = !dayHours.closed && 
-                        formData.startTime >= dayHours.open && 
-                        formData.endTime <= dayHours.close;
-                      
-                      if (!withinHours && !dayHours.closed) {
-                        return (
-                          <p className="text-xs text-yellow-400 mt-1">
-                            ⚠️ A pausa está fora do horário de funcionamento ({dayHours.open} - {dayHours.close})
-                          </p>
-                        );
-                      }
-                      return null;
-                    })()}
-                  </div>
-
-                  {checkingConflict && (
-                    <p className="text-sm text-muted-foreground">Verificando conflitos...</p>
-                  )}
-
-                  {conflictInfo?.hasConflict && conflictInfo.appointment && (
-                    <Alert variant="destructive">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>
-                        <strong>Não é possível criar pausa neste horário.</strong>
-                        <br />
-                        Existe agendamento com:
-                        <br />
-                        <strong>Cliente:</strong> {conflictInfo.appointment.clientName}
-                        <br />
-                        <strong>Serviço:</strong> {conflictInfo.appointment.serviceTitle}
-                        <br />
-                        <strong>Horário:</strong> {conflictInfo.appointment.appointmentTime} às {conflictInfo.appointment.appointmentEndTime}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-
-                  {formData.startTime && formData.endTime && formData.endTime <= formData.startTime && (
-                    <Alert variant="destructive">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>
-                        Horário de fim deve ser maior que horário de início
-                      </AlertDescription>
-                    </Alert>
-                  )}
-
-                  <div className="flex gap-2 pt-4">
-                    <Button
-                      onClick={handleSave}
-                      disabled={!!conflictInfo?.hasConflict || checkingConflict || (formData.endTime && formData.endTime <= formData.startTime)}
-                      className="flex-1"
-                    >
-                      {editingBreak ? 'Atualizar' : 'Criar'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setDialogOpen(false);
-                        setEditingBreak(null);
-                        setConflictInfo(null);
-                      }}
-                    >
-                      Cancelar
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-2">
-          {breaks.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">
-              Nenhuma pausa cadastrada. Clique em "Adicionar Pausa" para criar uma.
-            </p>
-          ) : (
-            <div className="space-y-4">
-              {Object.entries(breaksByDate).map(([date, dateBreaks]) => (
-                <div key={date} className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-primary mb-2">
-                    <CalendarIcon className="h-4 w-4" />
-                    {format(new Date(date + 'T00:00:00'), 'EEEE, dd/MM/yyyy', { locale: ptBR })}
-                  </div>
-                  <div className="space-y-2">
-                    {dateBreaks.map((breakItem) => (
-                      <div
-                        key={breakItem.id}
-                        className="flex items-center justify-between p-2 bg-secondary rounded-lg border border-border"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-sm font-medium">
-                            {breakItem.start_time} - {breakItem.end_time}
-                          </span>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleEdit(breakItem)}
-                          >
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDelete(breakItem.id)}
-                          >
-                            <Trash2 className="h-3 w-3 text-destructive" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      
     </div>
   );
 };
