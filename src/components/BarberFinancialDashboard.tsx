@@ -86,6 +86,17 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
   const [advanceRequestDate, setAdvanceRequestDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [submittingAdvance, setSubmittingAdvance] = useState(false);
 
+  // Parse 'yyyy-MM-dd' as LOCAL date (avoids UTC shift)
+  const parseLocalISODate = (iso: string): Date => {
+    try {
+      const [y, m, d] = iso.split('-').map((v) => parseInt(v, 10));
+      if (!y || !m || !d) return new Date();
+      return new Date(y, m - 1, d, 0, 0, 0, 0);
+    } catch {
+      return new Date();
+    }
+  };
+
   // Helper function to calculate commission for an appointment
   // Priority: 1) Individual commission per service, 2) Fixed commission
   const getCommissionValue = (apt: Appointment): number => {
@@ -189,8 +200,8 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
     let end: Date;
 
     if (period === 'custom' && dateFrom && dateTo) {
-      start = startOfDay(new Date(dateFrom));
-      end = endOfDay(new Date(dateTo));
+      start = startOfDay(parseLocalISODate(dateFrom));
+      end = endOfDay(parseLocalISODate(dateTo));
       return { start, end };
     }
 
@@ -503,7 +514,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
 
   const getPeriodLabel = () => {
     if (period === 'custom' && dateFrom && dateTo) {
-      return `${format(new Date(dateFrom), 'dd/MM/yyyy', { locale: ptBR })} até ${format(new Date(dateTo), 'dd/MM/yyyy', { locale: ptBR })}`;
+      return `${format(parseLocalISODate(dateFrom), 'dd/MM/yyyy', { locale: ptBR })} até ${format(parseLocalISODate(dateTo), 'dd/MM/yyyy', { locale: ptBR })}`;
     }
     switch (period) {
       case 'day': return 'Hoje';
