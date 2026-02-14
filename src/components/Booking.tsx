@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import * as Icons from "lucide-react";
 import { useOperatingHours, getDayKey } from "@/hooks/useOperatingHours";
+import { getAvailableSlotsForBarber } from "@/utils/availability";
 import haircutImg from "@/assets/service-haircut.jpg";
 import beardImg from "@/assets/service-beard.jpg";
 import stylingImg from "@/assets/service-styling.jpg";
@@ -88,6 +89,8 @@ const Booking = () => {
   const [customClientName, setCustomClientName] = useState("");
   const [hasClientNameColumn, setHasClientNameColumn] = useState(true);
   const [hasBarberBreaks, setHasBarberBreaks] = useState(true);
+  const [selectedDateBreaks, setSelectedDateBreaks] = useState<{ start_time: string; end_time: string }[]>([]);
+  const [barberHasSlotsToday, setBarberHasSlotsToday] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     (async () => {
@@ -315,6 +318,76 @@ const Booking = () => {
     }
   };
 
+  useEffect(() => {
+    const run = async () => {
+      if (step !== "barber" || !formData.service || barbers.length === 0) return;
+      const today = new Date();
+      const todayStr = formatLocalDate(today);
+      const isOpen = isDateOpen(today);
+      const serviceDuration = getServiceDuration(formData.service, services);
+      const timeSlots = getTimeSlotsForDate(today);
+      const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
+      const result: Record<string, boolean> = {};
+      for (const barber of getAvailableBarbers()) {
+        if (!isOpen) {
+          result[barber.id] = false;
+          continue;
+        }
+        let barberAvailableToday = true;
+        if (barber.availability) {
+          try {
+            const availability = typeof barber.availability === 'string' ? JSON.parse(barber.availability) : barber.availability;
+            const dayKey = getDayKey(today);
+            const dayAvailability = availability?.[dayKey];
+            barberAvailableToday = !dayAvailability?.closed;
+          } catch {
+            barberAvailableToday = true;
+          }
+        }
+        if (!barberAvailableToday) {
+          result[barber.id] = false;
+          continue;
+        }
+        const { data: appointments } = await (supabase as any)
+          .from('appointments')
+          .select('appointment_time, service:services(duration)')
+          .eq('barber_id', barber.id)
+          .eq('appointment_date', todayStr)
+          .neq('status', 'cancelled');
+        const { data: breaks } = await (supabase as any)
+          .from('barber_breaks')
+          .select('start_time, end_time')
+          .eq('barber_id', barber.id)
+          .eq('date', todayStr);
+        const isSlotInBreak = (slotTime: string, slotDuration: number): boolean => {
+          if (!breaks || breaks.length === 0) return false;
+          const timeToMinutes = (time: string): number => {
+            const [hours, minutes] = time.split(':').map(Number);
+            return hours * 60 + minutes;
+          };
+          const slotStartMinutes = timeToMinutes(slotTime);
+          const slotEndMinutes = slotStartMinutes + slotDuration;
+          return breaks.some((br: any) => {
+            const breakStartMinutes = timeToMinutes(br.start_time);
+            const breakEndMinutes = timeToMinutes(br.end_time);
+            if (slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes) return true;
+            if (slotStartMinutes === breakEndMinutes) return true;
+            return false;
+          });
+        };
+        const availableTodaySlots = timeSlots.filter((slot) => {
+          if (slot < currentTime) return false;
+          if (isSlotInBreak(slot, serviceDuration)) return false;
+          const hasConflict = isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === formData.service));
+          return !hasConflict;
+        });
+        result[barber.id] = availableTodaySlots.length > 0;
+      }
+      setBarberHasSlotsToday(result);
+    };
+    run();
+  }, [step, formData.service, barbers, services]);
+
   // Filter barbers based on selected date and their availability
   const getAvailableBarbers = () => {
     if (!formData.date) return barbers;
@@ -432,7 +505,11 @@ const Booking = () => {
         return breaks.some((breakItem: any) => {
           const breakStartMinutes = timeToMinutes(breakItem.start_time);
           const breakEndMinutes = timeToMinutes(breakItem.end_time);
-          return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;
+          // 1) Sobreposição padrão
+          if (slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes) return true;
+          // 2) Bloquear slot que inicia exatamente no fim da pausa
+          if (slotStartMinutes === breakEndMinutes) return true;
+          return false;
         });
       };
 
@@ -613,8 +690,11 @@ const Booking = () => {
           const breakStartMinutes = timeToMinutes(breakItem.start_time);
           const breakEndMinutes = timeToMinutes(breakItem.end_time);
 
-          // Slot overlaps with break if: slot_start < break_end AND slot_end > break_start
-          return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;
+          // 1) Sobreposição padrão
+          if (slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes) return true;
+          // 2) Bloquear slot que inicia exatamente no fim da pausa
+          if (slotStartMinutes === breakEndMinutes) return true;
+          return false;
         });
       };
       
@@ -735,11 +815,25 @@ const Booking = () => {
     try {
       const selectedDate = new Date(formData.date + 'T00:00:00');
       
+      // Respeitar disponibilidade diária do barbeiro (dias fechados)
+      const selectedBarber = barbers.find(b => b.id === formData.barber);
+      if (selectedBarber?.availability) {
+        try {
+          const availability = typeof selectedBarber.availability === 'string'
+            ? JSON.parse(selectedBarber.availability)
+            : selectedBarber.availability;
+          const dayKey = getDayKey(selectedDate);
+          const dayAvailability = availability?.[dayKey];
+          if (dayAvailability?.closed) {
+            return [];
+          }
+        } catch (err) {
+          console.error('Error parsing barber availability (getAvailableSlotsForDate):', err);
+        }
+      }
+      
       // Check if barbershop is open on this day
       if (!isDateOpen(selectedDate)) return [];
-      
-      const dayTimeSlots = getTimeSlotsForDate(selectedDate);
-
       const { data: appointments, error: appointmentsError } = await (supabase as any)
         .from('appointments')
         .select('appointment_time, service:services(duration)')
@@ -758,56 +852,30 @@ const Booking = () => {
         .select('start_time, end_time')
         .eq('barber_id', formData.barber)
         .eq('date', formData.date);
+      
+      // Atualizar estado para exibir faixa de pausas
+      setSelectedDateBreaks(breaks || []);
     
       // Ignore 404/table not found errors (table might not exist)
       if (breaksError && breaksError.code !== 'PGRST116' && breaksError.code !== 'PGRST205' && breaksError.code !== '42P01') {
         console.warn('Error loading barber breaks:', breaksError);
       }
 
+    // Base slots compartilhados com o agendamento local (sincronização)
+    const baseSlots = getAvailableSlotsForBarber(
+      selectedDate,
+      getTimeSlotsForDate,
+      (appointments || []).map((a: any) => ({
+        appointment_time: a.appointment_time,
+        duration: a.service?.duration,
+      })),
+      { filterPastSlots: true, breaks: breaks || [] }
+    );
+    // Ajustar pelos conflitos do serviço selecionado (duração)
     const serviceDuration = getServiceDuration(formData.service, services);
-
-    // Check if selected date is today
-    const today = new Date();
-    const isToday = selectedDate.toDateString() === today.toDateString();
-    
-    // Get current time in HH:MM format
-    const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
-
-    // Helper function to check if a slot overlaps with a break
-    const isSlotInBreak = (slotTime: string, slotDuration: number): boolean => {
-      if (!breaks || breaks.length === 0) return false;
-
-      const timeToMinutes = (time: string): number => {
-        const [hours, minutes] = time.split(':').map(Number);
-        return hours * 60 + minutes;
-      };
-
-      const slotStartMinutes = timeToMinutes(slotTime);
-      const slotEndMinutes = slotStartMinutes + slotDuration;
-
-      return breaks.some((breakItem: any) => {
-        const breakStartMinutes = timeToMinutes(breakItem.start_time);
-        const breakEndMinutes = timeToMinutes(breakItem.end_time);
-
-        // Slot overlaps with break if: slot_start < break_end AND slot_end > break_start
-        return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;
-      });
-    };
-
-    return dayTimeSlots.filter(slot => {
-      // Filter out past times if it's today
-      // Use < instead of <= to include the current hour slot if we're still in the first 30 minutes
-      if (isToday && slot < currentTime) {
-        return false;
-      }
-
-      // Filter out slots that overlap with breaks
-      if (isSlotInBreak(slot, serviceDuration)) {
-        return false;
-      }
-      
-      return !isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === formData.service));
-    });
+    return baseSlots.filter(slot =>
+      !isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === formData.service))
+    );
     } catch (error) {
       console.error('Error in getAvailableSlotsForDate:', error);
       return [];
@@ -856,6 +924,27 @@ const Booking = () => {
     setIsSubmitting(true);
 
     try {
+      // Verificar se o barbeiro está fechado neste dia
+      try {
+        const selectedDate = new Date(formData.date + 'T00:00:00');
+        const selectedBarber = barbers.find(b => b.id === formData.barber);
+        if (selectedBarber?.availability) {
+          const availability = typeof selectedBarber.availability === 'string'
+            ? JSON.parse(selectedBarber.availability)
+            : selectedBarber.availability;
+          const dayKey = getDayKey(selectedDate);
+          const dayAvailability = availability?.[dayKey];
+          if (dayAvailability?.closed) {
+            toast.error("Barbeiro indisponível nesta data", {
+              description: "Este barbeiro bloqueou a agenda para este dia.",
+            });
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Falha ao validar disponibilidade diária do barbeiro:', err);
+      }
+      
       // 1. Verificações rápidas em paralelo
       const [existingAppointmentResult, breaksResult] = await Promise.allSettled([
         // Verificar se já existe agendamento no mesmo horário
@@ -1155,6 +1244,13 @@ const Booking = () => {
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-card to-transparent"></div>
+                    {barberHasSlotsToday[barber.id] === false && (
+                      <div className="absolute top-2 right-2 md:top-3 md:right-3">
+                        <span className="px-2 py-1 md:px-3 md:py-1.5 rounded bg-destructive/80 text-destructive-foreground text-[10px] md:text-xs font-bold tracking-wide uppercase">
+                          Indisponível hoje
+                        </span>
+                      </div>
+                    )}
                   </div>
                   
                   <CardContent className="p-3 md:p-6 lg:p-8 text-center">
@@ -1263,6 +1359,44 @@ const Booking = () => {
                           </>
                         )}
                       </div>
+                      {(() => {
+                        try {
+                          const selectedBarber = barbers.find(b => b.id === formData.barber);
+                          if (selectedBarber?.availability) {
+                            const availability = typeof selectedBarber.availability === 'string'
+                              ? JSON.parse(selectedBarber.availability)
+                              : selectedBarber.availability;
+                            const dayKey = getDayKey(new Date(formData.date + 'T00:00:00'));
+                            if (availability?.[dayKey]?.closed) {
+                              return (
+                                <div className="mb-3 p-4 rounded-lg border-2 border-destructive/30 bg-destructive/10">
+                                  <p className="text-sm font-semibold text-destructive">
+                                    Barbeiro indisponível nesta data.
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Escolha outra data ou outro barbeiro.
+                                  </p>
+                                </div>
+                              );
+                            }
+                          }
+                        } catch (e) {
+                          // ignore parse errors
+                        }
+                        return null;
+                      })()}
+                      {selectedDateBreaks.length > 0 && (
+                        <div className="mb-3 p-4 rounded-lg border border-border bg-secondary/30">
+                          <p className="text-sm font-semibold mb-2">Pausas deste dia</p>
+                          <div className="flex flex-wrap gap-2">
+                            {selectedDateBreaks.map((br, idx) => (
+                              <span key={`${br.start_time}-${br.end_time}-${idx}`} className="px-2 py-1 text-xs rounded-full bg-muted text-foreground border border-border">
+                                {br.start_time.slice(0,5)}–{br.end_time.slice(0,5)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {hoursLoading ? (
                         <div className="text-center py-8">
                           <p className="text-muted-foreground">Carregando horários disponíveis...</p>

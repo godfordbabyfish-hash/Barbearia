@@ -5,9 +5,8 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, X, ArrowLeft, Star, Scissors } from "lucide-react";
-import { useOperatingHours } from "@/hooks/useOperatingHours";
+import { useOperatingHours, getDayKey } from "@/hooks/useOperatingHours";
 import { useAuth } from "@/contexts/AuthContext";
-import { addMinutes } from "date-fns";
 import { getAvailableSlotsForBarber } from "@/utils/availability";
 
 interface Barber {
@@ -54,6 +53,10 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
   const [showCloseOption, setShowCloseOption] = useState(false);
   const [slotClosedInfo, setSlotClosedInfo] = useState<{ closed: boolean; breakId?: string; breakStart?: string; breakEnd?: string } | null>(null);
   const [slotState, setSlotState] = useState<Record<string, 'available' | 'break' | 'booked' | 'past'>>({});
+  const [showAddPause, setShowAddPause] = useState(false);
+  const [pauseStart, setPauseStart] = useState("");
+  const [pauseEnd, setPauseEnd] = useState("");
+  const [showReleaseMode, setShowReleaseMode] = useState(false);
 
   const isBarberPreselected = Boolean(preselectedBarberId);
   const effectiveTimeSlot = isBarberPreselected ? selectedTimeSlot : timeSlot;
@@ -79,8 +82,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         setCurrentUserBarberId("");
       }
       if (preselectedBarberId) {
-        setStep("time");
-        loadSlotsForBarber(preselectedBarberId);
+        setStep("service");
       } else {
         setStep("barber");
       }
@@ -95,6 +97,23 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         setBarberSlots([]);
         setSlotState({});
         return;
+      }
+      // Respeitar disponibilidade diária do barbeiro (dias fechados)
+      try {
+        const barber = barbers.find(b => b.id === barberId) as any;
+        if (barber?.availability) {
+          const availability = typeof barber.availability === "string"
+            ? JSON.parse(barber.availability)
+            : barber.availability;
+          const dayKey = getDayKey(dateObj) as any;
+          if (availability?.[dayKey]?.closed) {
+            setBarberSlots([]);
+            setSlotState({});
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("Falha ao validar disponibilidade do barbeiro no dia selecionado:", e);
       }
       const { data: appts } = await supabase
         .from("appointments")
@@ -137,6 +156,8 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         }
         const slotEnd = addMin(slot, 30);
         const overlaps = (s1: string, e1: string, s2: string, e2: string) => s1 < e2 && e1 > s2;
+        // Bloqueia também o slot imediatamente após a pausa (quando slot inicia exatamente no fim da pausa)
+        if (breakRanges.some(r => r.end === slot)) return 'break';
         if (breakRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return 'break';
         if (apptRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return 'booked';
         return 'available';
@@ -144,7 +165,23 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       const states: Record<string,'available'|'break'|'booked'|'past'> = {};
       allSlots.forEach(s => { states[s] = computeState(s); });
       // Show only non-past slots
-      const futureSlots = allSlots.filter(s => states[s] !== 'past');
+      let futureSlots = allSlots.filter(s => states[s] !== 'past');
+
+      // Se um serviço foi selecionado, garantir que o bloco completo caiba sem conflito
+      if (selectedServiceId) {
+        const service = services.find(s => s.id === selectedServiceId);
+        const duration = service?.duration ?? 30;
+        const steps = Math.max(1, Math.ceil(duration / 30));
+        const hasContinuousAvailability = (slot: string) => {
+          let cursor = slot;
+          for (let i = 0; i < steps; i++) {
+            if (!states[cursor] || states[cursor] !== 'available') return false;
+            cursor = addMin(cursor, 30);
+          }
+          return true;
+        };
+        futureSlots = futureSlots.filter(hasContinuousAvailability);
+      }
       setSlotState(states);
       setBarberSlots(futureSlots);
     } catch (e) {
@@ -159,7 +196,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
   const loadBarbers = async () => {
     const { data, error } = await supabase
       .from("barbers")
-      .select("id, name, image_url, specialty, experience, rating")
+      .select("id, name, image_url, specialty, experience, rating, availability")
       .eq("visible", true)
       .order("order_index");
 
@@ -228,7 +265,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
 
   const handleBarberSelect = (barberId: string) => {
     setSelectedBarberId(barberId);
-    setStep("client");
+    setStep("service");
   };
 
   const handleTimeSelect = (slot: string) => {
@@ -273,7 +310,13 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
 
   const handleServiceSelect = async (serviceId: string) => {
     setSelectedServiceId(serviceId);
-    await handleSubmit(serviceId);
+    if (!selectedBarberId) {
+      toast.error("Selecione um barbeiro");
+      setStep("barber");
+      return;
+    }
+    setStep("time");
+    await loadSlotsForBarber(selectedBarberId);
   };
 
   const handleSubmit = async (serviceId: string) => {
@@ -281,7 +324,9 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       toast.error("Por favor, selecione o barbeiro e o serviço");
       return;
     }
-    const slotToUse = effectiveTimeSlot;
+    // Tornar a seleção do horário mais resiliente: usa o selecionado no passo atual,
+    // depois o effectiveTimeSlot, e por fim o timeSlot vindo das props.
+    const slotToUse = selectedTimeSlot || effectiveTimeSlot || timeSlot;
     if (!slotToUse) {
       toast.error("Por favor, selecione um horário");
       return;
@@ -290,25 +335,81 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
     setLoading(true);
 
     try {
-      // Verificar se o horário ainda está disponível (sincronização em tempo real)
-      const { data: existingAppointment } = await supabase
+      // Verificar se o dia está fechado para o barbeiro
+      try {
+        const barber = barbers.find(b => b.id === selectedBarberId) as any;
+        if (barber?.availability) {
+          const availability = typeof barber.availability === "string"
+            ? JSON.parse(barber.availability)
+            : barber.availability;
+          const dayKey = getDayKey(new Date(date + "T12:00:00")) as any;
+          if (availability?.[dayKey]?.closed) {
+            toast.error("Barbeiro indisponível nesta data", {
+              description: "Este barbeiro bloqueou a agenda para este dia.",
+            });
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("Falha ao validar dia fechado no agendamento rápido:", e);
+      }
+      // Validações de conflito no momento do envio (paridade com online)
+      const selectedService = services.find(s => s.id === serviceId);
+      const newDuration = selectedService?.duration ?? 30;
+      const timeToMinutes = (t: string) => {
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+      };
+      const newStart = timeToMinutes(slotToUse);
+      const newEnd = newStart + newDuration;
+      // 1) Conflito com agendamentos existentes (sobreposição de intervalos)
+      const { data: appts } = await supabase
         .from('appointments')
-        .select('id')
+        .select('appointment_time, services(duration)')
         .eq('barber_id', selectedBarberId)
         .eq('appointment_date', date)
-        .eq('appointment_time', slotToUse)
-        .neq('status', 'cancelled')
-        .maybeSingle();
-
-      if (existingAppointment) {
-        toast.error("Horário já foi reservado", {
-          description: "Por favor, escolha outro horário disponível.",
+        .neq('status', 'cancelled');
+      const hasAppointmentOverlap = (appts || []).some((a: any) => {
+        const aStart = timeToMinutes(a.appointment_time);
+        const aEnd = aStart + (a.services?.duration ?? 30);
+        return newStart < aEnd && newEnd > aStart;
+      });
+      if (hasAppointmentOverlap) {
+        toast.error("Horário em conflito com outro atendimento", {
+          description: "Escolha outro horário disponível.",
         });
-        onOpenChange(false);
         return;
+      }
+      // 2) Conflito com pausas/bloqueios
+      const { data: breaks } = await (supabase as any)
+        .from('barber_breaks')
+        .select('start_time, end_time')
+        .eq('barber_id', selectedBarberId)
+        .eq('date', date);
+      const hasBreakOverlap = (breaks || []).some((b: any) => {
+        const bStart = timeToMinutes(b.start_time);
+        const bEnd = timeToMinutes(b.end_time);
+        return newStart < bEnd && newEnd > bStart;
+      });
+      if (hasBreakOverlap) {
+        toast.error("Horário entra em uma pausa do barbeiro", {
+          description: "Escolha outro horário ou ajuste as pausas.",
+        });
+        return;
+      }
+      // 3) Evitar horários passados (se for hoje)
+      const isToday = new Date().toISOString().split('T')[0] === date;
+      if (isToday) {
+        const now = new Date();
+        const nowMin = now.getHours() * 60 + now.getMinutes();
+        if (newStart <= nowMin) {
+          toast.error("Horário já passou. Selecione um horário futuro.");
+          return;
+        }
       }
       const localPhone = "00000000000";
       const localName = clientName.trim() || "LOCAL";
+
 
       const { data: existingProfile } = await supabase
         .from("profiles")
@@ -476,6 +577,101 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
     }
   };
 
+  const fetchBreakInfoForSlot = async (slot: string) => {
+    try {
+      const { data: breaks } = await (supabase as any)
+        .from("barber_breaks")
+        .select("id, start_time, end_time")
+        .eq("barber_id", selectedBarberId)
+        .eq("date", date);
+      const timeToMinutes = (t: string) => {
+        const [h, m] = t.split(":").map(Number);
+        return h * 60 + m;
+      };
+      const slotStart = timeToMinutes(slot);
+      const slotEnd = slotStart + 30;
+      const found = (breaks || []).find((b: any) => {
+        const bs = timeToMinutes(b.start_time);
+        const be = timeToMinutes(b.end_time);
+        return slotStart < be && slotEnd > bs;
+      });
+      if (!found) return null;
+      return { breakId: found.id, breakStart: found.start_time, breakEnd: found.end_time };
+    } catch {
+      return null;
+    }
+  };
+
+  const openSlotAt = async (slot: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || !user?.id) {
+        toast.error("Faça login como barbeiro para liberar horário");
+        return;
+      }
+      if (selectedBarberId !== currentUserBarberId) {
+        toast.error("Você só pode liberar horários do seu perfil");
+        return;
+      }
+      const info = await fetchBreakInfoForSlot(slot);
+      if (!info?.breakId || !info.breakStart || !info.breakEnd) {
+        toast.error("Nenhuma pausa encontrada para este horário");
+        return;
+      }
+      const timeToMinutes = (t: string) => {
+        const [h, m] = t.split(":").map(Number);
+        return h * 60 + m;
+      };
+      const minutesToTime = (n: number) => {
+        const h = String(Math.floor(n / 60)).padStart(2, "0");
+        const m = String(n % 60).padStart(2, "0");
+        return `${h}:${m}`;
+      };
+      const slotStart = timeToMinutes(slot);
+      const slotEnd = slotStart + 30;
+      const breakStart = timeToMinutes(info.breakStart);
+      const breakEnd = timeToMinutes(info.breakEnd);
+      if (breakStart === slotStart && breakEnd === slotEnd) {
+        const { error } = await (supabase as any)
+          .from("barber_breaks")
+          .delete()
+          .eq("id", info.breakId);
+        if (error) throw error;
+      } else if (breakStart === slotStart && breakEnd > slotEnd) {
+        const { error } = await (supabase as any)
+          .from("barber_breaks")
+          .update({ start_time: minutesToTime(slotEnd) })
+          .eq("id", info.breakId);
+        if (error) throw error;
+      } else if (breakStart < slotStart && breakEnd === slotEnd) {
+        const { error } = await (supabase as any)
+          .from("barber_breaks")
+          .update({ end_time: minutesToTime(slotStart) })
+          .eq("id", info.breakId);
+        if (error) throw error;
+      } else {
+        const { error: updateErr } = await (supabase as any)
+          .from("barber_breaks")
+          .update({ end_time: minutesToTime(slotStart) })
+          .eq("id", info.breakId);
+        if (updateErr) throw updateErr;
+        const { error: insertErr } = await (supabase as any)
+          .from("barber_breaks")
+          .insert({
+            barber_id: selectedBarberId,
+            date,
+            start_time: minutesToTime(slotEnd),
+            end_time: minutesToTime(breakEnd),
+          });
+        if (insertErr) throw insertErr;
+      }
+      toast.success(`Horário ${slot} liberado`);
+      await loadSlotsForBarber(selectedBarberId);
+    } catch {
+      toast.error("Erro ao liberar horário");
+    }
+  };
+
   if (!open) return null;
 
   const selectedBarber = barbers.find(b => b.id === selectedBarberId);
@@ -520,6 +716,138 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
             )}
           </p>
         </div>
+        {/* Gestão de Pausa - agora disponível em toda a tela */}
+        {role === "barbeiro" && selectedBarberId === currentUserBarberId && (
+          <div className="w-full max-w-2xl mx-auto mb-6">
+            <div className="flex flex-col gap-2 items-stretch">
+              <div className="flex justify-center">
+                <Button
+                  onClick={() => setShowAddPause(v => !v)}
+                  className="px-4 py-2 text-sm font-semibold rounded-md"
+                  style={{ backgroundColor: "#FFD700", color: "#000" }}
+                >
+                  {showAddPause ? "Cancelar adição de pausa" : "Adicionar pausa (almoço/intervalo)"}
+                </Button>
+              </div>
+              {showAddPause && (
+                <div className="flex flex-col sm:flex-row gap-2 items-center justify-center">
+                  <select
+                    value={pauseStart}
+                    onChange={(e) => setPauseStart(e.target.value)}
+                    className="bg-gray-800 border border-gray-700 text-white rounded px-3 py-2"
+                  >
+                    <option value="">Início</option>
+                    {getTimeSlotsForDate(new Date(date + "T12:00:00")).map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={pauseEnd}
+                    onChange={(e) => setPauseEnd(e.target.value)}
+                    className="bg-gray-800 border border-gray-700 text-white rounded px-3 py-2"
+                  >
+                    <option value="">Fim</option>
+                    {getTimeSlotsForDate(new Date(date + "T12:00:00")).map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <Button
+                    onClick={async () => {
+                      try {
+                        if (!pauseStart || !pauseEnd) {
+                          toast.error("Selecione início e fim da pausa");
+                          return;
+                        }
+                        const toMin = (s: string) => {
+                          const [h, m] = s.split(":").map(Number);
+                          return h * 60 + m;
+                        };
+                        const startMin = toMin(pauseStart);
+                        const endMin = toMin(pauseEnd);
+                        if (endMin <= startMin) {
+                          toast.error("Fim da pausa deve ser após o início");
+                          return;
+                        }
+                        const { data: appts } = await supabase
+                          .from("appointments")
+                          .select("appointment_time, services(duration)")
+                          .eq("barber_id", selectedBarberId)
+                          .eq("appointment_date", date)
+                          .neq("status", "cancelled");
+                        const apptOverlap = (appts || []).some((a: any) => {
+                          const aStart = toMin(a.appointment_time);
+                          const aEnd = aStart + (a.services?.duration ?? 30);
+                          return startMin < aEnd && endMin > aStart;
+                        });
+                        if (apptOverlap) {
+                          toast.error("Intervalo conflita com um atendimento");
+                          return;
+                        }
+                        const { data: breaks } = await (supabase as any)
+                          .from("barber_breaks")
+                          .select("start_time, end_time")
+                          .eq("barber_id", selectedBarberId)
+                          .eq("date", date);
+                        const breakOverlap = (breaks || []).some((b: any) => {
+                          const bStart = toMin(b.start_time);
+                          const bEnd = toMin(b.end_time);
+                          return startMin < bEnd && endMin > bStart;
+                        });
+                        if (breakOverlap) {
+                          toast.error("Intervalo conflita com outra pausa");
+                          return;
+                        }
+                        const { error } = await (supabase as any)
+                          .from("barber_breaks")
+                          .insert({
+                            barber_id: selectedBarberId,
+                            date,
+                            start_time: pauseStart,
+                            end_time: pauseEnd,
+                          });
+                        if (error) {
+                          toast.error("Erro ao adicionar pausa");
+                          return;
+                        }
+                        toast.success("Pausa adicionada");
+                        setShowAddPause(false);
+                        setPauseStart("");
+                        setPauseEnd("");
+                        await loadSlotsForBarber(selectedBarberId);
+                      } catch {
+                        toast.error("Erro ao adicionar pausa");
+                      }
+                    }}
+                    className="bg-red-700 hover:bg-red-800 px-4 py-2 text-sm rounded-md"
+                  >
+                    Salvar pausa
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      if (role !== "barbeiro" || selectedBarberId !== currentUserBarberId) {
+                        toast.error("Você só pode liberar horários do seu perfil");
+                        return;
+                      }
+                      // Entrar em modo de liberação e ir para passo de horários se necessário
+                      if (step !== "time") {
+                        if (!selectedBarberId) {
+                          toast.error("Selecione um barbeiro");
+                          return;
+                        }
+                        await loadSlotsForBarber(selectedBarberId);
+                        setStep("time");
+                      }
+                      setShowReleaseMode(true);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 px-4 py-2 text-sm rounded-md"
+                  >
+                    Liberar horário
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="flex flex-col items-center justify-center py-12">
@@ -558,140 +886,65 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
               </h3>
               <p className="text-gray-400 text-sm mt-1">Selecione um horário para continuar</p>
             </div>
+            
+            {showReleaseMode && (
+              <div className="mb-6">
+                <p className="text-center text-gray-300 mb-2">Horários bloqueados (clique para liberar)</p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {Object.keys(slotState).filter(s => slotState[s] === 'break').length === 0 ? (
+                    <span className="text-sm text-gray-500">Nenhum horário bloqueado hoje.</span>
+                  ) : (
+                    Object.keys(slotState)
+                      .filter(s => slotState[s] === 'break')
+                      .map(s => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => openSlotAt(s)}
+                          className="px-4 py-2 rounded-lg font-semibold transition-all hover:scale-105"
+                          style={{ backgroundColor: '#1e3a8a', color: '#fff', border: '2px solid #3b82f6' }}
+                        >
+                          {s}
+                        </button>
+                      ))
+                  )}
+                </div>
+                <div className="flex justify-center mt-3">
+                  <Button
+                    variant="outline"
+                    className="px-4 py-2 text-sm rounded-md"
+                    onClick={() => setShowReleaseMode(false)}
+                  >
+                    Concluir liberação
+                  </Button>
+                </div>
+              </div>
+            )}
             {showCloseOption ? (
               <div className="flex flex-col items-center justify-center py-6 gap-3">
                 <div className="text-white font-semibold">Escolha uma ação para {selectedBarber?.name}</div>
-                <div className="flex flex-wrap gap-2 justify-center w-full">
+                <div className="w-full flex justify-center">
                   <Button
                     onClick={async () => {
+                      // Fluxo prático de atendimento local:
+                      // 1) Usa o serviço selecionado se houver; caso contrário, escolhe o mais usado (primeiro da lista).
+                      // 2) Cria o agendamento imediatamente usando o slot selecionado.
                       try {
-                        const { data: { session } } = await supabase.auth.getSession();
-                        if (!session || !user?.id) {
-                          toast.error("Faça login como barbeiro para fechar horário");
+                        const autoServiceId = selectedServiceId || services[0]?.id;
+                        if (!autoServiceId) {
+                          toast.error("Nenhum serviço disponível para agendar. Cadastre um serviço.");
                           return;
                         }
-                        if (selectedBarberId !== currentUserBarberId) {
-                          toast.error("Você só pode fechar horários do seu perfil");
-                          return;
-                        }
-                        const start = new Date(`${date}T${selectedTimeSlot}:00`);
-                        const end = addMinutes(start, 30);
-                        const endStr = `${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`;
-                        if (slotClosedInfo?.closed) {
-                          toast.error("Este horário já está fechado");
-                          return;
-                        }
-                        const { error } = await (supabase as any)
-                          .from("barber_breaks")
-                          .insert({
-                            barber_id: selectedBarberId,
-                            date,
-                            start_time: selectedTimeSlot,
-                            end_time: endStr,
-                          });
-                        if (error) {
-                          toast.error("Erro ao fechar horário");
-                          return;
-                        }
-                        toast.success("Horário fechado para você");
+                        await handleSubmit(autoServiceId);
                         setShowCloseOption(false);
-                        await loadSlotsForBarber(selectedBarberId);
                       } catch {
-                        toast.error("Erro ao fechar horário");
+                        // handleSubmit já apresenta toasts de erro
                       }
                     }}
-                    className="bg-red-600 hover:bg-red-700 px-3 py-2 text-sm rounded-md w-full sm:w-auto"
-                    disabled={slotClosedInfo?.closed === true}
+                    className="px-4 py-3 text-sm rounded-md w-full max-w-md font-semibold"
+                    style={{ backgroundColor: "#FFD700", color: "#000" }}
                   >
-                    Fechar este horário
-                  </Button>
-                  <Button
-                    onClick={async () => {
-                      try {
-                        const { data: { session } } = await supabase.auth.getSession();
-                        if (!session || !user?.id) {
-                          toast.error("Faça login como barbeiro para abrir horário");
-                          return;
-                        }
-                        if (selectedBarberId !== currentUserBarberId) {
-                          toast.error("Você só pode abrir horários do seu perfil");
-                          return;
-                        }
-                        if (!slotClosedInfo?.closed || !slotClosedInfo.breakId || !slotClosedInfo.breakStart || !slotClosedInfo.breakEnd) {
-                          toast.error("Não há bloqueio para este horário");
-                          return;
-                        }
-                        const timeToMinutes = (t: string) => {
-                          const [h, m] = t.split(":").map(Number);
-                          return h * 60 + m;
-                        };
-                        const minutesToTime = (n: number) => {
-                          const h = String(Math.floor(n / 60)).padStart(2, "0");
-                          const m = String(n % 60).padStart(2, "0");
-                          return `${h}:${m}`;
-                        };
-                        const slotStart = timeToMinutes(selectedTimeSlot);
-                        const slotEnd = slotStart + 30;
-                        const breakStart = timeToMinutes(slotClosedInfo.breakStart);
-                        const breakEnd = timeToMinutes(slotClosedInfo.breakEnd);
-                        if (breakStart === slotStart && breakEnd === slotEnd) {
-                          // Delete the exact 30-min break
-                          const { error } = await (supabase as any)
-                            .from("barber_breaks")
-                            .delete()
-                            .eq("id", slotClosedInfo.breakId);
-                          if (error) throw error;
-                        } else if (breakStart === slotStart && breakEnd > slotEnd) {
-                          // Shrink from start: move start_time to slotEnd
-                          const { error } = await (supabase as any)
-                            .from("barber_breaks")
-                            .update({ start_time: minutesToTime(slotEnd) })
-                            .eq("id", slotClosedInfo.breakId);
-                          if (error) throw error;
-                        } else if (breakStart < slotStart && breakEnd === slotEnd) {
-                          // Shrink from end: move end_time to slotStart
-                          const { error } = await (supabase as any)
-                            .from("barber_breaks")
-                            .update({ end_time: minutesToTime(slotStart) })
-                            .eq("id", slotClosedInfo.breakId);
-                          if (error) throw error;
-                        } else {
-                          // Split into two breaks
-                          const { error: updateErr } = await (supabase as any)
-                            .from("barber_breaks")
-                            .update({ end_time: minutesToTime(slotStart) })
-                            .eq("id", slotClosedInfo.breakId);
-                          if (updateErr) throw updateErr;
-                          const { error: insertErr } = await (supabase as any)
-                            .from("barber_breaks")
-                            .insert({
-                              barber_id: selectedBarberId,
-                              date,
-                              start_time: minutesToTime(slotEnd),
-                              end_time: minutesToTime(breakEnd),
-                            });
-                          if (insertErr) throw insertErr;
-                        }
-                        toast.success("Horário aberto");
-                        setShowCloseOption(false);
-                        await loadSlotsForBarber(selectedBarberId);
-                      } catch {
-                        toast.error("Erro ao abrir horário");
-                      }
-                    }}
-                    className="bg-blue-600 hover:bg-blue-700 px-3 py-2 text-sm rounded-md w-full sm:w-auto"
-                    disabled={slotClosedInfo?.closed !== true}
-                  >
-                    Abrir este horário
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      setShowCloseOption(false);
-                      setStep("client");
-                    }}
-                    className="bg-green-600 hover:bg-green-700 px-3 py-2 text-sm rounded-md w-full sm:w-auto"
-                  >
-                    Seguir atendimento local
+                    Seguir atendimento
                   </Button>
                 </div>
               </div>
@@ -707,6 +960,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
                 {barberSlots.map((slot) => {
                   const state = slotState[slot] || 'available';
                   const isSelected = selectedTimeSlot === slot;
+                  const isBarberSelf = (role === "barbeiro" && selectedBarberId && selectedBarberId === currentUserBarberId);
                   const bg =
                     state === 'break' ? '#8b0000' : // vermelho escuro
                     state === 'booked' ? '#3a3a3a' :
@@ -719,7 +973,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
                     isSelected ? '#FFD700' :
                     state === 'break' ? '#ff4d4d' :
                     'transparent';
-                  const disabled = state !== 'available';
+                  const disabled = state === 'booked' || state === 'past' || (!isBarberSelf && state === 'break');
                   return (
                   <button
                     key={slot}
