@@ -21,6 +21,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { IndividualCommissionManager } from '@/components/IndividualCommissionManager';
 import BarberAdvancesManager from '@/components/admin/BarberAdvancesManager';
 import ReportsManager from '@/components/admin/ReportsManager';
+import { useBarberCommissions } from '@/hooks/useBarberCommissions';
+import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 
 interface Appointment {
   id: string;
@@ -30,6 +32,8 @@ interface Appointment {
   status: string;
   created_at: string;
   payment_method?: string;
+  barber_id: string;
+  service_id: string;
   service: { price: number; title: string } | null;
   barber: { name: string } | null;
   appointment_payments?: { amount: number; payment_method: string }[];
@@ -81,14 +85,32 @@ const FinancialDashboard = () => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
   const [activeTab, setActiveTab] = useState<'overview' | 'commissions' | 'advances' | 'reports'>('overview');
   const [showFilters, setShowFilters] = useState(false);
+  const [recentTab, setRecentTab] = useState<'appointments' | 'products'>('appointments');
   
   const isManager = role === 'admin' || role === 'gestor';
+
+  const { 
+    calculateCommission: calculateIndividualCommission,
+    loadAllCommissions: loadAllIndividualCommissions,
+  } = useBarberCommissions(null);
+
+  const {
+    calculateServiceCommission: calculateFixedServiceCommission,
+    loadAllCommissions: loadAllFixedCommissions,
+  } = useBarberFixedCommissions(null);
 
   useEffect(() => {
     loadBarbers();
     loadServices();
     loadProducts();
   }, []);
+
+  useEffect(() => {
+    if (isManager) {
+      loadAllIndividualCommissions();
+      loadAllFixedCommissions();
+    }
+  }, [isManager, loadAllIndividualCommissions, loadAllFixedCommissions]);
 
   useEffect(() => {
     loadAppointments();
@@ -237,6 +259,7 @@ const FinancialDashboard = () => {
         barber:barbers(name),
         product:products(name)
       `)
+      .eq('status', 'confirmed')
       .gte('sale_date', format(start, 'yyyy-MM-dd'))
       .lte('sale_date', format(end, 'yyyy-MM-dd'));
 
@@ -263,14 +286,37 @@ const FinancialDashboard = () => {
     return paymentsTotal > 0 ? paymentsTotal : ((apt.service as any)?.price || 0);
   };
 
+  const getServiceCommissionValue = (apt: Appointment): number => {
+    if (!apt.service || !apt.service_id || !apt.barber_id) return 0;
+    const paymentsTotal = apt.appointment_payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+    const servicePrice = paymentsTotal > 0 ? paymentsTotal : (apt.service.price || 0);
+    const individual = calculateIndividualCommission(apt.barber_id, apt.service_id, servicePrice);
+    if (individual > 0) return individual;
+    return calculateFixedServiceCommission(apt.barber_id, servicePrice);
+  };
+
   // Calculate stats
-  const totalRevenue = appointments
-    .filter(apt => apt.status === 'completed' || apt.status === 'confirmed')
-    .reduce((sum, apt) => sum + getAppointmentRevenue(apt), 0);
+  const completedAndConfirmed = appointments.filter(
+    apt => apt.status === 'completed' || apt.status === 'confirmed'
+  );
+
+  const totalRevenue = completedAndConfirmed.reduce(
+    (sum, apt) => sum + getAppointmentRevenue(apt),
+    0
+  );
+
+  const totalServiceCommission = completedAndConfirmed.reduce(
+    (sum, apt) => sum + getServiceCommissionValue(apt),
+    0
+  );
   
   const totalProductRevenue = productSales.reduce((sum, sale) => sum + sale.total_price, 0);
   const totalProductCommission = productSales.reduce((sum, sale) => sum + sale.commission_value, 0);
   const totalRevenueWithProducts = totalRevenue + totalProductRevenue;
+  const totalCommission = totalServiceCommission + totalProductCommission;
+  const serviceTicketBase = completedAndConfirmed.length;
+  const averageServiceTicket =
+    serviceTicketBase > 0 ? totalRevenue / serviceTicketBase : 0;
   
   const totalAppointments = appointments.length;
   const completedCount = appointments.filter(apt => apt.status === 'completed').length;
@@ -606,71 +652,23 @@ const FinancialDashboard = () => {
       </Card>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <Card className="bg-card border-border">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Receita ({getPeriodLabel()})</CardTitle>
-            <DollarSign className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary">
-              R$ {totalRevenueWithProducts.toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {confirmedCount + completedCount} serviços + {productSales.length} produtos
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card border-border">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Agendamentos</CardTitle>
-            <Calendar className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary">{totalAppointments}</div>
-            <p className="text-xs text-muted-foreground">
-              {localCount} local • {onlineCount} online{manualCount > 0 && ` • ${manualCount} manual`}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card border-border">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Taxa de Conclusão</CardTitle>
-            <TrendingUp className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary">
-              {totalAppointments > 0 
-                ? Math.round(((confirmedCount + completedCount) / totalAppointments) * 100) 
-                : 0}%
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {cancelledCount} cancelamentos
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-card border-border">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ticket Médio</CardTitle>
-            <Users className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary">
-              R$ {(confirmedCount + completedCount + productSales.length) > 0 
-                ? (totalRevenueWithProducts / (confirmedCount + completedCount + productSales.length)).toFixed(2) 
-                : '0.00'}
-            </div>
-            <p className="text-xs text-muted-foreground">por atendimento/produto</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Product Stats Cards */}
-      {productSales.length > 0 && (
+      <div className="space-y-3 sm:space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Receita do Período ({getPeriodLabel()})</CardTitle>
+              <DollarSign className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">
+                R$ {totalRevenueWithProducts.toFixed(2)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {confirmedCount + completedCount} serviços + {productSales.length} produtos
+              </p>
+            </CardContent>
+          </Card>
+
           <Card className="bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Receita de Produtos</CardTitle>
@@ -688,7 +686,39 @@ const FinancialDashboard = () => {
 
           <Card className="bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Comissões de Produtos</CardTitle>
+              <CardTitle className="text-sm font-medium">Receita de Serviços</CardTitle>
+              <DollarSign className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">
+                R$ {totalRevenue.toFixed(2)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Apenas serviços concluídos/confirmados
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Comissão do Período</CardTitle>
+              <TrendingUp className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">
+                R$ {totalCommission.toFixed(2)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Serviços e produtos no período
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Comissão de Produtos</CardTitle>
               <TrendingUp className="h-4 w-4 text-primary" />
             </CardHeader>
             <CardContent>
@@ -696,7 +726,55 @@ const FinancialDashboard = () => {
                 R$ {totalProductCommission.toFixed(2)}
               </div>
               <p className="text-xs text-muted-foreground">
-                Total de comissões pagas
+                Comissões de produtos vendidos no período
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Comissão de Serviços</CardTitle>
+              <TrendingUp className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">
+                R$ {totalServiceCommission.toFixed(2)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Total de comissões de serviços no período
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Agendamentos</CardTitle>
+              <Calendar className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">{totalAppointments}</div>
+              <p className="text-xs text-muted-foreground">
+                {localCount} local • {onlineCount} online{manualCount > 0 && ` • ${manualCount} manual`}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Taxa de Conclusão</CardTitle>
+              <TrendingUp className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">
+                {totalAppointments > 0
+                  ? Math.round(((confirmedCount + completedCount) / totalAppointments) * 100)
+                  : 0}
+                %
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {cancelledCount} cancelamentos
               </p>
             </CardContent>
           </Card>
@@ -708,15 +786,28 @@ const FinancialDashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-primary">
-                R$ {productSales.length > 0 
-                  ? (totalProductRevenue / productSales.length).toFixed(2) 
+                R$ {productSales.length > 0
+                  ? (totalProductRevenue / productSales.length).toFixed(2)
                   : '0.00'}
               </div>
               <p className="text-xs text-muted-foreground">por venda</p>
             </CardContent>
           </Card>
+
+          <Card className="bg-card border-border">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Ticket Médio Serviços</CardTitle>
+              <Users className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">
+                R$ {averageServiceTicket.toFixed(2)}
+              </div>
+              <p className="text-xs text-muted-foreground">por atendimento de serviço</p>
+            </CardContent>
+          </Card>
         </div>
-      )}
+      </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
@@ -896,97 +987,177 @@ const FinancialDashboard = () => {
         )}
       </div>
 
-      {/* Recent appointments table */}
+      {/* Recent records table */}
       <Card className="bg-card border-border">
         <CardHeader>
-          <CardTitle>Últimos Agendamentos</CardTitle>
+          <CardTitle>Registros Recentes</CardTitle>
         </CardHeader>
         <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6">
           <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '600px' }}>
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-3 px-2">Data</th>
-                    <th className="text-left py-3 px-2">Horário</th>
-                    <th className="text-left py-3 px-2">Serviço</th>
-                    <th className="text-left py-3 px-2">Barbeiro</th>
-                    <th className="text-left py-3 px-2">Tipo</th>
-                    <th className="text-left py-3 px-2">Pagamento</th>
-                    <th className="text-left py-3 px-2">Status</th>
-                    <th className="text-right py-3 px-2">Valor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {appointments.slice(0, 10).map((apt) => (
-                    <tr key={apt.id} className="border-b border-border/50 hover:bg-muted/50">
-                      <td className="py-3 px-2">
-                        {format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM/yyyy')}
-                      </td>
-                      <td className="py-3 px-2">{apt.appointment_time}</td>
-                      <td className="py-3 px-2">{(apt.service as any)?.title || '-'}</td>
-                      <td className="py-3 px-2">{(apt.barber as any)?.name || '-'}</td>
-                      <td className="py-3 px-2">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        apt.booking_type === 'local' 
-                          ? 'bg-primary/20 text-primary' 
-                          : apt.booking_type === 'manual'
-                          ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
-                          : 'bg-blue-500/20 text-blue-400'
-                      }`} title={apt.booking_type === 'manual' ? 'Agendamento criado manualmente pelo barbeiro (retroativo)' : ''}>
-                        {apt.booking_type === 'local' ? 'Local' : apt.booking_type === 'manual' ? '📝 Manual' : 'Online'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-2">
-                      {apt.appointment_payments && apt.appointment_payments.length > 0 ? (
-                        <div className="flex flex-col gap-1">
-                          {apt.appointment_payments.map((p, idx) => (
-                            <span key={idx} className="text-xs text-muted-foreground whitespace-nowrap">
-                              {p.payment_method === 'pix' ? 'Pix' : 
-                               p.payment_method === 'cartao' ? 'Cartão' : 
-                               p.payment_method === 'dinheiro' ? 'Dinheiro' : 'Outro'}: R$ {Number(p.amount).toFixed(2)}
+            <Tabs value={recentTab} onValueChange={(v) => setRecentTab(v as 'appointments' | 'products')} className="w-full">
+              <TabsList className="mb-4">
+                <TabsTrigger value="appointments" className="text-xs sm:text-sm">Agendamentos</TabsTrigger>
+                <TabsTrigger value="products" className="text-xs sm:text-sm">Produtos</TabsTrigger>
+              </TabsList>
+              <TabsContent value="appointments">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '600px' }}>
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-3 px-2">Data</th>
+                        <th className="text-left py-3 px-2">Horário</th>
+                        <th className="text-left py-3 px-2">Serviço</th>
+                        <th className="text-left py-3 px-2">Barbeiro</th>
+                        <th className="text-left py-3 px-2">Tipo</th>
+                        <th className="text-left py-3 px-2">Pagamento</th>
+                        <th className="text-left py-3 px-2">Status</th>
+                        <th className="text-right py-3 px-2">Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {appointments.slice(0, 10).map((apt) => (
+                        <tr key={apt.id} className="border-b border-border/50 hover:bg-muted/50">
+                          <td className="py-3 px-2">
+                            {format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM/yyyy')}
+                          </td>
+                          <td className="py-3 px-2">{apt.appointment_time}</td>
+                          <td className="py-3 px-2">{(apt.service as any)?.title || '-'}</td>
+                          <td className="py-3 px-2">{(apt.barber as any)?.name || '-'}</td>
+                          <td className="py-3 px-2">
+                            <span
+                              className={`px-2 py-1 rounded text-xs font-medium ${
+                                apt.booking_type === 'local'
+                                  ? 'bg-primary/20 text-primary'
+                                  : apt.booking_type === 'manual'
+                                  ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
+                                  : 'bg-blue-500/20 text-blue-400'
+                              }`}
+                              title={
+                                apt.booking_type === 'manual'
+                                  ? 'Agendamento criado manualmente pelo barbeiro (retroativo)'
+                                  : ''
+                              }
+                            >
+                              {apt.booking_type === 'local'
+                                ? 'Local'
+                                : apt.booking_type === 'manual'
+                                ? '📝 Manual'
+                                : 'Online'}
                             </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">
-                          {apt.payment_method ? (
-                            <>
-                              {apt.payment_method === 'pix' ? 'Pix' : 
-                               apt.payment_method === 'cartao' ? 'Cartão' : 
-                               apt.payment_method === 'dinheiro' ? 'Dinheiro' : apt.payment_method}
-                            </>
-                          ) : '-'}
-                        </span>
+                          </td>
+                          <td className="py-3 px-2">
+                            {apt.appointment_payments && apt.appointment_payments.length > 0 ? (
+                              <div className="flex flex-col gap-1">
+                                {apt.appointment_payments.map((p, idx) => (
+                                  <span key={idx} className="text-xs text-muted-foreground whitespace-nowrap">
+                                    {p.payment_method === 'pix'
+                                      ? 'Pix'
+                                      : p.payment_method === 'cartao'
+                                      ? 'Cartão'
+                                      : p.payment_method === 'dinheiro'
+                                      ? 'Dinheiro'
+                                      : 'Outro'}
+                                    : R$ {Number(p.amount).toFixed(2)}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                {apt.payment_method ? (
+                                  <>
+                                    {apt.payment_method === 'pix'
+                                      ? 'Pix'
+                                      : apt.payment_method === 'cartao'
+                                      ? 'Cartão'
+                                      : apt.payment_method === 'dinheiro'
+                                      ? 'Dinheiro'
+                                      : apt.payment_method}
+                                  </>
+                                ) : (
+                                  '-'
+                                )}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-2">
+                            <span
+                              className={`px-2 py-1 rounded text-xs font-medium ${
+                                apt.status === 'confirmed'
+                                  ? 'bg-green-500/20 text-green-400'
+                                  : apt.status === 'completed'
+                                  ? 'bg-primary/20 text-primary'
+                                  : apt.status === 'cancelled'
+                                  ? 'bg-red-500/20 text-red-400'
+                                  : 'bg-yellow-500/20 text-yellow-400'
+                              }`}
+                            >
+                              {apt.status === 'confirmed'
+                                ? 'Confirmado'
+                                : apt.status === 'completed'
+                                ? 'Concluído'
+                                : apt.status === 'cancelled'
+                                ? 'Cancelado'
+                                : 'Pendente'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2 text-right font-medium text-primary">
+                            R$ {((apt.service as any)?.price || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                      {appointments.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="py-8 text-center text-muted-foreground">
+                            Nenhum agendamento encontrado
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td className="py-3 px-2">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          apt.status === 'confirmed' ? 'bg-green-500/20 text-green-400' :
-                          apt.status === 'completed' ? 'bg-primary/20 text-primary' :
-                          apt.status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
-                          'bg-yellow-500/20 text-yellow-400'
-                        }`}>
-                          {apt.status === 'confirmed' ? 'Confirmado' :
-                           apt.status === 'completed' ? 'Concluído' :
-                           apt.status === 'cancelled' ? 'Cancelado' : 'Pendente'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2 text-right font-medium text-primary">
-                        R$ {((apt.service as any)?.price || 0).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                  {appointments.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="py-8 text-center text-muted-foreground">
-                        Nenhum agendamento encontrado
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </tbody>
+                  </table>
+                </div>
+              </TabsContent>
+              <TabsContent value="products">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '600px' }}>
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-3 px-2">Data</th>
+                        <th className="text-left py-3 px-2">Hora</th>
+                        <th className="text-left py-3 px-2">Produto</th>
+                        <th className="text-left py-3 px-2">Barbeiro</th>
+                        <th className="text-right py-3 px-2">Total</th>
+                        <th className="text-right py-3 px-2">Comissão</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productSales.slice(0, 10).map((sale) => (
+                        <tr key={sale.id} className="border-b border-border/50 hover:bg-muted/50">
+                          <td className="py-3 px-2">
+                            {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy')}
+                          </td>
+                          <td className="py-3 px-2">{sale.sale_time}</td>
+                          <td className="py-3 px-2">{(sale.product as any)?.name || '-'}</td>
+                          <td className="py-3 px-2">{(sale.barber as any)?.name || '-'}</td>
+                          <td className="py-3 px-2 text-right">
+                            R$ {Number(sale.total_price || 0).toFixed(2)}
+                          </td>
+                          <td className="py-3 px-2 text-right">
+                            R$ {Number(sale.commission_value || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                      {productSales.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                            Nenhuma venda de produto encontrada
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
         </CardContent>
       </Card>
