@@ -119,19 +119,145 @@ const AdminDashboard = () => {
     }
   }, [user, role, loading, navigate]);
 
+  const normalizeServiceOrder = async () => {
+    const { data, error } = await (supabase as any)
+      .from('services')
+      .select('id, title, description, price, icon, visible, image_url, duration, order_index')
+      .order('order_index', { ascending: true, nullsLast: true });
+    if (error || !data) {
+      console.error('Error loading services for normalize:', error);
+      return;
+    }
+
+    const sorted = [...data].sort((a: any, b: any) => {
+      const ao = typeof a.order_index === 'number' ? a.order_index : 9999;
+      const bo = typeof b.order_index === 'number' ? b.order_index : 9999;
+      if (ao !== bo) return ao - bo;
+      return String(a.id).localeCompare(String(b.id));
+    });
+
+    for (let index = 0; index < sorted.length; index++) {
+      const s = sorted[index];
+      const newIndex = index + 1;
+      if (s.order_index === newIndex) continue;
+      const { error: updateError } = await (supabase as any)
+        .from('services')
+        .update({
+          title: s.title,
+          description: s.description,
+          price: s.price,
+          icon: s.icon,
+          visible: s.visible,
+          image_url: s.image_url,
+          duration: s.duration,
+          order_index: newIndex,
+        })
+        .eq('id', s.id);
+      if (updateError) {
+        console.error('Error normalizing service order:', updateError);
+        break;
+      }
+    }
+  };
+
+  const normalizeProductOrder = async () => {
+    const { data, error } = await (supabase as any)
+      .from('products')
+      .select('id, name, description, price, category, stock, visible, image_url, order_index')
+      .order('order_index', { ascending: true, nullsLast: true });
+    if (error || !data) {
+      console.error('Error loading products for normalize:', error);
+      return;
+    }
+
+    const sorted = [...data].sort((a: any, b: any) => {
+      const ao = typeof a.order_index === 'number' ? a.order_index : 9999;
+      const bo = typeof b.order_index === 'number' ? b.order_index : 9999;
+      if (ao !== bo) return ao - bo;
+      return String(a.id).localeCompare(String(b.id));
+    });
+
+    for (let index = 0; index < sorted.length; index++) {
+      const p = sorted[index];
+      const newIndex = index + 1;
+      if (p.order_index === newIndex) continue;
+      const { error: updateError } = await (supabase as any)
+        .from('products')
+        .update({
+          name: p.name,
+          description: p.description,
+          price: p.price,
+          category: p.category,
+          stock: p.stock,
+          visible: p.visible,
+          image_url: p.image_url,
+          order_index: newIndex,
+        })
+        .eq('id', p.id);
+      if (updateError) {
+        console.error('Error normalizing product order:', updateError);
+        break;
+      }
+    }
+  };
+
   const loadData = async () => {
-    const { data: servicesData } = await (supabase as any)
+    let { data: servicesData } = await (supabase as any)
       .from('services')
       .select('*')
       .order('order_index');
 
-    const { data: productsData } = await (supabase as any)
+    let { data: productsData } = await (supabase as any)
       .from('products')
       .select('*')
       .order('order_index');
 
+    if (servicesData && servicesData.length > 0) {
+      const seenServices = new Set<number>();
+      let servicesHaveIssues = false;
+      for (const s of servicesData) {
+        if (s.order_index == null || seenServices.has(s.order_index)) {
+          servicesHaveIssues = true;
+          break;
+        }
+        seenServices.add(s.order_index);
+      }
+      if (servicesHaveIssues) {
+        await normalizeServiceOrder();
+        const refreshed = await (supabase as any)
+          .from('services')
+          .select('*')
+          .order('order_index');
+        if (!refreshed.error && refreshed.data) {
+          servicesData = refreshed.data;
+        }
+      }
+    }
+
+    if (productsData && productsData.length > 0) {
+      const seen = new Set<number>();
+      let hasIssues = false;
+      for (const p of productsData) {
+        if (p.order_index == null || seen.has(p.order_index)) {
+          hasIssues = true;
+          break;
+        }
+        seen.add(p.order_index);
+      }
+      if (hasIssues) {
+        await normalizeProductOrder();
+        const refreshed = await (supabase as any)
+          .from('products')
+          .select('*')
+          .order('order_index');
+        if (!refreshed.error && refreshed.data) {
+          productsData = refreshed.data;
+        }
+      }
+    }
+
     if (servicesData) setServices(servicesData);
-    if (productsData) setProducts(productsData);
+    if (productsData) setProducts(productsData || []);
   };
 
   const handleImageUpload = async (file: File, path: string) => {
@@ -158,43 +284,116 @@ const AdminDashboard = () => {
     }
   };
 
+  const reorderServices = async (movedServiceId: string, desiredIndex: number | null) => {
+    const { data, error } = await (supabase as any)
+      .from('services')
+      .select('id, title, description, price, icon, visible, image_url, duration, order_index')
+      .order('order_index', { ascending: true, nullsLast: true });
+    if (error || !data) {
+      console.error('Error loading services for reorder:', error);
+      return;
+    }
+
+    const total = data.length;
+    const targetIndex = desiredIndex && desiredIndex > 0 ? desiredIndex : total;
+    const moved = data.find((s: any) => s.id === movedServiceId);
+    if (!moved) return;
+    const others = data.filter((s: any) => s.id !== movedServiceId);
+    const sortedOthers = others.sort((a: any, b: any) => {
+      const ao = typeof a.order_index === 'number' ? a.order_index : 9999;
+      const bo = typeof b.order_index === 'number' ? b.order_index : 9999;
+      if (ao !== bo) return ao - bo;
+      return String(a.id).localeCompare(String(b.id));
+    });
+
+    const newList = [...sortedOthers];
+    const idx = Math.max(0, Math.min(targetIndex - 1, newList.length));
+    newList.splice(idx, 0, moved);
+
+    for (let index = 0; index < newList.length; index++) {
+      const s = newList[index];
+      const newIndex = index + 1;
+      if (s.order_index === newIndex) continue;
+      const { error: updateError } = await (supabase as any)
+        .from('services')
+        .update({
+          title: s.title,
+          description: s.description,
+          price: s.price,
+          icon: s.icon,
+          visible: s.visible,
+          image_url: s.image_url,
+          duration: s.duration,
+          order_index: newIndex,
+        })
+        .eq('id', s.id);
+      if (updateError) {
+        console.error('Error reordering services:', updateError);
+        break;
+      }
+    }
+  };
 
   const handleSaveService = async () => {
     if (!editingService) return;
 
-    const { error } = editingService.id 
-      ? await (supabase as any)
-          .from('services')
-          .update({
-            title: editingService.title,
-            description: editingService.description,
-            price: editingService.price,
-            icon: editingService.icon,
-            visible: editingService.visible,
-            image_url: editingService.image_url,
-            duration: editingService.duration || 30,
-          })
-          .eq('id', editingService.id)
-      : await (supabase as any)
-          .from('services')
-          .insert([{
-            title: editingService.title,
-            description: editingService.description,
-            price: editingService.price,
-            icon: editingService.icon,
-            visible: editingService.visible,
-            image_url: editingService.image_url,
-            duration: editingService.duration || 30,
-            order_index: services.length,
-          }]);
+    const parsedOrderIndex =
+      typeof editingService.order_index === 'number'
+        ? editingService.order_index
+        : editingService.order_index
+        ? parseInt(editingService.order_index, 10)
+        : null;
+
+    let error = null as any;
+    let movedServiceId: string | null = null;
+
+    if (editingService.id) {
+      movedServiceId = editingService.id;
+      const result = await (supabase as any)
+        .from('services')
+        .update({
+          title: editingService.title,
+          description: editingService.description,
+          price: editingService.price,
+          icon: editingService.icon,
+          visible: editingService.visible,
+          image_url: editingService.image_url,
+          duration: editingService.duration || 30,
+          order_index: parsedOrderIndex,
+        })
+        .eq('id', editingService.id);
+      error = result.error;
+    } else {
+      const result = await (supabase as any)
+        .from('services')
+        .insert([{
+          title: editingService.title,
+          description: editingService.description,
+          price: editingService.price,
+          icon: editingService.icon,
+          visible: editingService.visible,
+          image_url: editingService.image_url,
+          duration: editingService.duration || 30,
+          order_index: parsedOrderIndex ?? services.length + 1,
+        }])
+        .select('id')
+        .maybeSingle();
+      error = result.error;
+      movedServiceId = result.data?.id ?? null;
+    }
 
     if (error) {
       toast.error('Erro ao salvar serviço');
-    } else {
-      toast.success('Serviço salvo com sucesso!');
-      setEditingService(null);
-      loadData();
+      return;
     }
+
+    if (movedServiceId) {
+      await reorderServices(movedServiceId, parsedOrderIndex);
+    }
+
+    toast.success('Serviço salvo com sucesso!');
+    setEditingService(null);
+    loadData();
   };
 
   const handleDeleteService = async (id: string) => {
@@ -223,42 +422,114 @@ const AdminDashboard = () => {
     }
   };
 
+  const reorderProducts = async (movedProductId: string, desiredIndex: number | null) => {
+    const { data, error } = await (supabase as any)
+      .from('products')
+      .select('id, name, description, price, category, stock, visible, image_url, order_index')
+      .order('order_index', { ascending: true, nullsLast: true });
+    if (error || !data) {
+      console.error('Error loading products for reorder:', error);
+      return;
+    }
+    const total = data.length;
+    const targetIndex = desiredIndex && desiredIndex > 0 ? desiredIndex : total;
+    const moved = data.find((p: any) => p.id === movedProductId);
+    if (!moved) return;
+    const others = data.filter((p: any) => p.id !== movedProductId);
+    const sortedOthers = others.sort((a: any, b: any) => {
+      const ao = typeof a.order_index === 'number' ? a.order_index : 9999;
+      const bo = typeof b.order_index === 'number' ? b.order_index : 9999;
+      if (ao !== bo) return ao - bo;
+      return String(a.id).localeCompare(String(b.id));
+    });
+    const newList = [...sortedOthers];
+    const idx = Math.max(0, Math.min(targetIndex - 1, newList.length));
+    newList.splice(idx, 0, moved);
+
+    for (let index = 0; index < newList.length; index++) {
+      const p = newList[index];
+      const newIndex = index + 1;
+      if (p.order_index === newIndex) continue;
+      const { error: updateError } = await (supabase as any)
+        .from('products')
+        .update({
+          name: p.name,
+          description: p.description,
+          price: p.price,
+          category: p.category,
+          stock: p.stock,
+          visible: p.visible,
+          image_url: p.image_url,
+          order_index: newIndex,
+        })
+        .eq('id', p.id);
+      if (updateError) {
+        console.error('Error reordering products:', updateError);
+        break;
+      }
+    }
+  };
+
   const handleSaveProduct = async () => {
     if (!editingProduct) return;
 
-    const { error } = editingProduct.id
-      ? await (supabase as any)
-          .from('products')
-          .update({
-            name: editingProduct.name,
-            description: editingProduct.description,
-            price: editingProduct.price,
-            category: editingProduct.category,
-            stock: editingProduct.stock,
-            visible: editingProduct.visible,
-            image_url: editingProduct.image_url,
-          })
-          .eq('id', editingProduct.id)
-      : await (supabase as any)
-          .from('products')
-          .insert([{
-            name: editingProduct.name,
-            description: editingProduct.description,
-            price: editingProduct.price,
-            category: editingProduct.category,
-            stock: editingProduct.stock,
-            visible: editingProduct.visible,
-            image_url: editingProduct.image_url,
-            order_index: products.length,
-          }]);
+    const parsedOrderIndex =
+      typeof editingProduct.order_index === 'number'
+        ? editingProduct.order_index
+        : editingProduct.order_index
+        ? parseInt(editingProduct.order_index, 10)
+        : null;
+
+    let error = null as any;
+    let movedProductId: string | null = null;
+
+    if (editingProduct.id) {
+      movedProductId = editingProduct.id;
+      const result = await (supabase as any)
+        .from('products')
+        .update({
+          name: editingProduct.name,
+          description: editingProduct.description,
+          price: editingProduct.price,
+          category: editingProduct.category,
+          stock: editingProduct.stock,
+          visible: editingProduct.visible,
+          image_url: editingProduct.image_url,
+          order_index: parsedOrderIndex,
+        })
+        .eq('id', editingProduct.id);
+      error = result.error;
+    } else {
+      const result = await (supabase as any)
+        .from('products')
+        .insert([{
+          name: editingProduct.name,
+          description: editingProduct.description,
+          price: editingProduct.price,
+          category: editingProduct.category,
+          stock: editingProduct.stock,
+          visible: editingProduct.visible,
+          image_url: editingProduct.image_url,
+          order_index: parsedOrderIndex ?? products.length,
+        }])
+        .select('id')
+        .maybeSingle();
+      error = result.error;
+      movedProductId = result.data?.id ?? null;
+    }
 
     if (error) {
       toast.error('Erro ao salvar produto');
-    } else {
-      toast.success('Produto salvo com sucesso!');
-      setEditingProduct(null);
-      loadData();
+      return;
     }
+
+    if (movedProductId) {
+      await reorderProducts(movedProductId, parsedOrderIndex);
+    }
+
+    toast.success('Produto salvo com sucesso!');
+    setEditingProduct(null);
+    loadData();
   };
 
   const handleDeleteProduct = async (id: string) => {
@@ -351,6 +622,21 @@ const AdminDashboard = () => {
                         />
                       </div>
                       <div>
+                        <Label>Ordem no Site</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={editingService.order_index ?? ''}
+                          onChange={(e) =>
+                            setEditingService({
+                              ...editingService,
+                              order_index: e.target.value === '' ? null : parseInt(e.target.value, 10),
+                            })
+                          }
+                          placeholder="1, 2, 3..."
+                        />
+                      </div>
+                      <div>
                         <Label>Ícone (lucide-react)</Label>
                         <Input
                           value={editingService.icon}
@@ -417,7 +703,7 @@ const AdminDashboard = () => {
                             </Badge>
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Duração: {service.duration || 30}min
+                            Duração: {service.duration || 30}min • Ordem: {service.order_index ?? '-'}
                           </p>
                         </div>
                         <div className="flex gap-2 pt-2 border-t border-border">
@@ -462,6 +748,21 @@ const AdminDashboard = () => {
                         step="0.01"
                         value={editingService.price}
                         onChange={(e) => setEditingService({ ...editingService, price: parseFloat(e.target.value) })}
+                      />
+                    </div>
+                    <div>
+                      <Label>Ordem no Site</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={editingService.order_index ?? ''}
+                        onChange={(e) =>
+                          setEditingService({
+                            ...editingService,
+                            order_index: e.target.value === '' ? null : parseInt(e.target.value, 10),
+                          })
+                        }
+                        placeholder="1, 2, 3..."
                       />
                     </div>
                     <div>
@@ -519,7 +820,7 @@ const AdminDashboard = () => {
                     <Button 
                       variant="ghost" 
                       className="w-full h-full flex flex-col gap-2"
-                      onClick={() => setEditingService({ title: '', description: '', price: 0, icon: 'Scissors', visible: true, image_url: '', duration: 30 })}
+                      onClick={() => setEditingService({ title: '', description: '', price: 0, icon: 'Scissors', visible: true, image_url: '', duration: 30, order_index: services.length + 1 })}
                     >
                       <Plus className="h-8 w-8 text-muted-foreground" />
                       <span className="text-muted-foreground">Novo Serviço</span>
@@ -582,6 +883,21 @@ const AdminDashboard = () => {
                         />
                       </div>
                       <div>
+                        <Label>Ordem no Shop</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={editingProduct.order_index ?? ''}
+                          onChange={(e) =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              order_index: e.target.value === '' ? null : parseInt(e.target.value, 10),
+                            })
+                          }
+                          placeholder="1, 2, 3..."
+                        />
+                      </div>
+                      <div>
                         <Label>Imagem do Produto</Label>
                         <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
                           <Input
@@ -630,6 +946,8 @@ const AdminDashboard = () => {
                             <span>{product.category}</span>
                             <span>•</span>
                             <span>Estoque: {product.stock}</span>
+                            <span>•</span>
+                            <span>Ordem: {product.order_index ?? '-'}</span>
                           </div>
                         </div>
                         <div className="flex gap-2 pt-2 border-t border-border">
@@ -692,6 +1010,21 @@ const AdminDashboard = () => {
                         value={editingProduct.category}
                         onChange={(e) => setEditingProduct({ ...editingProduct, category: e.target.value })}
                         placeholder="Styling, Ferramentas, Barba, Cuidados"
+                      />
+                    </div>
+                    <div>
+                      <Label>Ordem no Shop</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={editingProduct.order_index ?? products.length + 1}
+                        onChange={(e) =>
+                          setEditingProduct({
+                            ...editingProduct,
+                            order_index: e.target.value === '' ? null : parseInt(e.target.value, 10),
+                          })
+                        }
+                        placeholder="1, 2, 3..."
                       />
                     </div>
                     <div>

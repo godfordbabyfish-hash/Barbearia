@@ -8,42 +8,48 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { Palette, MapPin } from 'lucide-react';
 
+const defaultThemeColors = {
+  primary: '45 100% 60%',
+  primary_foreground: '0 0% 5%',
+  secondary: '0 0% 12%',
+  background: '0 0% 5%',
+  foreground: '0 0% 98%',
+  sectionTitlePrimary: '0 0% 98%',
+  sectionTitleAccent: '45 100% 60%',
+};
+
+const defaultHeroSection = {
+  title: '',
+  subtitle: '',
+  description: '',
+};
+
+const defaultFooterInfo = {
+  address: '',
+  maps_link: '',
+  phone: '',
+  email: '',
+  hours: '',
+  hoursWeekday: '9h-20h',
+  hoursSaturday: '9h-18h',
+  social: {
+    instagram: '',
+    facebook: '',
+    whatsapp: '',
+    google_reviews: '',
+  },
+  wifi: {
+    username: '',
+    password: '',
+  },
+};
+
 const SiteConfigEditor = () => {
-  const [themeColors, setThemeColors] = useState({
-    primary: '45 100% 60%',
-    primary_foreground: '0 0% 5%',
-    secondary: '0 0% 12%',
-    background: '0 0% 5%',
-    foreground: '0 0% 98%',
-    sectionTitlePrimary: '0 0% 98%',
-    sectionTitleAccent: '45 100% 60%',
-  });
+  const [themeColors, setThemeColors] = useState(defaultThemeColors);
 
-  const [heroSection, setHeroSection] = useState({
-    title: '',
-    subtitle: '',
-    description: '',
-  });
+  const [heroSection, setHeroSection] = useState(defaultHeroSection);
 
-  const [footerInfo, setFooterInfo] = useState({
-    address: '',
-    maps_link: '',
-    phone: '',
-    email: '',
-    hours: '',
-    hoursWeekday: '9h-20h',
-    hoursSaturday: '9h-18h',
-    social: {
-      instagram: '',
-      facebook: '',
-      whatsapp: '',
-      google_reviews: '',
-    },
-    wifi: {
-      username: '',
-      password: '',
-    },
-  });
+  const [footerInfo, setFooterInfo] = useState(defaultFooterInfo);
 
   useEffect(() => {
     loadConfigs();
@@ -57,7 +63,12 @@ const SiteConfigEditor = () => {
       .eq('config_key', 'theme_colors')
       .single();
 
-    if (themeData) setThemeColors(themeData.config_value);
+    if (themeData) {
+      setThemeColors({
+        ...defaultThemeColors,
+        ...(themeData.config_value || {}),
+      });
+    }
 
     // Load hero section
     const { data: heroData } = await (supabase as any)
@@ -67,8 +78,11 @@ const SiteConfigEditor = () => {
       .single();
 
     if (heroData) {
-      const { image_url, ...heroContent } = heroData.config_value;
-      setHeroSection(heroContent);
+      const { image_url, ...heroContent } = heroData.config_value || {};
+      setHeroSection({
+        ...defaultHeroSection,
+        ...(heroContent || {}),
+      });
     }
 
     // Load footer info
@@ -79,18 +93,17 @@ const SiteConfigEditor = () => {
       .single();
 
     if (footerData) {
-      const config = footerData.config_value;
+      const config = footerData.config_value || {};
       setFooterInfo({
+        ...defaultFooterInfo,
         ...config,
         social: {
-          instagram: config.social?.instagram || '',
-          facebook: config.social?.facebook || '',
-          whatsapp: config.social?.whatsapp || '',
-          google_reviews: config.social?.google_reviews || '',
+          ...defaultFooterInfo.social,
+          ...(config.social || {}),
         },
         wifi: {
-          username: config.wifi?.username || '',
-          password: config.wifi?.password || '',
+          ...defaultFooterInfo.wifi,
+          ...(config.wifi || {}),
         },
       });
     }
@@ -178,7 +191,7 @@ const SiteConfigEditor = () => {
               <div>
                 <Label className="text-sm">Cor Primária (HSL)</Label>
                 <Input
-                  value={themeColors.primary}
+                  value={themeColors.primary ?? ''}
                   onChange={(e) => setThemeColors({ ...themeColors, primary: e.target.value })}
                   placeholder="45 100% 60%"
                   className="w-full"
@@ -191,7 +204,7 @@ const SiteConfigEditor = () => {
               <div>
                 <Label className="text-sm">Cor Secundária (HSL)</Label>
                 <Input
-                  value={themeColors.secondary}
+                  value={themeColors.secondary ?? ''}
                   onChange={(e) => setThemeColors({ ...themeColors, secondary: e.target.value })}
                   placeholder="0 0% 12%"
                   className="w-full"
@@ -204,7 +217,7 @@ const SiteConfigEditor = () => {
               <div>
                 <Label className="text-sm">Cor de Fundo (HSL)</Label>
                 <Input
-                  value={themeColors.background}
+                  value={themeColors.background ?? ''}
                   onChange={(e) => setThemeColors({ ...themeColors, background: e.target.value })}
                   placeholder="0 0% 5%"
                   className="w-full"
@@ -217,7 +230,7 @@ const SiteConfigEditor = () => {
               <div>
                 <Label className="text-sm">Cor de Texto (HSL)</Label>
                 <Input
-                  value={themeColors.foreground}
+                  value={themeColors.foreground ?? ''}
                   onChange={(e) => setThemeColors({ ...themeColors, foreground: e.target.value })}
                   placeholder="0 0% 98%"
                   className="w-full"
@@ -230,7 +243,7 @@ const SiteConfigEditor = () => {
               <div>
                 <Label className="text-sm">Cor Principal dos Títulos (HSL)</Label>
                 <Input
-                  value={themeColors.sectionTitlePrimary}
+                  value={themeColors.sectionTitlePrimary ?? ''}
                   onChange={(e) => setThemeColors({ ...themeColors, sectionTitlePrimary: e.target.value })}
                   placeholder="0 0% 98%"
                   className="w-full"
@@ -243,7 +256,7 @@ const SiteConfigEditor = () => {
               <div>
                 <Label className="text-sm">Cor de Destaque dos Títulos (HSL)</Label>
                 <Input
-                  value={themeColors.sectionTitleAccent}
+                  value={themeColors.sectionTitleAccent ?? ''}
                   onChange={(e) => setThemeColors({ ...themeColors, sectionTitleAccent: e.target.value })}
                   placeholder="45 100% 60%"
                   className="w-full"
@@ -272,7 +285,7 @@ const SiteConfigEditor = () => {
             <div>
               <Label className="text-sm">Título Principal</Label>
               <Input
-                value={heroSection.title}
+                value={heroSection.title ?? ''}
                 onChange={(e) => setHeroSection({ ...heroSection, title: e.target.value })}
                 placeholder="Estilo & Elegância"
                 className="w-full"
@@ -281,7 +294,7 @@ const SiteConfigEditor = () => {
             <div>
               <Label className="text-sm">Subtítulo</Label>
               <Input
-                value={heroSection.subtitle}
+                value={heroSection.subtitle ?? ''}
                 onChange={(e) => setHeroSection({ ...heroSection, subtitle: e.target.value })}
                 placeholder="Tradição em cada corte"
                 className="w-full"
@@ -290,7 +303,7 @@ const SiteConfigEditor = () => {
             <div>
               <Label className="text-sm">Descrição</Label>
               <Textarea
-                value={heroSection.description}
+                value={heroSection.description ?? ''}
                 onChange={(e) => setHeroSection({ ...heroSection, description: e.target.value })}
                 placeholder="Descrição completa..."
                 rows={3}

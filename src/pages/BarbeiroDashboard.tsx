@@ -89,6 +89,8 @@ const BarbeiroDashboard = () => {
   const [historyFilterPayment, setHistoryFilterPayment] = useState<'all' | 'pix' | 'dinheiro'>('all');
   const [activeTab, setActiveTab] = useState<'agendamentos' | 'vendas' | 'horarios' | 'financeiro' | 'historico'>('agendamentos');
   const [showHistoryFilters, setShowHistoryFilters] = useState(false);
+  const [photoModalOpen, setPhotoModalOpen] = useState(false);
+  const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
   
   // Product sale dialog
   const [productSaleDialogOpen, setProductSaleDialogOpen] = useState(false);
@@ -1523,7 +1525,7 @@ const BarbeiroDashboard = () => {
       setAppointmentToComplete(null);
       setPhotoFile(null);
       setPhotoPreview(null);
-      setPaymentMethod('');
+      setCurrentPaymentMethod('pix');
       setPayments([]);
       setCurrentPaymentAmount('');
       loadAppointments();
@@ -1608,7 +1610,7 @@ const BarbeiroDashboard = () => {
       setAppointmentToComplete(null);
       setPhotoFile(null);
       setPhotoPreview(null);
-      setPaymentMethod('');
+      setCurrentPaymentMethod('pix');
       setPayments([]);
       setCurrentPaymentAmount('');
       loadAppointments();
@@ -2815,11 +2817,20 @@ const BarbeiroDashboard = () => {
                                 </div>
                                 {appointment.photo_url && (
                                   <div className="mt-3">
-                                    <img 
-                                      src={appointment.photo_url} 
-                                      alt="Foto do corte" 
-                                      className="w-full max-w-xs h-40 object-cover rounded-lg border border-border"
-                                    />
+                                    <button
+                                      type="button"
+                                      className="w-full max-w-xs h-40 rounded-lg border border-border overflow-hidden focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+                                      onClick={() => {
+                                        setPhotoModalUrl(appointment.photo_url as string);
+                                        setPhotoModalOpen(true);
+                                      }}
+                                    >
+                                      <img 
+                                        src={appointment.photo_url} 
+                                        alt="Foto do corte" 
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </button>
                                   </div>
                                 )}
                               </div>
@@ -2842,6 +2853,26 @@ const BarbeiroDashboard = () => {
           </>
         )}
 
+
+        <Dialog 
+          open={photoModalOpen} 
+          onOpenChange={(open) => {
+            setPhotoModalOpen(open);
+            if (!open) {
+              setPhotoModalUrl(null);
+            }
+          }}
+        >
+          <DialogContent className="max-w-3xl">
+            {photoModalUrl && (
+              <img 
+                src={photoModalUrl} 
+                alt="Foto do corte" 
+                className="w-full max-h-[80vh] object-contain rounded-lg"
+              />
+            )}
+          </DialogContent>
+        </Dialog>
 
         {/* Dialog de ação ao clicar no agendamento (Concluir ou Cancelar) */}
         <Dialog 
@@ -2924,10 +2955,11 @@ const BarbeiroDashboard = () => {
           onOpenChange={(open) => {
             setCompleteDialogOpen(open);
             if (!open) {
-              // Limpar estados quando fechar o dialog
-              setPaymentMethod('');
+              setCurrentPaymentMethod('pix');
               setPhotoFile(null);
               setPhotoPreview(null);
+              setPayments([]);
+              setCurrentPaymentAmount('');
             }
           }}
         >
