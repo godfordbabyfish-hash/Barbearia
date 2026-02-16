@@ -107,11 +107,7 @@ const BarbeiroDashboard = () => {
     try {
       setCameraError(null);
       const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
+        video: { facingMode: 'environment' },
         audio: false
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
