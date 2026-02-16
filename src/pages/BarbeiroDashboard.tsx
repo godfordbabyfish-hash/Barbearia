@@ -97,105 +97,7 @@ const BarbeiroDashboard = () => {
   const [productQuantity, setProductQuantity] = useState<number>(1);
   const [savingProductSale, setSavingProductSale] = useState(false);
 
-  // Camera states/refs
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-
-  const startCamera = async () => {
-    try {
-      setCameraError(null);
-      const constraints: MediaStreamConstraints = {
-        video: { facingMode: 'environment' },
-        audio: false
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setCameraActive(true);
-    } catch (err: any) {
-      console.error('Erro ao acessar a câmera:', err);
-      setCameraError('Permita o acesso à câmera para concluir o atendimento.');
-      setCameraActive(false);
-    }
-  };
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
-    setCameraActive(false);
-  };
-
-  const takePhoto = async () => {
-    const video = videoRef.current;
-    if (!video) return;
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, width, height);
-
-    let text = '';
-    const aptId = appointmentToComplete;
-    if (aptId) {
-      const apt = appointments.find(a => a.id === aptId);
-      if (apt?.appointment_date && apt?.appointment_time) {
-        const timeStr = (apt.appointment_time || '').slice(0, 5);
-        const dt = new Date(`${apt.appointment_date}T${timeStr || '00:00'}:00`);
-        text = dt.toLocaleString('pt-BR');
-      }
-    }
-    if (!text) {
-      text = new Date().toLocaleString('pt-BR');
-    }
-
-    const padding = 12;
-    const margin = 16;
-    const fontSize = Math.max(Math.round(width * 0.025), 18);
-    ctx.font = `${fontSize}px sans-serif`;
-    ctx.textBaseline = 'bottom';
-    const textWidth = ctx.measureText(text).width;
-    const rectHeight = fontSize + padding;
-    const rectWidth = textWidth + padding * 2;
-    const rectX = margin - 8;
-    const rectY = height - rectHeight - margin / 2;
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(text, rectX + padding, height - margin);
-
-    return new Promise<void>((resolve) => {
-      canvas.toBlob((blob) => {
-        if (!blob) return resolve();
-        const file = new File([blob], 'captured.jpg', { type: 'image/jpeg' });
-        setPhotoFile(file);
-        const preview = URL.createObjectURL(blob);
-        setPhotoPreview(preview);
-        stopCamera();
-        resolve();
-      }, 'image/jpeg', 0.9);
-    });
-  };
-
-  useEffect(() => {
-    if (!completeDialogOpen) {
-      stopCamera();
-      setCameraError(null);
-      setPhotoFile(null);
-      setPhotoPreview(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [completeDialogOpen]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   
   // Estado para prevenir submissões simultâneas de agendamentos
   const [creatingAppointment, setCreatingAppointment] = useState(false);
@@ -1470,12 +1372,69 @@ const BarbeiroDashboard = () => {
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setPhotoFile(file);
-      const preview = URL.createObjectURL(file);
-      setPhotoPreview(preview);
-    }
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let width = image.width;
+      let height = image.height;
+      const maxSize = 1600;
+      const scale = Math.min(maxSize / width, maxSize / height, 1);
+      width = width * scale;
+      height = height * scale;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(image, 0, 0, width, height);
+
+      let text = '';
+      if (appointmentToComplete) {
+        const apt = appointments.find(a => a.id === appointmentToComplete);
+        if (apt?.appointment_date && apt?.appointment_time) {
+          const timeStr = (apt.appointment_time || '').slice(0, 5);
+          const dt = new Date(`${apt.appointment_date}T${timeStr || '00:00'}:00`);
+          text = dt.toLocaleString('pt-BR');
+        }
+      }
+      if (!text) {
+        text = new Date().toLocaleString('pt-BR');
+      }
+
+      const padding = 12;
+      const margin = 16;
+      const fontSize = Math.max(Math.round(width * 0.025), 18);
+      ctx.font = `${fontSize}px sans-serif`;
+      ctx.textBaseline = 'bottom';
+      const textWidth = ctx.measureText(text).width;
+      const rectHeight = fontSize + padding;
+      const rectWidth = textWidth + padding * 2;
+      const rectX = margin - 8;
+      const rectY = height - rectHeight - margin / 2;
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(text, rectX + padding, height - margin);
+
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const finalFile = new File([blob], 'captured.jpg', { type: 'image/jpeg' });
+        setPhotoFile(finalFile);
+        const preview = URL.createObjectURL(blob);
+        setPhotoPreview(preview);
+      }, 'image/jpeg', 0.9);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      toast.error('Não foi possível ler a foto');
+    };
+    image.src = objectUrl;
   };
 
   const handleCompleteWithPhoto = async () => {
@@ -2988,74 +2947,50 @@ const BarbeiroDashboard = () => {
                 Tire uma foto do corte realizado para concluir o atendimento.
               </p>
               
-              {photoPreview ? (
-                <div className="relative">
-                  <img 
-                    src={photoPreview} 
-                    alt="Preview" 
-                    className="w-full h-64 object-cover rounded-lg border border-border"
-                  />
-                  <div className="absolute top-2 right-2 flex gap-2">
-                    <button
-                      onClick={() => {
-                        setPhotoFile(null);
-                        setPhotoPreview(null);
-                        startCamera();
-                      }}
-                      className="p-2 bg-secondary text-secondary-foreground rounded-full hover:bg-secondary/90"
-                      title="Refazer"
-                    >
-                      <Camera className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setPhotoFile(null);
-                        setPhotoPreview(null);
-                      }}
-                      className="p-2 bg-destructive text-destructive-foreground rounded-full hover:bg-destructive/90"
-                      title="Remover"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="relative w-full h-64 border-2 border-dashed border-border rounded-lg overflow-hidden flex items-center justify-center bg-black">
-                  {cameraError ? (
-                    <div className="flex flex-col items-center justify-center text-center p-4 text-muted-foreground gap-3">
-                      <p>{cameraError}</p>
-                      <Button onClick={startCamera} variant="outline" className="gap-2">
+              <div className="w-full h-64 border-2 border-dashed border-border rounded-lg overflow-hidden flex items-center justify-center bg-black relative">
+                {photoPreview ? (
+                  <>
+                    <img 
+                      src={photoPreview} 
+                      alt="Preview" 
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute bottom-3 left-0 right-0 flex justify-center">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="gap-2"
+                        onClick={() => {
+                          setPhotoFile(null);
+                          setPhotoPreview(null);
+                          fileInputRef.current?.click();
+                        }}
+                      >
                         <Camera className="w-4 h-4" />
-                        Tentar novamente
+                        Tirar outra foto
                       </Button>
                     </div>
-                  ) : !cameraActive ? (
-                    <div className="flex flex-col items-center justify-center text-center p-4 text-muted-foreground gap-3">
-                      <p>Para concluir, ative a câmera do aparelho.</p>
-                      <Button onClick={startCamera} className="gap-2">
-                        <Camera className="w-4 h-4" />
-                        Ativar câmera
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      <video
-                        ref={videoRef}
-                        className="w-full h-full object-cover"
-                        playsInline
-                        autoPlay
-                        muted
-                      />
-                      <div className="absolute bottom-3 left-0 right-0 flex justify-center">
-                        <Button onClick={takePhoto} className="bg-primary hover:bg-primary/90 gap-2">
-                          <Camera className="w-4 h-4" />
-                          Tirar foto
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="flex flex-col items-center justify-center text-center p-4 text-muted-foreground gap-3"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Camera className="w-12 h-12 text-muted-foreground mb-2" />
+                    <span className="font-semibold text-sm text-foreground">Tirar foto</span>
+                    <span className="text-xs text-muted-foreground">A câmera do aparelho será aberta</span>
+                  </button>
+                )}
+                <input 
+                  ref={fileInputRef}
+                  type="file" 
+                  className="hidden" 
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handlePhotoChange}
+                />
+              </div>
 
               {/* Campo de forma de pagamento */}
               <div className="space-y-4">
