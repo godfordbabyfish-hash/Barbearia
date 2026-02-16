@@ -29,6 +29,7 @@ import SiteConfigEditor from '@/components/admin/SiteConfigEditor';
 import ImageManager from '@/components/admin/ImageManager';
 import OperatingHoursEditor from '@/components/admin/OperatingHoursEditor';
 import { UserManager } from '@/components/admin/UserManager';
+import { uploadPublicImage } from '@/utils/storage';
 import { WhatsAppManager } from '@/components/admin/WhatsAppManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
@@ -136,24 +137,9 @@ const AdminDashboard = () => {
   const handleImageUpload = async (file: File, path: string) => {
     setUploading(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${path}/${Date.now()}.${fileExt}`;
-      
-      const { error: uploadError, data } = await supabase.storage
-        .from('site-images')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('site-images')
-        .getPublicUrl(fileName);
-
+      const url = await uploadPublicImage(file, { bucket: 'site-images', category: path });
       setUploading(false);
-      return publicUrl;
+      return url;
     } catch (error: any) {
       setUploading(false);
       toast.error('Erro ao fazer upload: ' + error.message);

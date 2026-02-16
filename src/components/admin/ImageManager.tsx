@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Upload, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { uploadPublicImage } from '@/utils/storage';
 
 interface ImageItem {
   id: string;
@@ -115,21 +116,7 @@ const ImageManager = () => {
   const handleImageUpload = async (imageItem: ImageItem, file: File) => {
     setUploading(imageItem.id);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${imageItem.category}/${Date.now()}.${fileExt}`;
-      
-      const { error: uploadError } = await supabase.storage
-        .from('site-images')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('site-images')
-        .getPublicUrl(fileName);
+      const publicUrl = await uploadPublicImage(file, { bucket: 'site-images', category: imageItem.category });
 
       // Update database based on category
       if (imageItem.category === 'hero') {

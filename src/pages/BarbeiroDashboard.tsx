@@ -62,7 +62,6 @@ const BarbeiroDashboard = () => {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<'pix' | 'dinheiro' | ''>('');
   const [payments, setPayments] = useState<{method: string, amount: number}[]>([]);
   const [currentPaymentAmount, setCurrentPaymentAmount] = useState<string>('');
   const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('pix');
@@ -97,6 +96,110 @@ const BarbeiroDashboard = () => {
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [productQuantity, setProductQuantity] = useState<number>(1);
   const [savingProductSale, setSavingProductSale] = useState(false);
+
+  // Camera states/refs
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+
+  const startCamera = async () => {
+    try {
+      setCameraError(null);
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setCameraActive(true);
+    } catch (err: any) {
+      console.error('Erro ao acessar a câmera:', err);
+      setCameraError('Permita o acesso à câmera para concluir o atendimento.');
+      setCameraActive(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+  };
+
+  const takePhoto = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, width, height);
+
+    let text = '';
+    const aptId = appointmentToComplete;
+    if (aptId) {
+      const apt = appointments.find(a => a.id === aptId);
+      if (apt?.appointment_date && apt?.appointment_time) {
+        const timeStr = (apt.appointment_time || '').slice(0, 5);
+        const dt = new Date(`${apt.appointment_date}T${timeStr || '00:00'}:00`);
+        text = dt.toLocaleString('pt-BR');
+      }
+    }
+    if (!text) {
+      text = new Date().toLocaleString('pt-BR');
+    }
+
+    const padding = 12;
+    const margin = 16;
+    const fontSize = Math.max(Math.round(width * 0.025), 18);
+    ctx.font = `${fontSize}px sans-serif`;
+    ctx.textBaseline = 'bottom';
+    const textWidth = ctx.measureText(text).width;
+    const rectHeight = fontSize + padding;
+    const rectWidth = textWidth + padding * 2;
+    const rectX = margin - 8;
+    const rectY = height - rectHeight - margin / 2;
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(rectX, rectY, rectWidth, rectHeight);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, rectX + padding, height - margin);
+
+    return new Promise<void>((resolve) => {
+      canvas.toBlob((blob) => {
+        if (!blob) return resolve();
+        const file = new File([blob], 'captured.jpg', { type: 'image/jpeg' });
+        setPhotoFile(file);
+        const preview = URL.createObjectURL(blob);
+        setPhotoPreview(preview);
+        stopCamera();
+        resolve();
+      }, 'image/jpeg', 0.9);
+    });
+  };
+
+  useEffect(() => {
+    if (!completeDialogOpen) {
+      stopCamera();
+      setCameraError(null);
+      setPhotoFile(null);
+      setPhotoPreview(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completeDialogOpen]);
   
   // Estado para prevenir submissões simultâneas de agendamentos
   const [creatingAppointment, setCreatingAppointment] = useState(false);
@@ -1340,6 +1443,36 @@ const BarbeiroDashboard = () => {
     return payments.reduce((acc, curr) => acc + curr.amount, 0);
   };
 
+  const buildFinalPaymentsForAppointment = (appointmentId: string | null) => {
+    if (!appointmentId) return null;
+    let finalPayments = [...payments];
+    const appointment = appointments.find(a => a.id === appointmentId);
+    const servicePrice = appointment?.service?.price || 0;
+
+    if (finalPayments.length === 0) {
+      const fromInput = parseFloat(currentPaymentAmount || '');
+      if (!isNaN(fromInput) && fromInput > 0) {
+        finalPayments.push({ method: currentPaymentMethod, amount: fromInput });
+      } else if (servicePrice > 0) {
+        finalPayments.push({ method: currentPaymentMethod, amount: servicePrice });
+      } else {
+        toast.error('Adicione os pagamentos recebidos');
+        return null;
+      }
+    }
+
+    if (servicePrice > 0) {
+      const totalPaid = finalPayments.reduce((acc, curr) => acc + curr.amount, 0);
+      const diff = Math.abs(totalPaid - servicePrice);
+      if (diff > 0.05) {
+        toast.error(`Valor incorreto! O total pago (R$ ${totalPaid.toFixed(2)}) deve ser igual ao valor do serviço (R$ ${servicePrice.toFixed(2)})`);
+        return null;
+      }
+    }
+
+    return finalPayments;
+  };
+
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -1352,78 +1485,30 @@ const BarbeiroDashboard = () => {
   const handleCompleteWithPhoto = async () => {
     if (!appointmentToComplete) return;
 
-    // Se não houver pagamentos na lista, usar o método simples antigo (se selecionado)
-    // OU exigir que adicione à lista. Vamos unificar: se paymentMethod estiver setado e lista vazia, adicionar auto.
-    // Mas para suportar a nova UI, vamos priorizar a lista `payments`.
-    
-    let finalPayments = [...payments];
-    
-    // Fallback para compatibilidade ou uso simples: se a lista estiver vazia e o usuário selecionou um método único no select antigo (se ainda existir)
-    // Mas vamos mudar a UI para usar apenas a lista.
-    // Se a lista estiver vazia, erro.
-    if (finalPayments.length === 0) {
-        if (paymentMethod) {
-            // Se o usuário usou o select antigo (vamos manter por enquanto ou remover? Melhor remover para não confundir)
-            // Vou assumir que vamos migrar tudo para a lista.
-            // Mas preciso pegar o valor total do serviço.
-            const appointment = appointments.find(a => a.id === appointmentToComplete);
-            const price = appointment?.service?.price || 0;
-            if (price > 0) {
-                finalPayments.push({ method: paymentMethod, amount: price });
-            } else {
-                 toast.error('Adicione pelo menos um pagamento');
-                 return;
-            }
-        } else {
-            toast.error('Adicione os pagamentos recebidos');
-            return;
-        }
+    if (!photoFile) {
+      toast.error('Tire uma foto do cliente para concluir o atendimento');
+      return;
     }
 
-    // Validação estrita: O total pago DEVE ser igual ao valor do serviço
-    const appointmentToCheck = appointments.find(a => a.id === appointmentToComplete);
-    const servicePriceToCheck = appointmentToCheck?.service?.price || 0;
-    
-    // Se o serviço tiver preço > 0, validar o total
-    if (servicePriceToCheck > 0) {
-      const totalPaidCheck = finalPayments.reduce((acc, curr) => acc + curr.amount, 0);
-      const diff = Math.abs(totalPaidCheck - servicePriceToCheck);
-      
-      if (diff > 0.05) { // Tolerância de 5 centavos para erros de float
-        toast.error(`Valor incorreto! O total pago (R$ ${totalPaidCheck.toFixed(2)}) deve ser igual ao valor do serviço (R$ ${servicePriceToCheck.toFixed(2)})`);
-        return;
-      }
-    }
+    const finalPayments = buildFinalPaymentsForAppointment(appointmentToComplete);
+    if (!finalPayments) return;
 
     setUploadingPhoto(true);
     let photoUrl: string | null = null;
 
     try {
-      // Se houver foto, fazer upload
-      if (photoFile) {
-        const fileExt = photoFile.name.split('.').pop();
-        const fileName = `${appointmentToComplete}-${Date.now()}.${fileExt}`;
-        const filePath = `appointment-photos/${fileName}`;
-
-        // Upload para Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('appointment-photos')
-          .upload(filePath, photoFile, {
-            cacheControl: '3600',
-            upsert: false
-          });
-
-        if (uploadError) {
-          console.error('Erro ao fazer upload:', uploadError);
-          toast.error('Erro ao fazer upload da foto. O agendamento será concluído sem foto.');
-        } else {
-          // Obter URL pública da foto
-          const { data: { publicUrl } } = supabase.storage
-            .from('appointment-photos')
-            .getPublicUrl(filePath);
-          
-          photoUrl = publicUrl;
-        }
+      try {
+        const { uploadPublicImage } = await import('@/utils/storage');
+        const url = await uploadPublicImage(photoFile, {
+          bucket: 'appointment-photos',
+          category: 'appointment-photos',
+          prefix: appointmentToComplete || undefined,
+        });
+        photoUrl = url;
+      } catch (e) {
+        console.error('Erro ao fazer upload da foto:', e);
+        toast.error('Erro ao fazer upload da foto. Tente novamente.');
+        throw e;
       }
 
       // 1. Atualizar status do agendamento
@@ -1451,7 +1536,15 @@ const BarbeiroDashboard = () => {
 
       if (updateError) throw updateError;
 
-      // 2. Inserir pagamentos na tabela appointment_payments
+      const { error: deletePaymentsError } = await supabase
+        .from('appointment_payments')
+        .delete()
+        .eq('appointment_id', appointmentToComplete);
+
+      if (deletePaymentsError) {
+        console.error('Error deleting existing payments:', deletePaymentsError);
+      }
+
       const paymentInserts = finalPayments.map(p => ({
           appointment_id: appointmentToComplete,
           payment_method: p.method,
@@ -1509,39 +1602,10 @@ const BarbeiroDashboard = () => {
     
     if (!appointmentToComplete) return;
 
-    let finalPayments = [...payments];
-    
-    if (finalPayments.length === 0) {
-        if (paymentMethod) {
-            const appointment = appointments.find(a => a.id === appointmentToComplete);
-            const price = appointment?.service?.price || 0;
-            if (price > 0) {
-                finalPayments.push({ method: paymentMethod, amount: price });
-            } else {
-                 toast.error('Adicione pelo menos um pagamento');
-                 return;
-            }
-        } else {
-            toast.error('Adicione os pagamentos recebidos');
-            return;
-        }
-    }
+    const finalPayments = buildFinalPaymentsForAppointment(appointmentToComplete);
+    if (!finalPayments) return;
 
-    // Validação estrita: O total pago DEVE ser igual ao valor do serviço
-    const appointmentToCheck = appointments.find(a => a.id === appointmentToComplete);
-    const servicePriceToCheck = appointmentToCheck?.service?.price || 0;
-    
-    // Se o serviço tiver preço > 0, validar o total
-    if (servicePriceToCheck > 0) {
-      const totalPaidCheck = finalPayments.reduce((acc, curr) => acc + curr.amount, 0);
-      const diff = Math.abs(totalPaidCheck - servicePriceToCheck);
-      
-      if (diff > 0.05) { // Tolerância de 5 centavos para erros de float
-        toast.error(`Valor incorreto! O total pago (R$ ${totalPaidCheck.toFixed(2)}) deve ser igual ao valor do serviço (R$ ${servicePriceToCheck.toFixed(2)})`);
-        return;
-      }
-    }
-
+    setUploadingPhoto(true);
     try {
       let mainMethod = finalPayments[0].method;
       if (finalPayments.length > 1) {
@@ -1558,6 +1622,15 @@ const BarbeiroDashboard = () => {
         .eq('id', appointmentToComplete);
 
       if (error) throw error;
+
+      const { error: deletePaymentsError } = await supabase
+        .from('appointment_payments')
+        .delete()
+        .eq('appointment_id', appointmentToComplete);
+
+      if (deletePaymentsError) {
+        console.error('Error deleting existing payments:', deletePaymentsError);
+      }
 
       const paymentInserts = finalPayments.map(p => ({
           appointment_id: appointmentToComplete,
@@ -2916,7 +2989,7 @@ const BarbeiroDashboard = () => {
             </DialogHeader>
             <div className="space-y-4 py-4">
               <p className="text-sm text-muted-foreground">
-                Deseja adicionar uma foto do corte realizado? (Opcional)
+                Tire uma foto do corte realizado para concluir o atendimento.
               </p>
               
               {photoPreview ? (
@@ -2926,32 +2999,66 @@ const BarbeiroDashboard = () => {
                     alt="Preview" 
                     className="w-full h-64 object-cover rounded-lg border border-border"
                   />
-                  <button
-                    onClick={() => {
-                      setPhotoFile(null);
-                      setPhotoPreview(null);
-                    }}
-                    className="absolute top-2 right-2 p-2 bg-destructive text-destructive-foreground rounded-full hover:bg-destructive/90"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  <div className="absolute top-2 right-2 flex gap-2">
+                    <button
+                      onClick={() => {
+                        setPhotoFile(null);
+                        setPhotoPreview(null);
+                        startCamera();
+                      }}
+                      className="p-2 bg-secondary text-secondary-foreground rounded-full hover:bg-secondary/90"
+                      title="Refazer"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPhotoFile(null);
+                        setPhotoPreview(null);
+                      }}
+                      className="p-2 bg-destructive text-destructive-foreground rounded-full hover:bg-destructive/90"
+                      title="Remover"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-border rounded-lg cursor-pointer hover:border-primary transition-colors">
-                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <Camera className="w-12 h-12 text-muted-foreground mb-4" />
-                    <p className="mb-2 text-sm text-muted-foreground">
-                      <span className="font-semibold">Clique para adicionar foto</span> ou arraste aqui
-                    </p>
-                    <p className="text-xs text-muted-foreground">PNG, JPG até 5MB</p>
-                  </div>
-                  <input 
-                    type="file" 
-                    className="hidden" 
-                    accept="image/*"
-                    onChange={handlePhotoChange}
-                  />
-                </label>
+                <div className="relative w-full h-64 border-2 border-dashed border-border rounded-lg overflow-hidden flex items-center justify-center bg-black">
+                  {cameraError ? (
+                    <div className="flex flex-col items-center justify-center text-center p-4 text-muted-foreground gap-3">
+                      <p>{cameraError}</p>
+                      <Button onClick={startCamera} variant="outline" className="gap-2">
+                        <Camera className="w-4 h-4" />
+                        Tentar novamente
+                      </Button>
+                    </div>
+                  ) : !cameraActive ? (
+                    <div className="flex flex-col items-center justify-center text-center p-4 text-muted-foreground gap-3">
+                      <p>Para concluir, ative a câmera do aparelho.</p>
+                      <Button onClick={startCamera} className="gap-2">
+                        <Camera className="w-4 h-4" />
+                        Ativar câmera
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <video
+                        ref={videoRef}
+                        className="w-full h-full object-cover"
+                        playsInline
+                        autoPlay
+                        muted
+                      />
+                      <div className="absolute bottom-3 left-0 right-0 flex justify-center">
+                        <Button onClick={takePhoto} className="bg-primary hover:bg-primary/90 gap-2">
+                          <Camera className="w-4 h-4" />
+                          Tirar foto
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
 
               {/* Campo de forma de pagamento */}
@@ -3046,14 +3153,6 @@ const BarbeiroDashboard = () => {
               </div>
 
               <div className="flex gap-2 pt-4">
-                <Button
-                  onClick={handleCompleteWithoutPhoto}
-                  variant="outline"
-                  className="flex-1"
-                  disabled={uploadingPhoto}
-                >
-                  Concluir sem Foto
-                </Button>
                 <Button
                   onClick={handleCompleteWithPhoto}
                   className="flex-1 bg-green-600 hover:bg-green-700"

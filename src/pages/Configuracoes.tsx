@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Camera, Loader2, Save, Phone } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { uploadPublicImage } from "@/utils/storage";
 
 const Configuracoes = () => {
   const navigate = useNavigate();
@@ -103,21 +104,28 @@ const Configuracoes = () => {
 
     setUploadingPhoto(true);
     try {
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-      const filePath = `${user.id}/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("avatars")
-        .upload(filePath, file, { cacheControl: "3600", upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
-      const publicUrl = data.publicUrl;
+      const publicUrl = await uploadPublicImage(file, {
+        bucket: "avatars",
+        category: "avatars",
+        prefix: user.id,
+      });
 
       setFormData((prev) => ({ ...prev, photo_url: publicUrl }));
 
+      // Persistir imediatamente no perfil
+      await supabase
+        .from("profiles")
+        .upsert(
+          {
+            id: user.id,
+            name: (formData.name || "").trim() || (user?.user_metadata as any)?.name || user.email?.split("@")[0] || "Usuário",
+            phone: (formData.phone || "").trim() || null,
+            photo_url: publicUrl,
+          },
+          { onConflict: "id" }
+        );
+
+      // Se for barbeiro, atualizar também a tabela barbers
       if (role === "barbeiro" && barberId) {
         await supabase.from("barbers").update({ image_url: publicUrl }).eq("id", barberId);
       }
