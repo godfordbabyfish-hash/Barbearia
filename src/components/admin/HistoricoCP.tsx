@@ -38,6 +38,7 @@ interface Appointment {
   client?: { name: string; phone?: string } | null;
   payment_method?: string;
   appointment_payments?: { amount: number; payment_method?: string }[];
+  photo_url?: string | null;
 }
 
 const HistoricoCP = () => {
@@ -58,7 +59,7 @@ const HistoricoCP = () => {
   const [filterBarber, setFilterBarber] = useState<string>('all');
   const [filterService, setFilterService] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [filterType, setFilterType] = useState<'all' | 'local' | 'online'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
 
   // Form de edição
   const [editForm, setEditForm] = useState({
@@ -125,12 +126,11 @@ const HistoricoCP = () => {
           barber_id,
           service_id,
           payment_method,
+          photo_url,
           service:services(title, price),
           barber:barbers(name),
           appointment_payments(amount, payment_method)
-        `)
-        // Filtrar apenas agendamentos locais e online (excluir manuais)
-        .in('booking_type', ['local', 'online']);
+        `);
 
       // Aplicar filtros
       if (filterDateFrom) {
@@ -296,7 +296,7 @@ const HistoricoCP = () => {
         <CardHeader className="p-3 sm:p-4 md:p-6">
           <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
             <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-            <span className="hidden sm:inline">Histórico CP - Agendamentos Locais/Online</span>
+            <span className="hidden sm:inline">Histórico CP - Agendamentos</span>
             <span className="sm:hidden">Histórico CP</span>
           </CardTitle>
         </CardHeader>
@@ -378,6 +378,7 @@ const HistoricoCP = () => {
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="local">Local</SelectItem>
                   <SelectItem value="online">Online</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -622,14 +623,14 @@ const HistoricoCP = () => {
             <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
             <AlertDialogDescription>
               Tem certeza que deseja excluir este agendamento? Esta ação não pode ser desfeita.
-              {deletingAppointment && (
-                <div className="mt-2 p-2 bg-destructive/10 rounded text-sm">
-                  <div><strong>Cliente:</strong> {deletingAppointment.client?.name || 'N/A'}</div>
-                  <div><strong>Data:</strong> {format(new Date(deletingAppointment.appointment_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}</div>
-                  <div><strong>Horário:</strong> {deletingAppointment.appointment_time}</div>
-                </div>
-              )}
             </AlertDialogDescription>
+            {deletingAppointment && (
+              <div className="mt-2 p-2 bg-destructive/10 rounded text-sm text-left">
+                <div><strong>Cliente:</strong> {deletingAppointment.client?.name || 'N/A'}</div>
+                <div><strong>Data:</strong> {format(new Date(deletingAppointment.appointment_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}</div>
+                <div><strong>Horário:</strong> {deletingAppointment.appointment_time}</div>
+              </div>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
