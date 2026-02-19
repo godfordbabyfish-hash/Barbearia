@@ -30,6 +30,7 @@ const defaultImages: Record<string, string> = {
 
 const Services = () => {
   const [services, setServices] = useState<Service[]>([]);
+  const [search, setSearch] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -69,6 +70,10 @@ const Services = () => {
     }, 100);
   };
 
+  const filteredServices = services.filter((service) =>
+    service.title.toLowerCase().includes(search.toLowerCase())
+  );
+
   if (services.length === 0) {
     return null;
   }
@@ -76,7 +81,7 @@ const Services = () => {
   return (
     <section id="servicos" className="py-24 px-4 bg-gradient-dark">
       <div className="max-w-7xl mx-auto">
-        <div className="text-center mb-16">
+        <div className="text-center mb-8 md:mb-16">
           <h2 className="text-4xl md:text-5xl font-bold mb-4">
             Nossos <span className="text-primary">Serviços</span>
           </h2>
@@ -85,8 +90,17 @@ const Services = () => {
           </p>
         </div>
 
+        <div className="max-w-md mx-auto mb-8">
+          <Input
+            placeholder="Pesquisar serviço por nome..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-secondary border-border focus-visible:ring-primary"
+          />
+        </div>
+
         <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
-          {services.map((service) => {
+          {filteredServices.map((service) => {
             const Icon = iconMap[service.icon] || Scissors;
             const imageUrl = service.image_url || defaultImages[service.title] || haircutImg;
             
@@ -121,6 +135,11 @@ const Services = () => {
               </Card>
             );
           })}
+          {filteredServices.length === 0 && (
+            <p className="col-span-3 text-center text-sm text-muted-foreground">
+              Nenhum serviço encontrado com esse nome.
+            </p>
+          )}
         </div>
       </div>
     </section>

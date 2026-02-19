@@ -69,6 +69,7 @@ const Booking = () => {
   const [barbershopMapsLink, setBarbershopMapsLink] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [serviceSearch, setServiceSearch] = useState("");
   const [formData, setFormData] = useState({
     name: "",
     phone: "",
@@ -815,8 +816,9 @@ const Booking = () => {
     try {
       const selectedDate = new Date(formData.date + 'T00:00:00');
       
-      // Respeitar disponibilidade diária do barbeiro (dias fechados)
+      // Respeitar disponibilidade diária do barbeiro (dias fechados e almoço)
       const selectedBarber = barbers.find(b => b.id === formData.barber);
+      let lunchBreak: { start_time: string; end_time: string } | null = null;
       if (selectedBarber?.availability) {
         try {
           const availability = typeof selectedBarber.availability === 'string'
@@ -826,6 +828,12 @@ const Booking = () => {
           const dayAvailability = availability?.[dayKey];
           if (dayAvailability?.closed) {
             return [];
+          }
+          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
+            lunchBreak = {
+              start_time: dayAvailability.lunchStart,
+              end_time: dayAvailability.lunchEnd,
+            };
           }
         } catch (err) {
           console.error('Error parsing barber availability (getAvailableSlotsForDate):', err);
@@ -853,8 +861,13 @@ const Booking = () => {
         .eq('barber_id', formData.barber)
         .eq('date', formData.date);
       
-      // Atualizar estado para exibir faixa de pausas
-      setSelectedDateBreaks(breaks || []);
+      const combinedBreaks = [
+        ...(breaks || []),
+        ...(lunchBreak ? [lunchBreak] : []),
+      ];
+
+      // Atualizar estado para exibir faixa de pausas (incluindo almoço recorrente)
+      setSelectedDateBreaks(combinedBreaks);
     
       // Ignore 404/table not found errors (table might not exist)
       if (breaksError && breaksError.code !== 'PGRST116' && breaksError.code !== 'PGRST205' && breaksError.code !== '42P01') {
@@ -869,7 +882,7 @@ const Booking = () => {
         appointment_time: a.appointment_time,
         duration: a.service?.duration,
       })),
-      { filterPastSlots: true, breaks: breaks || [] }
+      { filterPastSlots: true, breaks: combinedBreaks }
     );
     // Ajustar pelos conflitos do serviço selecionado (duração)
     const serviceDuration = getServiceDuration(formData.service, services);
@@ -1155,6 +1168,10 @@ const Booking = () => {
     }
   };
 
+  const filteredServices = services.filter((service) =>
+    service.title.toLowerCase().includes(serviceSearch.toLowerCase())
+  );
+
   return (
     <section id="agendamento" className="py-24 px-4">
       <div className="max-w-7xl mx-auto">
@@ -1197,8 +1214,17 @@ const Booking = () => {
         </div>
 
         {step === "service" ? (
-          <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
-            {services.map((service, index) => (
+          <>
+            <div className="max-w-md mx-auto mb-6">
+              <Input
+                placeholder="Pesquisar serviço por nome..."
+                value={serviceSearch}
+                onChange={(e) => setServiceSearch(e.target.value)}
+                className="bg-secondary border-border focus-visible:ring-primary"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
+            {filteredServices.map((service, index) => (
               <Card 
                 key={index} 
                 className="group bg-card border-border hover:border-primary/50 transition-all duration-300 overflow-hidden hover:shadow-gold cursor-pointer"
@@ -1227,7 +1253,13 @@ const Booking = () => {
                 </CardContent>
               </Card>
             ))}
+            {filteredServices.length === 0 && (
+              <p className="col-span-3 text-center text-sm text-muted-foreground">
+                Nenhum serviço encontrado com esse nome.
+              </p>
+            )}
           </div>
+          </>
         ) : step === "barber" ? (
           <div className="max-w-7xl mx-auto">
             <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">

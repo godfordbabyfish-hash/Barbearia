@@ -517,32 +517,73 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
                   </div>
                   
                   {!barberDayHours.closed && (
-                    <div className="grid grid-cols-2 gap-3 mt-2">
-                      <div>
-                        <Label htmlFor={`open-${dayKey}`} className="text-xs">Horário de Abertura</Label>
-                        <Input
-                          id={`open-${dayKey}`}
-                          type="time"
-                          value={barberDayHours.open}
-                          onChange={(e) => handleAvailabilityChange(dayKey, 'open', e.target.value)}
-                          className="mt-1 h-8 text-xs"
-                        />
+                    <div className="space-y-3 mt-2">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label htmlFor={`open-${dayKey}`} className="text-xs">Horário de Abertura</Label>
+                          <Input
+                            id={`open-${dayKey}`}
+                            type="time"
+                            value={barberDayHours.open}
+                            onChange={(e) => handleAvailabilityChange(dayKey, 'open', e.target.value)}
+                            className="mt-1 h-8 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor={`close-${dayKey}`} className="text-xs">Horário de Fechamento</Label>
+                          <Input
+                            id={`close-${dayKey}`}
+                            type="time"
+                            value={barberDayHours.close}
+                            onChange={(e) => handleAvailabilityChange(dayKey, 'close', e.target.value)}
+                            className="mt-1 h-8 text-xs"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <Label htmlFor={`close-${dayKey}`} className="text-xs">Horário de Fechamento</Label>
-                        <Input
-                          id={`close-${dayKey}`}
-                          type="time"
-                          value={barberDayHours.close}
-                          onChange={(e) => handleAvailabilityChange(dayKey, 'close', e.target.value)}
-                          className="mt-1 h-8 text-xs"
-                        />
+
+                      <div className="pt-2 border-t border-border/40 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            id={`lunch-${dayKey}`}
+                            checked={barberDayHours.hasLunchBreak || false}
+                            onCheckedChange={(checked) =>
+                              handleAvailabilityChange(dayKey, 'hasLunchBreak', checked)
+                            }
+                          />
+                          <Label htmlFor={`lunch-${dayKey}`} className="text-xs cursor-pointer">
+                            Horário de Almoço
+                          </Label>
+                        </div>
+
+                        {barberDayHours.hasLunchBreak && (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <Label htmlFor={`lunchStart-${dayKey}`} className="text-xs">Almoço de</Label>
+                              <Input
+                                id={`lunchStart-${dayKey}`}
+                                type="time"
+                                value={barberDayHours.lunchStart || '12:00'}
+                                onChange={(e) => handleAvailabilityChange(dayKey, 'lunchStart', e.target.value)}
+                                className="mt-1 h-8 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor={`lunchEnd-${dayKey}`} className="text-xs">até</Label>
+                              <Input
+                                id={`lunchEnd-${dayKey}`}
+                                type="time"
+                                value={barberDayHours.lunchEnd || '13:00'}
+                                onChange={(e) => handleAvailabilityChange(dayKey, 'lunchEnd', e.target.value)}
+                                className="mt-1 h-8 text-xs"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="col-span-2">
-                        <p className="text-[11px] text-muted-foreground">
-                          Programação da barbearia: {shopDayHours.open} - {shopDayHours.close}
-                        </p>
-                      </div>
+
+                      <p className="text-[11px] text-muted-foreground">
+                        Programação da barbearia: {shopDayHours.open} - {shopDayHours.close}
+                      </p>
                     </div>
                   )}
                 </div>

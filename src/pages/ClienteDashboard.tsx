@@ -20,6 +20,7 @@ import beardImg from "@/assets/service-beard.jpg";
 import stylingImg from "@/assets/service-styling.jpg";
 import FilaDaBarbearia from '@/pages/FilaDaBarbearia';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Input } from '@/components/ui/input';
 
 const iconMap: Record<string, any> = {
   Scissors,
@@ -49,6 +50,7 @@ const ClienteDashboard = () => {
   const [historyFilterPeriod, setHistoryFilterPeriod] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
   const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'completed' | 'cancelled' | 'confirmed' | 'pending'>('all');
   const [historyFilterService, setHistoryFilterService] = useState<string>('all');
+  const [serviceSearch, setServiceSearch] = useState('');
 
   useEffect(() => {
     if (!user || role !== 'cliente') {
@@ -596,8 +598,22 @@ const ClienteDashboard = () => {
                 <h2 className="text-xl md:text-2xl font-bold mb-4">
                   Nossos <span className="bg-gradient-gold bg-clip-text text-transparent">Serviços</span>
                 </h2>
+
+                <div className="max-w-md mb-4">
+                  <Input
+                    placeholder="Pesquisar serviço por nome..."
+                    value={serviceSearch}
+                    onChange={(e) => setServiceSearch(e.target.value)}
+                    className="bg-secondary border-border focus-visible:ring-primary"
+                  />
+                </div>
+
                 <div className="grid grid-cols-3 gap-2 md:gap-6">
-                  {services.map((service) => {
+                  {services
+                    .filter((service) =>
+                      service.title.toLowerCase().includes(serviceSearch.toLowerCase())
+                    )
+                    .map((service) => {
                     const Icon = iconMap[service.icon] || Scissors;
                     const imageUrl = service.image_url || defaultImages[service.title] || haircutImg;
                     
@@ -633,6 +649,13 @@ const ClienteDashboard = () => {
                       </Card>
                     );
                   })}
+                  {services.filter((service) =>
+                    service.title.toLowerCase().includes(serviceSearch.toLowerCase())
+                  ).length === 0 && (
+                    <p className="col-span-3 text-center text-sm text-muted-foreground">
+                      Nenhum serviço encontrado com esse nome.
+                    </p>
+                  )}
                 </div>
               </div>
             )}

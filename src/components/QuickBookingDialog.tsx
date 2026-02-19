@@ -98,7 +98,8 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         setSlotState({});
         return;
       }
-      // Respeitar disponibilidade diária do barbeiro (dias fechados)
+      // Respeitar disponibilidade diária do barbeiro (dias fechados e almoço)
+      let lunchBreak: { start_time: string; end_time: string } | null = null;
       try {
         const barber = barbers.find(b => b.id === barberId) as any;
         if (barber?.availability) {
@@ -106,10 +107,17 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
             ? JSON.parse(barber.availability)
             : barber.availability;
           const dayKey = getDayKey(dateObj) as any;
-          if (availability?.[dayKey]?.closed) {
+          const dayAvailability = availability?.[dayKey];
+          if (dayAvailability?.closed) {
             setBarberSlots([]);
             setSlotState({});
             return;
+          }
+          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
+            lunchBreak = {
+              start_time: dayAvailability.lunchStart,
+              end_time: dayAvailability.lunchEnd,
+            };
           }
         }
       } catch (e) {
@@ -147,7 +155,11 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         start: a.appointment_time,
         end: addMin(a.appointment_time, a.duration ?? 30)
       }));
-      const breakRanges = (breaks || []).map((b: any) => ({ start: b.start_time, end: b.end_time }));
+      const combinedBreaks = [
+        ...(breaks || []),
+        ...(lunchBreak ? [lunchBreak] : []),
+      ];
+      const breakRanges = combinedBreaks.map((b: any) => ({ start: b.start_time, end: b.end_time }));
       const computeState = (slot: string): 'available'|'break'|'booked'|'past' => {
         if (isToday) {
           const [ch, cm] = [now.getHours(), now.getMinutes()];
