@@ -54,13 +54,14 @@ const Configuracoes = () => {
       const nameFromProfile = profile?.name?.trim() || "";
       const nameFromMeta = (user as any)?.user_metadata?.name?.trim() || "";
       const fallbackName = user.email?.split("@")[0] || "Usuário";
+      const metaPhone = (user as any)?.user_metadata?.whatsapp || (user as any)?.user_metadata?.phone || "";
       const nameLooksLikeCpf =
         nameFromProfile &&
         nameFromProfile.replace(/\D/g, "") === cpfFromProfile;
 
       let name = nameLooksLikeCpf ? (nameFromMeta || fallbackName) : (nameFromProfile || nameFromMeta || fallbackName);
       let photoUrl = profile?.photo_url || null;
-      let phone = profile?.phone || "";
+      let phone = profile?.phone || metaPhone || "";
 
       if (role === "barbeiro") {
         const { data: barber } = await supabase
