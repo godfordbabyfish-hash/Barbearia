@@ -242,6 +242,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             }
           }
         }
+        
+        // Garantir vinculação do WhatsApp ao perfil
+        try {
+          const { data: currentUserRes } = await supabase.auth.getUser();
+          const currentUser = currentUserRes?.user || signUpData.user;
+          const phoneDigits = (whatsapp || '').replace(/\D/g, '');
+          if (currentUser) {
+            await (supabase as any)
+              .from('profiles')
+              .upsert(
+                {
+                  id: currentUser.id,
+                  name: name?.trim() || 'Usuário',
+                  phone: phoneDigits || null,
+                },
+                { onConflict: 'id' }
+              );
+          }
+        } catch (e) {
+          console.warn('Falha ao atualizar telefone no perfil após cadastro:', e);
+        }
       } else if (signUpData.user && signUpData.session) {
         // Se já tiver sessão, salvar CPF também
         if (typeof window !== 'undefined') {
@@ -250,6 +271,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           } catch (e) {
             console.warn('Não foi possível salvar CPF no localStorage:', e);
           }
+        }
+
+        // Garantir vinculação do WhatsApp ao perfil
+        try {
+          const currentUser = signUpData.user;
+          const phoneDigits = (whatsapp || '').replace(/\D/g, '');
+          if (currentUser) {
+            await (supabase as any)
+              .from('profiles')
+              .upsert(
+                {
+                  id: currentUser.id,
+                  name: name?.trim() || 'Usuário',
+                  phone: phoneDigits || null,
+                },
+                { onConflict: 'id' }
+              );
+          }
+        } catch (e) {
+          console.warn('Falha ao atualizar telefone no perfil após cadastro (sessão existente):', e);
         }
       }
 
@@ -290,6 +331,28 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (signInError) {
         return { error: signInError };
+      }
+
+      // Sincronizar telefone do metadata para o perfil, caso ainda não exista
+      try {
+        const { data: userRes } = await supabase.auth.getUser();
+        const u = userRes?.user;
+        const metaPhone = (u as any)?.user_metadata?.whatsapp || (u as any)?.user_metadata?.phone || '';
+        if (u && metaPhone) {
+          const phoneDigits = String(metaPhone).replace(/\D/g, '');
+          await (supabase as any)
+            .from('profiles')
+            .upsert(
+              {
+                id: u.id,
+                name: (u as any)?.user_metadata?.name || u.email?.split('@')[0] || 'Usuário',
+                phone: phoneDigits || null,
+              },
+              { onConflict: 'id' }
+            );
+        }
+      } catch (e) {
+        console.warn('Falha ao sincronizar telefone do metadata para perfil no login:', e);
       }
 
       // Salvar CPF no localStorage para preenchimento automático futuro
