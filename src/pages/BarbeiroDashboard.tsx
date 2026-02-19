@@ -34,7 +34,7 @@ import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { listAdvancesByBarber, approveAdvance, rejectAdvance } from '@/integrations/supabase/barberAdvances';
 import { generateUUID } from '@/utils/uuid';
-import { useOperatingHours } from '@/hooks/useOperatingHours';
+import { useOperatingHours, getDayKey } from '@/hooks/useOperatingHours';
 
 const BarbeiroDashboard = () => {
   const navigate = useNavigate();
@@ -1027,7 +1027,38 @@ const BarbeiroDashboard = () => {
         }
 
         // Verificar pausas
-        if (breaksResult.status === 'fulfilled' && breaksResult.value.data?.length > 0) {
+        let dbBreaks: any[] = [];
+        if (breaksResult.status === 'fulfilled' && breaksResult.value.data) {
+          dbBreaks = breaksResult.value.data;
+        }
+
+        let lunchBreak: { start_time: string; end_time: string } | null = null;
+        try {
+          const barber = barbers.find(b => b.id === barberId) as any;
+          if (barber?.availability) {
+            const availability = typeof barber.availability === 'string'
+              ? JSON.parse(barber.availability)
+              : barber.availability;
+            const selectedDate = new Date(newAppointment.date + 'T00:00:00');
+            const dayKey = getDayKey(selectedDate);
+            const dayAvailability = availability?.[dayKey];
+            if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
+              lunchBreak = {
+                start_time: dayAvailability.lunchStart,
+                end_time: dayAvailability.lunchEnd,
+              };
+            }
+          }
+        } catch (err) {
+          console.warn('Erro ao ler horário de almoço do barbeiro:', err);
+        }
+
+        const combinedBreaks = [
+          ...dbBreaks,
+          ...(lunchBreak ? [lunchBreak] : []),
+        ];
+
+        if (combinedBreaks.length > 0) {
           const serviceDuration = selectedService.duration || 30;
           
           const timeToMinutes = (time: string) => {
@@ -1038,7 +1069,7 @@ const BarbeiroDashboard = () => {
           const slotStartMinutes = timeToMinutes(newAppointment.time);
           const slotEndMinutes = slotStartMinutes + serviceDuration;
 
-          const isInBreak = breaksResult.value.data.some((breakItem: any) => {
+          const isInBreak = combinedBreaks.some((breakItem: any) => {
             const breakStartMinutes = timeToMinutes(breakItem.start_time);
             const breakEndMinutes = timeToMinutes(breakItem.end_time);
             return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;

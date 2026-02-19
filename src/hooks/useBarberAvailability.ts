@@ -5,13 +5,13 @@ import { OperatingHours, DayHours } from '@/hooks/useOperatingHours';
 export interface BarberAvailability extends OperatingHours {}
 
 export const defaultBarberAvailability: BarberAvailability = {
-  monday: { open: '09:00', close: '20:00', closed: false },
-  tuesday: { open: '09:00', close: '20:00', closed: false },
-  wednesday: { open: '09:00', close: '20:00', closed: false },
-  thursday: { open: '09:00', close: '20:00', closed: false },
-  friday: { open: '09:00', close: '20:00', closed: false },
-  saturday: { open: '09:00', close: '18:00', closed: false },
-  sunday: { open: '09:00', close: '18:00', closed: true },
+  monday: { open: '09:00', close: '20:00', closed: false, lunchStart: '12:00', lunchEnd: '13:00', hasLunchBreak: false },
+  tuesday: { open: '09:00', close: '20:00', closed: false, lunchStart: '12:00', lunchEnd: '13:00', hasLunchBreak: false },
+  wednesday: { open: '09:00', close: '20:00', closed: false, lunchStart: '12:00', lunchEnd: '13:00', hasLunchBreak: false },
+  thursday: { open: '09:00', close: '20:00', closed: false, lunchStart: '12:00', lunchEnd: '13:00', hasLunchBreak: false },
+  friday: { open: '09:00', close: '20:00', closed: false, lunchStart: '12:00', lunchEnd: '13:00', hasLunchBreak: false },
+  saturday: { open: '09:00', close: '18:00', closed: false, lunchStart: '12:00', lunchEnd: '13:00', hasLunchBreak: false },
+  sunday: { open: '09:00', close: '18:00', closed: true, lunchStart: '12:00', lunchEnd: '13:00', hasLunchBreak: false },
 };
 
 export const useBarberAvailability = (barberId: string | null) => {
