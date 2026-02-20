@@ -53,6 +53,8 @@ const HistoricoCP = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
   // Filtros
   const [filterDateFrom, setFilterDateFrom] = useState<string>('');
@@ -620,7 +622,7 @@ const HistoricoCP = () => {
           ) : (
             <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '800px' }}>
+                <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '860px' }}>
                   <thead>
                     <tr className="border-b border-border">
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Data</th>
@@ -631,6 +633,7 @@ const HistoricoCP = () => {
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[100px] sm:w-[120px]">Pagamento</th>
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[70px] sm:w-[80px]">Tipo</th>
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Status</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[70px] sm:w-[80px]">Foto</th>
                       <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Ações</th>
                     </tr>
                   </thead>
@@ -697,6 +700,27 @@ const HistoricoCP = () => {
                         </td>
                         <td className="py-2 sm:py-3 px-1 sm:px-2">{getTypeBadge(apt.booking_type)}</td>
                         <td className="py-2 sm:py-3 px-1 sm:px-2">{getStatusBadge(apt.status)}</td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          {apt.photo_url ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setImagePreviewUrl(apt.photo_url || null);
+                                setImageDialogOpen(true);
+                              }}
+                              className="block"
+                              title="Ver foto"
+                            >
+                              <img
+                                src={apt.photo_url}
+                                alt="Foto do atendimento"
+                                className="w-10 h-10 sm:w-12 sm:h-12 rounded-md object-cover border border-border"
+                              />
+                            </button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </td>
                         <td className="py-2 sm:py-3 px-1 sm:px-2">
                           <div className="flex items-center justify-end gap-1">
                             <Button
@@ -837,6 +861,16 @@ const HistoricoCP = () => {
               Salvar
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={imageDialogOpen} onOpenChange={setImageDialogOpen}>
+        <DialogContent className="max-w-[95vw] sm:max-w-3xl p-0 overflow-hidden">
+          <img
+            src={imagePreviewUrl || ''}
+            alt="Foto do atendimento"
+            className="w-full h-full max-h-[85vh] object-contain bg-black"
+          />
         </DialogContent>
       </Dialog>
 
