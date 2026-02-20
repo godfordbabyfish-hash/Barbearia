@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Pencil, Trash2, Loader2, Calendar, Clock, User, Scissors } from 'lucide-react';
+import { Pencil, Trash2, Loader2, Calendar, Clock, User, Scissors, ShoppingBag } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -46,6 +46,7 @@ const HistoricoCP = () => {
   const [loading, setLoading] = useState(false);
   const [barbers, setBarbers] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [deletingAppointment, setDeletingAppointment] = useState<Appointment | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -60,6 +61,16 @@ const HistoricoCP = () => {
   const [filterService, setFilterService] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
+  const [manualDialogOpen, setManualDialogOpen] = useState(false);
+  const [manualType, setManualType] = useState<'service' | 'product'>('service');
+  const [manualBarberId, setManualBarberId] = useState<string>('');
+  const [manualServiceId, setManualServiceId] = useState<string>('');
+  const [manualProductId, setManualProductId] = useState<string>('');
+  const [manualQuantity, setManualQuantity] = useState<number>(1);
+  const [manualClientName, setManualClientName] = useState<string>('');
+  const [manualDate, setManualDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
+  const [manualTime, setManualTime] = useState<string>(() => format(new Date(), 'HH:mm'));
+  const [manualSaving, setManualSaving] = useState(false);
 
   // Form de edição
   const [editForm, setEditForm] = useState({
@@ -74,6 +85,7 @@ const HistoricoCP = () => {
   useEffect(() => {
     loadBarbers();
     loadServices();
+    loadProducts();
   }, []);
 
   useEffect(() => {
@@ -107,6 +119,21 @@ const HistoricoCP = () => {
       toast.error('Erro ao carregar serviços');
     } else {
       setServices(data || []);
+    }
+  };
+
+  const loadProducts = async () => {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, price, stock')
+      .eq('visible', true)
+      .order('name');
+
+    if (error) {
+      console.error('Error loading products:', error);
+      toast.error('Erro ao carregar produtos');
+    } else {
+      setProducts(data || []);
     }
   };
 
@@ -290,6 +317,155 @@ const HistoricoCP = () => {
     );
   };
 
+  const handleOpenManualDialog = (type: 'service' | 'product') => {
+    if (!manualBarberId) {
+      toast.error('Selecione um barbeiro para lançar o registro manual');
+      return;
+    }
+    setManualType(type);
+    setManualDate(format(new Date(), 'yyyy-MM-dd'));
+    setManualTime(format(new Date(), 'HH:mm'));
+    setManualServiceId('');
+    setManualProductId('');
+    setManualQuantity(1);
+    setManualClientName('');
+    setManualDialogOpen(true);
+  };
+
+  const handleSaveManualAppointment = async () => {
+    if (manualType === 'product') {
+      if (!manualBarberId) {
+        toast.error('Selecione um barbeiro');
+        return;
+      }
+      if (!manualProductId) {
+        toast.error('Selecione um produto');
+        return;
+      }
+      if (manualQuantity <= 0) {
+        toast.error('Quantidade deve ser maior que zero');
+        return;
+      }
+
+      setManualSaving(true);
+      try {
+        const product = products.find(p => p.id === manualProductId);
+        if (!product) {
+          toast.error('Produto não encontrado');
+          setManualSaving(false);
+          return;
+        }
+
+        if (product.stock !== null && product.stock < manualQuantity) {
+          toast.error(`Estoque insuficiente. Disponível: ${product.stock}`);
+          setManualSaving(false);
+          return;
+        }
+
+        const unitPrice = product.price;
+        const totalPrice = unitPrice * manualQuantity;
+
+        const { error } = await supabase
+          .from('product_sales')
+          .insert({
+            barber_id: manualBarberId,
+            product_id: manualProductId,
+            quantity: manualQuantity,
+            unit_price: unitPrice,
+            total_price: totalPrice,
+            sale_date: manualDate,
+            sale_time: manualTime,
+            status: 'confirmed',
+            notes: manualClientName.trim() ? `Histórico CP: ${manualClientName.trim()}` : 'Histórico CP: venda manual',
+          });
+
+        if (error) {
+          toast.error(error.message || 'Erro ao lançar venda de produto');
+          setManualSaving(false);
+          return;
+        }
+
+        toast.success('Venda de produto lançada com sucesso!');
+        setManualDialogOpen(false);
+        setManualProductId('');
+        setManualQuantity(1);
+        setManualClientName('');
+        loadProducts();
+      } catch (error: any) {
+        console.error('Error saving manual product sale:', error);
+        toast.error(error.message || 'Erro ao lançar venda de produto');
+      } finally {
+        setManualSaving(false);
+      }
+      return;
+    }
+
+    if (!manualBarberId) {
+      toast.error('Selecione um barbeiro');
+      return;
+    }
+    if (!manualServiceId) {
+      toast.error('Selecione um serviço');
+      return;
+    }
+    setManualSaving(true);
+    try {
+      const service = services.find(s => s.id === manualServiceId);
+      if (!service) {
+        toast.error('Serviço não encontrado');
+        setManualSaving(false);
+        return;
+      }
+
+      const clientName = manualClientName.trim() || 'Cliente Local';
+      const { data: profile, error: profileError } = await (supabase as any)
+        .from('profiles')
+        .insert({
+          name: clientName,
+          is_temp_user: true,
+        })
+        .select('id')
+        .single();
+
+      if (profileError || !profile?.id) {
+        toast.error('Erro ao criar cliente para o lançamento');
+        setManualSaving(false);
+        return;
+      }
+
+      const bookingType = 'manual';
+      const { error: appointmentError } = await (supabase as any)
+        .from('appointments')
+        .insert({
+          client_id: profile.id,
+          barber_id: manualBarberId,
+          service_id: manualServiceId,
+          appointment_date: manualDate,
+          appointment_time: manualTime,
+          status: 'confirmed',
+          booking_type: bookingType,
+          notes: 'Lançamento manual pelo gestor (Histórico CP)',
+        });
+
+      if (appointmentError) {
+        toast.error(appointmentError.message || 'Erro ao lançar serviço manual');
+        setManualSaving(false);
+        return;
+      }
+
+      toast.success('Serviço manual lançado com sucesso!');
+      setManualDialogOpen(false);
+      setManualServiceId('');
+      setManualClientName('');
+      loadAppointments();
+    } catch (error: any) {
+      console.error('Error saving manual appointment:', error);
+      toast.error(error.message || 'Erro ao lançar serviço manual');
+    } finally {
+      setManualSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
@@ -382,6 +558,54 @@ const HistoricoCP = () => {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="mb-4 sm:mb-6">
+            <Card className="bg-card border-primary/40">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm sm:text-base flex items-center justify-between">
+                  <span>Lançamentos manuais para barbeiros</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Barbeiro</Label>
+                    <Select value={manualBarberId} onValueChange={setManualBarberId}>
+                      <SelectTrigger className="h-9 text-xs">
+                        <SelectValue placeholder="Selecione um barbeiro" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {barbers.map((barber) => (
+                          <SelectItem key={barber.id} value={barber.id}>
+                            {barber.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2 sm:justify-end">
+                    <Button
+                      size="sm"
+                      className="flex-1 sm:flex-none"
+                      onClick={() => handleOpenManualDialog('service')}
+                      disabled={!manualBarberId}
+                    >
+                      Registrar serviço manual
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 sm:flex-none"
+                      onClick={() => handleOpenManualDialog('product')}
+                      disabled={!manualBarberId}
+                    >
+                      Registrar venda de produto
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Tabela de agendamentos */}
@@ -611,6 +835,126 @@ const HistoricoCP = () => {
             <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Salvar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={manualDialogOpen} onOpenChange={setManualDialogOpen}>
+        <DialogContent className="max-w-md w-[95vw]">
+          <DialogHeader>
+            <DialogTitle>
+              {manualType === 'service' ? 'Lançar serviço manual' : 'Registrar venda de produto'}
+            </DialogTitle>
+            <DialogDescription>
+              {manualType === 'service'
+                ? 'Cria um agendamento manual vinculado ao barbeiro selecionado.'
+                : 'Registra uma venda de produto vinculada ao barbeiro selecionado.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Barbeiro</Label>
+              <Input
+                value={barbers.find(b => b.id === manualBarberId)?.name || ''}
+                readOnly
+                className="h-9 text-sm"
+              />
+            </div>
+            {manualType === 'service' ? (
+              <>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Serviço</Label>
+                  <Select value={manualServiceId} onValueChange={setManualServiceId}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Selecione um serviço" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {services.map((service) => (
+                        <SelectItem key={service.id} value={service.id}>
+                          {service.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Nome do cliente (opcional)</Label>
+                  <Input
+                    value={manualClientName}
+                    onChange={(e) => setManualClientName(e.target.value)}
+                    placeholder="Ex: Cliente local"
+                    className="h-9 text-sm"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Produto</Label>
+                  <Select value={manualProductId} onValueChange={setManualProductId}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Selecione um produto" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {products.map((product) => (
+                        <SelectItem key={product.id} value={product.id}>
+                          {product.name} - R$ {Number(product.price).toFixed(2)}
+                          {product.stock !== null && ` (Estoque: ${product.stock})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Quantidade</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={manualQuantity}
+                    onChange={(e) => setManualQuantity(Number(e.target.value) || 1)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1 block">Observação (opcional)</Label>
+                  <Input
+                    value={manualClientName}
+                    onChange={(e) => setManualClientName(e.target.value)}
+                    placeholder="Ex: Cliente local ou detalhes da venda"
+                    className="h-9 text-sm"
+                  />
+                </div>
+              </>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Data</Label>
+                <Input
+                  type="date"
+                  value={manualDate}
+                  onChange={(e) => setManualDate(e.target.value)}
+                  className="h-9 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Hora</Label>
+                <Input
+                  type="time"
+                  value={manualTime}
+                  onChange={(e) => setManualTime(e.target.value)}
+                  className="h-9 text-sm"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setManualDialogOpen(false)} disabled={manualSaving}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveManualAppointment} disabled={manualSaving}>
+              {manualSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Salvar lançamento
             </Button>
           </div>
         </DialogContent>

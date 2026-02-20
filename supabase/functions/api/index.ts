@@ -577,13 +577,27 @@ const getCallerRole = async (authHeader: string | null): Promise<{ userId: strin
   }
 };
 
-// List all users with their roles
+// List all users with their roles (based primarily on profiles)
 const listAllUsers = async () => {
-  // Get all users from auth.users via admin API
-  const { data: { users }, error } = await supabase.auth.admin.listUsers();
-  
-  if (error) {
-    throw new Error('Erro ao listar usuários: ' + error.message);
+  const authUsers: any[] = [];
+  let page = 1;
+  const perPage = 1000;
+
+  while (true) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
+
+    if (error) {
+      throw new Error('Erro ao listar usuários: ' + error.message);
+    }
+
+    const users = data?.users || [];
+    authUsers.push(...users);
+
+    if (!data || users.length < perPage) {
+      break;
+    }
+
+    page += 1;
   }
 
   // Get all profiles
@@ -601,35 +615,93 @@ const listAllUsers = async () => {
     .from('barbers')
     .select('user_id, image_url');
 
-  // Combine data
-  const combinedUsers = users.map((user: any) => {
-    const profile = profiles?.find((p: any) => p.id === user.id) || {};
-    const roles = userRoles?.filter((r: any) => r.user_id === user.id).map((r: any) => r.role) || [];
-    
-    // Determine primary role
+  const authUserMap = new Map<string, any>();
+  authUsers.forEach((u: any) => {
+    authUserMap.set(u.id, u);
+  });
+
+  const users: any[] = [];
+
+  // 1) Base: todos os perfis (inclui clientes com e sem usuário Auth)
+  (profiles || []).forEach((profile: any) => {
+    const user = authUserMap.get(profile.id);
+    const isTempUser = profile.is_temp_user === true;
+    const roles = userRoles
+      ?.filter((r: any) => r.user_id === profile.id)
+      .map((r: any) => r.role) || [];
+
     let primaryRole = 'cliente';
     if (roles.includes('admin')) primaryRole = 'admin';
     else if (roles.includes('gestor')) primaryRole = 'gestor';
     else if (roles.includes('barbeiro')) primaryRole = 'barbeiro';
 
-    // Get barber photo if user is a barber
-    const barber = barbers?.find((b: any) => b.user_id === user.id);
+    const barber = barbers?.find((b: any) => b.user_id === profile.id);
     const imageUrl = barber?.image_url || null;
 
-    return {
-      id: user.id,
-      email: user.email,
-      name: profile.name || user.user_metadata?.name || '',
-      phone: profile.phone || '',
+    const metaPhone = user?.user_metadata?.whatsapp || user?.user_metadata?.phone || null;
+    const phone = profile.phone || profile.whatsapp || metaPhone || '';
+
+    const metaCpf = user?.user_metadata?.cpf || null;
+    const cpf = profile.cpf || metaCpf || null;
+    const emailFromAuth = user?.email || null;
+    const emailFromCpf = cpf ? `${cpf}@cliente.com` : null;
+    const fallbackEmail = `${profile.id}@cliente.local`;
+    const email = emailFromAuth || emailFromCpf || fallbackEmail;
+
+    // Ignorar usuários locais/temporários sem CPF (clientes criados só como "Cliente Local")
+    if (!cpf && isTempUser && !user) {
+      return;
+    }
+
+    users.push({
+      id: profile.id,
+      email,
+      name: profile.name || user?.user_metadata?.name || (emailFromAuth || '').split('@')[0] || 'Cliente',
+      phone,
+      cpf,
       role: primaryRole,
-      roles: roles,
+      roles,
       image_url: imageUrl,
-      createdAt: user.created_at,
-      lastSignIn: user.last_sign_in_at,
-    };
+      createdAt: user?.created_at || profile.created_at || null,
+      lastSignIn: user?.last_sign_in_at || null,
+    });
   });
 
-  return combinedUsers;
+  // 2) Auth users que não têm profile (admins/gestores antigos, etc.)
+  const profileIds = new Set((profiles || []).map((p: any) => p.id));
+  authUsers
+    .filter((u: any) => !profileIds.has(u.id))
+    .forEach((user: any) => {
+      const roles = userRoles
+        ?.filter((r: any) => r.user_id === user.id)
+        .map((r: any) => r.role) || [];
+
+      let primaryRole = 'cliente';
+      if (roles.includes('admin')) primaryRole = 'admin';
+      else if (roles.includes('gestor')) primaryRole = 'gestor';
+      else if (roles.includes('barbeiro')) primaryRole = 'barbeiro';
+
+      const barber = barbers?.find((b: any) => b.user_id === user.id);
+      const imageUrl = barber?.image_url || null;
+
+      const metaPhone = user.user_metadata?.whatsapp || user.user_metadata?.phone || null;
+      const metaCpf = user.user_metadata?.cpf || null;
+
+      users.push({
+        id: user.id,
+        email: user.email,
+        name: user.user_metadata?.name || (user.email || '').split('@')[0] || 'Usuário',
+        phone: metaPhone || '',
+        cpf: metaCpf || null,
+        role: primaryRole,
+        roles,
+        image_url: imageUrl,
+        createdAt: user.created_at,
+        lastSignIn: user.last_sign_in_at,
+      });
+    });
+
+  return users;
 };
 
 // Create a new user

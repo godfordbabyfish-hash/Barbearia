@@ -39,7 +39,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Key, Pencil, Trash2, RefreshCw, Copy, Eye, EyeOff, Dice5, Loader2 } from 'lucide-react';
+import { Plus, Key, Pencil, Trash2, RefreshCw, Copy, Eye, EyeOff, Dice5, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface User {
@@ -47,6 +47,7 @@ interface User {
   email: string;
   name: string;
   phone: string;
+  cpf?: string | null;
   role: string;
   roles: string[];
   image_url?: string | null;
@@ -59,6 +60,9 @@ export const UserManager = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterRole, setFilterRole] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 20;
   
   // Create user dialog
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -124,6 +128,9 @@ export const UserManager = () => {
         const { data: barbersData } = await (supabase as any)
           .from('barbers')
           .select('id, user_id, name, image_url, whatsapp_phone, visible');
+        const { data: profilesData } = await (supabase as any)
+          .from('profiles')
+          .select('id, name, phone, whatsapp, cpf, photo_url, is_temp_user');
         const usersMap = new Map<string, User>();
         usersList.forEach((u: User) => {
           usersMap.set(u.id, u);
@@ -151,7 +158,38 @@ export const UserManager = () => {
             });
           }
         });
+
+        // Garantir que todos os perfis apareçam, mesmo que não venham da função admin/users
+        (profilesData || []).forEach((p: any) => {
+          if (usersMap.has(p.id)) return;
+
+          const isTempUser = p.is_temp_user === true;
+          const rawCpf = p.cpf ? String(p.cpf) : '';
+
+          // Ignorar usuários locais/temporários sem CPF
+          if (isTempUser && !rawCpf) return;
+
+          const phone = p.phone || p.whatsapp || '';
+          const emailFromCpf = rawCpf ? `${rawCpf}@cliente.com` : '';
+          const fallbackEmail = `${p.id}@cliente.local`;
+          const email = emailFromCpf || fallbackEmail;
+
+          enriched.push({
+            id: p.id,
+            email,
+            name: p.name || 'Cliente',
+            phone,
+            cpf: rawCpf || null,
+            role: 'cliente',
+            roles: ['cliente'],
+            image_url: p.photo_url || null,
+            createdAt: '',
+            lastSignIn: null,
+          });
+        });
+
         setUsers(enriched);
+        setCurrentPage(1);
       } else {
         toast.error('Erro ao carregar usuários', {
           description: data?.message || 'Erro desconhecido',
@@ -491,17 +529,66 @@ export const UserManager = () => {
   };
 
   const filteredUsers = users.filter(user => {
-    if (filterRole === 'all') return true;
-    return user.role === filterRole || (Array.isArray(user.roles) && user.roles.includes(filterRole));
+    const matchesRole = filterRole === 'all' 
+      ? true 
+      : user.role === filterRole || (Array.isArray(user.roles) && user.roles.includes(filterRole));
+    
+    if (!matchesRole) return false;
+
+    if (!searchTerm.trim()) return true;
+
+    const term = searchTerm.toLowerCase();
+    const numericTerm = term.replace(/\D/g, '');
+    const name = (user.name || '').toLowerCase();
+    const email = (user.email || '').toLowerCase();
+    const phone = (user.phone || '').toLowerCase();
+    const cpf = (user.cpf || '').toLowerCase();
+    const cpfDigits = (user.cpf || '').replace(/\D/g, '');
+
+    if (!term) return true;
+
+    const matchesText =
+      name.includes(term) ||
+      email.includes(term) ||
+      phone.includes(term) ||
+      cpf.includes(term);
+
+    if (matchesText) return true;
+
+    if (!numericTerm) return false;
+
+    return cpfDigits.includes(numericTerm);
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const paginatedUsers = filteredUsers.slice(startIndex, endIndex);
 
   return (
     <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 w-full" style={{ maxWidth: '100%' }}>
         <h2 className="text-xl sm:text-2xl font-bold">Gerenciamento de Usuários</h2>
-        <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
-            <Select value={filterRole} onValueChange={setFilterRole}>
-              <SelectTrigger className="w-full sm:w-[130px] text-sm">
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto justify-end">
+          <div className="flex flex-1 sm:flex-none gap-2">
+            <Input
+              placeholder="Pesquisar por nome, e-mail ou telefone"
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="h-9 sm:h-10 text-sm"
+            />
+            <Select
+              value={filterRole}
+              onValueChange={(value) => {
+                setFilterRole(value);
+                setCurrentPage(1);
+              }}
+            >
+              <SelectTrigger className="w-[120px] sm:w-[130px] text-sm">
                 <SelectValue placeholder="Filtrar" />
               </SelectTrigger>
               <SelectContent>
@@ -512,18 +599,30 @@ export const UserManager = () => {
                 <SelectItem value="cliente">Cliente</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="icon" onClick={loadUsers} disabled={loading} className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10">
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={loadUsers}
+              disabled={loading}
+              className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-10"
+            >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
-            <Button onClick={() => {
-              setNewUser({ email: '', password: generatePassword(), name: '', phone: '', role: 'barbeiro' });
-              setShowNewPassword(true);
-              setCreateDialogOpen(true);
-            }} className="flex-shrink-0 whitespace-nowrap text-sm h-9 sm:h-10">
+            <Button
+              onClick={() => {
+                setNewUser({ email: '', password: generatePassword(), name: '', phone: '', role: 'barbeiro' });
+                setShowNewPassword(true);
+                setCreateDialogOpen(true);
+              }}
+              className="flex-shrink-0 whitespace-nowrap text-sm h-9 sm:h-10"
+            >
               <Plus className="h-4 w-4 mr-1 sm:mr-2" />
               <span className="hidden sm:inline">Novo Usuário</span>
               <span className="sm:hidden">Novo</span>
             </Button>
+          </div>
         </div>
       </div>
     <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
@@ -544,7 +643,7 @@ export const UserManager = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredUsers.map((user) => (
+                {paginatedUsers.map((user) => (
                   <TableRow key={user.id} className="hover:bg-secondary/50">
                     <TableCell className="w-[50px] sm:w-[60px] px-1 sm:px-2">
                       <button
@@ -637,6 +736,45 @@ export const UserManager = () => {
           </div>
         )}
       </CardContent>
+      <div className="border-t px-3 py-3 sm:px-4 sm:py-3 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs sm:text-sm text-muted-foreground">
+        <div>
+          {filteredUsers.length > 0 ? (
+            <>
+              Mostrando{' '}
+              <span className="font-semibold">
+                {startIndex + 1} - {Math.min(endIndex, filteredUsers.length)}
+              </span>{' '}
+              de <span className="font-semibold">{filteredUsers.length}</span> usuários
+            </>
+          ) : (
+            'Nenhum usuário para exibir'
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            disabled={safeCurrentPage <= 1}
+            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+            className="h-8 w-8"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span>
+            Página <span className="font-semibold">{safeCurrentPage}</span> de{' '}
+            <span className="font-semibold">{totalPages}</span>
+          </span>
+          <Button
+            variant="outline"
+            size="icon"
+            disabled={safeCurrentPage >= totalPages}
+            onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+            className="h-8 w-8"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
       {/* Create User Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>

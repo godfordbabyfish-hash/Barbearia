@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { DollarSign, TrendingUp, Calendar, Users, Filter } from 'lucide-react';
+import { DollarSign, TrendingUp, Calendar, Users, Filter, Loader2 } from 'lucide-react';
 import { 
   DropdownMenu, 
   DropdownMenuTrigger, 
@@ -15,6 +15,7 @@ import {
   DropdownMenuRadioGroup, 
   DropdownMenuRadioItem 
 } from '@/components/ui/dropdown-menu';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { format, subDays, subMonths, subYears, startOfDay, endOfDay, endOfMonth, startOfWeek, startOfMonth, startOfYear, parse } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,6 +24,8 @@ import BarberAdvancesManager from '@/components/admin/BarberAdvancesManager';
 import ReportsManager from '@/components/admin/ReportsManager';
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
+import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
+import { toast } from 'sonner';
 
 interface Appointment {
   id: string;
@@ -52,6 +55,7 @@ interface Service {
 interface Product {
   id: string;
   name: string;
+  price?: number;
 }
 
 interface ProductSale {
@@ -86,6 +90,16 @@ const FinancialDashboard = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'commissions' | 'advances' | 'reports'>('overview');
   const [showFilters, setShowFilters] = useState(false);
   const [recentTab, setRecentTab] = useState<'appointments' | 'products'>('appointments');
+  const [manualDialogOpen, setManualDialogOpen] = useState(false);
+  const [manualType, setManualType] = useState<'service' | 'product'>('service');
+  const [manualBarberId, setManualBarberId] = useState<string>('');
+  const [manualServiceId, setManualServiceId] = useState<string>('');
+  const [manualProductId, setManualProductId] = useState<string>('');
+  const [manualQuantity, setManualQuantity] = useState<number>(1);
+  const [manualDate, setManualDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
+  const [manualTime, setManualTime] = useState<string>(() => format(new Date(), 'HH:mm'));
+  const [manualClientName, setManualClientName] = useState<string>('');
+  const [manualSaving, setManualSaving] = useState(false);
   
   const isManager = role === 'admin' || role === 'gestor';
 
@@ -97,7 +111,13 @@ const FinancialDashboard = () => {
   const {
     calculateServiceCommission: calculateFixedServiceCommission,
     loadAllCommissions: loadAllFixedCommissions,
+    getProductCommissionPercentage: getFixedProductCommissionPercentage,
   } = useBarberFixedCommissions(null);
+
+  const {
+    loadAllCommissions: loadAllProductCommissions,
+    getCommissionPercentage: getIndividualProductCommissionPercentage,
+  } = useBarberProductCommissions(null);
 
   useEffect(() => {
     loadBarbers();
@@ -109,8 +129,9 @@ const FinancialDashboard = () => {
     if (isManager) {
       loadAllIndividualCommissions();
       loadAllFixedCommissions();
+      loadAllProductCommissions();
     }
-  }, [isManager, loadAllIndividualCommissions, loadAllFixedCommissions]);
+  }, [isManager, loadAllIndividualCommissions, loadAllFixedCommissions, loadAllProductCommissions]);
 
   useEffect(() => {
     loadAppointments();
@@ -164,7 +185,7 @@ const FinancialDashboard = () => {
   const loadServices = async () => {
     const { data } = await supabase
       .from('services')
-      .select('id, title')
+      .select('id, title, price')
       .eq('visible', true);
     setServices(data || []);
   };
@@ -172,7 +193,7 @@ const FinancialDashboard = () => {
   const loadProducts = async () => {
     const { data } = await supabase
       .from('products')
-      .select('id, name')
+      .select('id, name, price')
       .eq('visible', true);
     setProducts(data || []);
   };
@@ -246,7 +267,7 @@ const FinancialDashboard = () => {
   const loadProductSales = async () => {
     const { start, end } = getDateRange();
     
-    let query = supabase
+    let query = (supabase as any)
       .from('product_sales')
       .select(`
         id,
@@ -279,6 +300,10 @@ const FinancialDashboard = () => {
 
     setProductSales((data as any) || []);
   };
+
+  const handleOpenManualDialog = (type: 'service' | 'product') => {};
+
+  const handleSaveManualSale = async () => {};
 
   // Helper to calculate appointment revenue considering split payments
   const getAppointmentRevenue = (apt: Appointment) => {
@@ -1161,6 +1186,119 @@ const FinancialDashboard = () => {
           </div>
         </CardContent>
       </Card>
+      <Dialog open={manualDialogOpen} onOpenChange={setManualDialogOpen}>
+        <DialogContent className="max-w-md w-[95vw]">
+          <DialogHeader>
+            <DialogTitle>
+              {manualType === 'service' ? 'Lançar venda de serviço' : 'Lançar venda de produto'}
+            </DialogTitle>
+            <DialogDescription>
+              Lançamento manual vinculado ao barbeiro selecionado.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Barbeiro</label>
+              <Input
+                value={barbers.find(b => b.id === manualBarberId)?.name || ''}
+                readOnly
+                className="h-9 text-sm"
+              />
+            </div>
+            {manualType === 'service' ? (
+              <>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Serviço</label>
+                  <Select value={manualServiceId} onValueChange={setManualServiceId}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Selecione um serviço" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {services.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Nome do cliente (opcional)</label>
+                  <Input
+                    value={manualClientName}
+                    onChange={(e) => setManualClientName(e.target.value)}
+                    placeholder="Ex: Cliente local"
+                    className="h-9 text-sm"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Produto</label>
+                  <Select value={manualProductId} onValueChange={setManualProductId}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Selecione um produto" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {products.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Quantidade</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={manualQuantity}
+                    onChange={(e) => setManualQuantity(parseInt(e.target.value) || 1)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+              </>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Data</label>
+                <Input
+                  type="date"
+                  value={manualDate}
+                  onChange={(e) => setManualDate(e.target.value)}
+                  className="h-9 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Hora</label>
+                <Input
+                  type="time"
+                  value={manualTime}
+                  onChange={(e) => setManualTime(e.target.value)}
+                  className="h-9 text-sm"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setManualDialogOpen(false)} disabled={manualSaving}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveManualSale} disabled={manualSaving}>
+              {manualSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                'Salvar lançamento'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 

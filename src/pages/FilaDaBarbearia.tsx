@@ -199,11 +199,12 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         // Fallback: usa nome do perfil mesmo que vazio, ou cria um nome temporário
         const fallbackName = profile?.name?.trim() || `Cliente ${apt.client_id.slice(0, 8)}`;
         
+        const phone = profile?.phone || (profile as any)?.whatsapp || "";
         return {
           ...apt,
           profiles: { 
             name: fallbackName, 
-            phone: profile?.phone || ""
+            phone
           }
         };
       });
