@@ -815,16 +815,26 @@ const BarbeiroDashboard = () => {
       const clientIds = [...new Set(appointmentsData.map(a => a.client_id))];
       const { data: clientsData } = await supabase
         .from('profiles')
-        .select('id, name, phone, photo_url')
+        .select('id, name, phone, whatsapp, photo_url')
         .in('id', clientIds);
       
       console.log('Loaded clients:', clientsData);
       
-      // Mapear clientes para appointments
-      const appointmentsWithClients = appointmentsData.map(appointment => ({
-        ...appointment,
-        client: clientsData?.find(c => c.id === appointment.client_id) || null
-      }));
+      // Mapear clientes para appointments, garantindo telefone preenchido
+      const appointmentsWithClients = appointmentsData.map(appointment => {
+        const client = clientsData?.find(c => c.id === appointment.client_id) as any | undefined;
+        if (!client) {
+          return {
+            ...appointment,
+            client: null,
+          };
+        }
+        const phone = client.phone || client.whatsapp || '';
+        return {
+          ...appointment,
+          client: { ...client, phone },
+        };
+      });
       
       setAppointments(appointmentsWithClients);
     } else {
