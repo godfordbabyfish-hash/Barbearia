@@ -86,7 +86,6 @@ class WhatsAppConnectionService {
   }
 
   async getStatus(): Promise<WhatsAppConnectionState> {
-    // Se está em modo manual, não fazer verificação automática
     if (this.isManualMode) {
       return this.currentState;
     }
