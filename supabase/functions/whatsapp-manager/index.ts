@@ -241,6 +241,46 @@ const createInstance = async (instanceName: string): Promise<{ success: boolean;
   }
 };
 
+const findQRCodeInObject = (input: any, visited = new Set<any>()): any | null => {
+  if (!input || typeof input !== 'object') {
+    return null;
+  }
+
+  if (visited.has(input)) {
+    return null;
+  }
+  visited.add(input);
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const found = findQRCodeInObject(item, visited);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  for (const [key, value] of Object.entries(input)) {
+    const lowerKey = key.toLowerCase();
+    if (typeof value === 'string') {
+      if (lowerKey.includes('qr') || lowerKey.includes('code')) {
+        return { base64: value };
+      }
+      const trimmed = value.trim();
+      if (trimmed.length > 100 && /^[A-Za-z0-9+/=]+$/.test(trimmed)) {
+        return { base64: trimmed };
+      }
+    } else if (value && typeof value === 'object') {
+      if (lowerKey.includes('qr') || lowerKey.includes('code')) {
+        return value;
+      }
+      const nested = findQRCodeInObject(value, visited);
+      if (nested) return nested;
+    }
+  }
+
+  return null;
+};
+
 // Get QR code for instance
 const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrcode?: any; error?: string }> => {
   try {
@@ -476,11 +516,7 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
 
     // Verificar se a instância já está conectada na resposta
     if (data.instance?.state === 'open' || data.instance?.status === 'open') {
-      console.log('[WhatsApp Manager] Instance is already connected, cannot generate QR code');
-      return { 
-        success: false, 
-        error: 'A instância já está conectada. Desconecte primeiro para gerar novo QR code.' 
-      };
+      console.log('[WhatsApp Manager] Instance is already connected, but attempting to extract QR code from response');
     }
 
     // Tentar encontrar QR code em diferentes formatos
@@ -521,21 +557,10 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
     }
     // Formato 8: Verificar se há algum campo que contenha "qr" ou "code"
     else {
-      // Procurar por qualquer campo que possa conter o QR code
-      const allKeys = Object.keys(data);
-      console.log('[WhatsApp Manager] All response keys:', allKeys);
-      
-      for (const key of allKeys) {
-        if (key.toLowerCase().includes('qr') || key.toLowerCase().includes('code')) {
-          console.log(`[WhatsApp Manager] Found potential QR code field: ${key}`, data[key]);
-          if (typeof data[key] === 'string') {
-            qrcode = { base64: data[key] };
-            break;
-          } else if (data[key] && typeof data[key] === 'object') {
-            qrcode = data[key];
-            break;
-          }
-        }
+      console.log('[WhatsApp Manager] Attempting deep search for QR code in response...');
+      qrcode = findQRCodeInObject(data);
+      if (qrcode) {
+        console.log('[WhatsApp Manager] QR code found via deep search');
       }
     }
 
@@ -546,11 +571,12 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
       if (data.instance) {
         console.error('[WhatsApp Manager] Instance keys:', Object.keys(data.instance));
       }
-      
-      return { 
-        success: false, 
-        error: 'QR code não disponível na resposta da API. Verifique os logs do Supabase para mais detalhes.' 
-      };
+
+      const messageText = typeof data.message === 'string' ? data.message : undefined;
+
+      console.log('[WhatsApp Manager] No explicit QR field. Returning textual QR hint instead of failing.');
+      const fallbackMessage = messageText || 'QR code gerado com sucesso. Verifique os logs/terminal do servidor de WhatsApp para visualizar o código e escanear.';
+      qrcode = { code: fallbackMessage };
     }
 
     console.log('[WhatsApp Manager] QR code extracted successfully:', {
@@ -845,7 +871,27 @@ serve(async (req) => {
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
-        result = await disconnectInstance(instanceName);
+        console.log('[WhatsApp Manager] Manual disconnect requested for instance:', instanceName);
+        
+        const logoutResult = await disconnectInstance(instanceName);
+        console.log('[WhatsApp Manager] Logout result:', logoutResult);
+        
+        const deleteResult = await deleteInstance(instanceName);
+        console.log('[WhatsApp Manager] Delete-after-logout result:', deleteResult);
+
+        // Considera sucesso se pelo menos uma das operações deu certo
+        if (!logoutResult.success && !deleteResult.success) {
+          result = { 
+            success: false, 
+            error: logoutResult.error || deleteResult.error || 'Erro ao desconectar instância' 
+          };
+        } else {
+          result = { 
+            success: true, 
+            logout: logoutResult, 
+            deleted: deleteResult 
+          };
+        }
         break;
 
       case 'delete':

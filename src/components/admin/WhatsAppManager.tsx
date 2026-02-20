@@ -11,9 +11,7 @@ import {
   Loader2,
   AlertCircle,
   Power,
-  PowerOff,
-  RotateCcw,
-  Server
+  PowerOff
 } from 'lucide-react';
 import { 
   whatsappConnectionService, 
@@ -133,37 +131,6 @@ export const WhatsAppManager = () => {
     }
   };
 
-  const handleRestartRailway = async () => {
-    setRestartingRailway(true);
-    
-    try {
-      console.log('[WhatsApp Manager] Abrindo Railway Dashboard...');
-      
-      // Abrir Railway Dashboard diretamente no projeto correto
-      const railwayUrl = 'https://railway.app/project/powerful-grace';
-      window.open(railwayUrl, '_blank');
-      
-      toast.success('Railway Dashboard aberto!', {
-        description: 'Clique no serviço "whatsapp-bot-barbearia" e depois no botão "Restart" para reiniciar o servidor.',
-        duration: 10000,
-      });
-      
-      // Aguardar um pouco e então verificar status
-      setTimeout(async () => {
-        await handleCheckStatus();
-      }, 60000); // 1 minuto para dar tempo de reiniciar manualmente
-      
-    } catch (error: any) {
-      console.error('[WhatsApp Manager] Erro ao abrir Railway:', error);
-      toast.error('Erro ao abrir Railway Dashboard', {
-        description: 'Tente acessar manualmente: https://railway.app/project/powerful-grace',
-        duration: 8000,
-      });
-    } finally {
-      setRestartingRailway(false);
-    }
-  };
-
   const getStatusColor = (status: ConnectionStatus) => {
     switch (status) {
       case 'connected':
@@ -234,46 +201,14 @@ export const WhatsAppManager = () => {
                     size="sm"
                     variant="outline"
                     onClick={handleCheckStatus}
-                    disabled={loading || restartingRailway}
+                    disabled={loading}
                     className="flex-1 sm:flex-none"
                   >
                     <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
                     <span className="hidden sm:inline">Verificar Status</span>
                     <span className="sm:hidden">Status</span>
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={handleRestartRailway}
-                    disabled={loading || restartingRailway}
-                    title="Reiniciar servidor WhatsApp no Railway"
-                    className="flex-1 sm:flex-none"
-                  >
-                    {restartingRailway ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                        <span className="hidden sm:inline">Reiniciando...</span>
-                        <span className="sm:hidden">...</span>
-                      </>
-                    ) : (
-                      <>
-                        <RotateCcw className="h-4 w-4 mr-1" />
-                        <span className="hidden sm:inline">Reiniciar Railway</span>
-                        <span className="sm:hidden">Reiniciar</span>
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => window.open('https://railway.app/dashboard', '_blank')}
-                    title="Abrir Railway Dashboard para reiniciar manualmente"
-                    className="flex-1 sm:flex-none"
-                  >
-                    <Server className="h-4 w-4 mr-1" />
-                    <span className="hidden sm:inline">Abrir Railway</span>
-                    <span className="sm:hidden">Railway</span>
-                  </Button>
+                  
                 </div>
               </div>
               
@@ -311,7 +246,7 @@ export const WhatsAppManager = () => {
                             size="sm"
                             variant="outline"
                             onClick={handleConnect}
-                            disabled={loading || restartingRailway}
+                            disabled={loading}
                             title="Gerar novo QR code para trocar número"
                             className="flex-1 sm:flex-none"
                           >
@@ -323,7 +258,7 @@ export const WhatsAppManager = () => {
                             size="sm"
                             variant="destructive"
                             onClick={handleDisconnect}
-                            disabled={loading || restartingRailway}
+                            disabled={loading}
                             className="flex-1 sm:flex-none"
                           >
                             <PowerOff className="h-4 w-4 mr-1" />
@@ -421,7 +356,7 @@ export const WhatsAppManager = () => {
                         <Button
                           variant="outline"
                           onClick={handleConnect}
-                          disabled={loading || restartingRailway}
+                          disabled={loading}
                           className="w-full sm:w-auto"
                         >
                           {loading ? (
@@ -458,7 +393,7 @@ export const WhatsAppManager = () => {
                       <p>• O sistema não fará reconexões automáticas</p>
                       <p>• Você controla quando conectar e desconectar</p>
                       <p>• Use "Verificar Status" para atualizar o estado atual</p>
-                      <p>• Use "Reiniciar Railway" se o servidor estiver com problemas</p>
+                      <p>• Se o servidor do WhatsApp travar, reinicie ele manualmente</p>
                       <p>• A conexão será mantida até você desconectar manualmente</p>
                     </div>
                   </div>
@@ -470,17 +405,15 @@ export const WhatsAppManager = () => {
             <Card className="bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
               <CardContent className="p-3 sm:p-4">
                 <div className="flex items-start gap-2">
-                  <Server className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600 dark:text-orange-400 mt-0.5 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-orange-800 dark:text-orange-200">
-                      Reiniciar Servidor Railway
+                      Servidor do WhatsApp
                     </p>
                     <div className="text-xs text-orange-700 dark:text-orange-300 mt-1 space-y-1">
-                      <p>• Clique "Reiniciar Railway" para abrir o dashboard automaticamente</p>
-                      <p>• No Railway: clique no serviço "whatsapp-bot-barbearia"</p>
-                      <p>• Clique no botão "Restart" (ícone de seta circular)</p>
-                      <p>• Aguarde 1-2 minutos para o serviço reiniciar completamente</p>
-                      <p>• Use "Verificar Status" para confirmar que voltou online</p>
+                      <p>• Se o servidor estiver offline, inicie o serviço do WhatsApp</p>
+                      <p>• Aguarde alguns segundos para o servidor ficar estável</p>
+                      <p>• Use "Verificar Status" para confirmar que está online</p>
+                      <p>• Se mudar o servidor, atualize a URL da API no Supabase</p>
                     </div>
                   </div>
                 </div>
