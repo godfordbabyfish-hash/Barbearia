@@ -372,7 +372,6 @@ const Booking = () => {
             const breakStartMinutes = timeToMinutes(br.start_time);
             const breakEndMinutes = timeToMinutes(br.end_time);
             if (slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes) return true;
-            if (slotStartMinutes === breakEndMinutes) return true;
             return false;
           });
         };
@@ -508,8 +507,6 @@ const Booking = () => {
           const breakEndMinutes = timeToMinutes(breakItem.end_time);
           // 1) Sobreposição padrão
           if (slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes) return true;
-          // 2) Bloquear slot que inicia exatamente no fim da pausa
-          if (slotStartMinutes === breakEndMinutes) return true;
           return false;
         });
       };
@@ -693,8 +690,6 @@ const Booking = () => {
 
           // 1) Sobreposição padrão
           if (slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes) return true;
-          // 2) Bloquear slot que inicia exatamente no fim da pausa
-          if (slotStartMinutes === breakEndMinutes) return true;
           return false;
         });
       };

@@ -63,8 +63,7 @@ export function getAvailableSlotsForBarber(
         breakSlots.add(format(cursor, "HH:mm"));
         cursor = addMinutes(cursor, 30);
       }
-      // Bloquear também o slot que inicia exatamente no fim da pausa
-      breakSlots.add(br.end_time);
+      // Intervalo de almoço tratado como [início, fim): permitir início exatamente no fim
     });
   }
 
