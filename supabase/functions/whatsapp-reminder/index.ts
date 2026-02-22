@@ -71,19 +71,17 @@ const formatPhoneNumber = (phone: string): string => {
   return cleaned;
 };
 
-// Generate reminder message
 const generateReminderMessage = (appointment: any, mapsLink: string | null): string => {
   const formattedDate = appointment.appointment_date 
     ? new Date(appointment.appointment_date + 'T12:00:00').toLocaleDateString('pt-BR')
     : '';
   
-  let message = `*Olá ${appointment.client_name}!* 👋\n\n` +
-         `⏰ *Lembrete:* Seu agendamento está em 10 minutos!\n\n` +
-         `📅 *Data:* ${formattedDate}\n` +
-         `🕐 *Horário:* ${appointment.appointment_time}\n` +
-         `${appointment.service_name ? `💇 *Serviço:* ${appointment.service_name}\n` : ''}` +
-         `${appointment.barber_name ? `👨‍💼 *Barbeiro:* ${appointment.barber_name}\n` : ''}\n` +
-         `Não se esqueça! Estamos te esperando! 🎉`;
+  const serviceText = appointment.service_name ? appointment.service_name : 'seu atendimento';
+  
+  let message = `Fala, ${appointment.client_name}! Tudo certo? Aqui é da barbearia.\n\n` +
+         `Seu horário pra ${serviceText} tá marcado pra começar daqui a 10 minutos, às ${appointment.appointment_time} do dia ${formattedDate}.\n\n` +
+         `Se der algum aperreio ou atraso, responde aqui avisando pra gente ajustar a agenda, beleza?\n` +
+         `Te esperamos!`;
   
   if (mapsLink) {
     message += `\n\n📍 *Localização:*\n${mapsLink}`;
@@ -126,43 +124,61 @@ const sendReminder = async (phone: string, message: string, instanceName: string
   }
 };
 
-// Process reminders
 const processReminders = async (supabase: any) => {
-  // Get active instance
   const activeInstanceName = await getActiveInstanceName(supabase);
   if (!activeInstanceName) {
     console.log('[Reminder] No active WhatsApp instance configured');
     return { processed: 0, error: 'No active instance' };
   }
 
-  // Get maps link once
   const mapsLink = await getBarbershopMapsLink(supabase);
 
-  // Calculate the time window: appointments starting in 10 minutes (± 1 minute window)
+  const timeZone = 'America/Sao_Paulo';
+
+  const getLocalDateAndTime = (date: Date) => {
+    const formatter = new Intl.DateTimeFormat('pt-BR', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(date);
+    const getPart = (type: string) => parts.find((p) => p.type === type)?.value || '';
+    const year = getPart('year');
+    const month = getPart('month');
+    const day = getPart('day');
+    const hour = getPart('hour');
+    const minute = getPart('minute');
+    return {
+      date: `${year}-${month}-${day}`,
+      time: `${hour}:${minute}`,
+    };
+  };
+
   const now = new Date();
-  const reminderTime = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes from now
-  const windowStart = new Date(reminderTime.getTime() - 60 * 1000); // 1 minute before
-  const windowEnd = new Date(reminderTime.getTime() + 60 * 1000); // 1 minute after
+  const { date: today, time: currentTime } = getLocalDateAndTime(now);
 
-  // Format times for SQL query
-  const today = now.toISOString().split('T')[0];
-  const timeStart = windowStart.toTimeString().slice(0, 5); // HH:MM
-  const timeEnd = windowEnd.toTimeString().slice(0, 5); // HH:MM
+  // Convert current local time to minutes (HH:MM -> total minutes)
+  const [currentHourStr, currentMinuteStr] = currentTime.split(':');
+  const currentHour = parseInt(currentHourStr, 10);
+  const currentMinute = parseInt(currentMinuteStr, 10);
+  const currentTotalMinutes = currentHour * 60 + currentMinute;
 
-  console.log(`[Reminder] Checking appointments for ${today} between ${timeStart} and ${timeEnd}`);
+  console.log(`[Reminder] Checking appointments for ${today} at local time ${currentTime} (target: ~10 minutes ahead)`);
 
   // Find appointments that:
   // 1. Are today
-  // 2. Are in the time window (10 minutes from now ± 1 minute)
-  // 3. Are confirmed or pending
-  // 4. Haven't had reminder sent yet (reminder_sent = false, since DEFAULT is FALSE)
-  // 5. Client has a valid phone number
+  // 2. Are confirmed or pending
+  // 3. Haven't had reminder sent yet (reminder_sent = false, since DEFAULT is FALSE)
+  // 4. Are not API bookings
+  // 5. Time difference to now is ~10 minutes (filtered in JS)
   const { data: appointmentsData, error: appointmentsError } = await supabase
     .from('appointments')
     .select('id, appointment_date, appointment_time, client_id, service_id, barber_id, status, booking_type, reminder_sent')
     .eq('appointment_date', today)
-    .gte('appointment_time', timeStart)
-    .lte('appointment_time', timeEnd)
     .in('status', ['confirmed', 'pending'])
     .eq('reminder_sent', false)
     .neq('booking_type', 'api');
@@ -173,13 +189,35 @@ const processReminders = async (supabase: any) => {
   }
 
   if (!appointmentsData || appointmentsData.length === 0) {
-    console.log('[Reminder] No appointments found for reminder');
+    console.log('[Reminder] No appointments found for reminder (raw query)');
     return { processed: 0 };
   }
 
+  // Filter appointments by time difference (~10 minutes ahead, tolerance ±1 minute)
+  const targetMinutesAhead = 10;
+  const toleranceMinutes = 1;
+
+  const timeFilteredAppointments = appointmentsData.filter((apt: any) => {
+    if (!apt.appointment_time) return false;
+    const [hourStr, minuteStr] = String(apt.appointment_time).split(':');
+    const hour = parseInt(hourStr, 10);
+    const minute = parseInt(minuteStr, 10);
+    if (isNaN(hour) || isNaN(minute)) return false;
+    const aptTotalMinutes = hour * 60 + minute;
+    const diff = aptTotalMinutes - currentTotalMinutes;
+    return diff >= (targetMinutesAhead - toleranceMinutes) && diff <= (targetMinutesAhead + toleranceMinutes);
+  });
+
+  if (timeFilteredAppointments.length === 0) {
+    console.log('[Reminder] No appointments in ~10-minute window; skipping this run');
+    return { processed: 0 };
+  }
+
+  console.log(`[Reminder] Found ${timeFilteredAppointments.length} appointment(s) after time filter`);
+
   // Fetch related data separately - prioritize 'whatsapp' field, fallback to 'phone'
   const appointmentsWithDetails = await Promise.all(
-    appointmentsData.map(async (apt) => {
+    timeFilteredAppointments.map(async (apt) => {
       const [profile, service, barber] = await Promise.all([
         supabase.from('profiles').select('name, phone, whatsapp').eq('id', apt.client_id).maybeSingle(),
         apt.service_id ? supabase.from('services').select('title').eq('id', apt.service_id).maybeSingle() : Promise.resolve({ data: null }),

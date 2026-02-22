@@ -830,16 +830,17 @@ const updateUserRole = async (userId: string, newRole: 'barbeiro' | 'gestor' | '
   return true;
 };
 
-// Delete user
+// Delete user (supports users with and without Auth account)
 const deleteUser = async (userId: string) => {
-  // Delete from auth
   const { error } = await supabase.auth.admin.deleteUser(userId);
 
   if (error) {
-    throw new Error('Erro ao excluir usuário: ' + error.message);
+    console.error('Erro ao excluir usuário no Auth (prosseguindo com limpeza local):', error);
   }
 
-  // Profile and user_roles will be cascade deleted due to foreign key
+  await supabase.from('user_roles').delete().eq('user_id', userId);
+  await supabase.from('barbers').delete().eq('user_id', userId);
+  await supabase.from('profiles').delete().eq('id', userId);
 
   return true;
 };
@@ -1375,7 +1376,8 @@ serve(async (req) => {
     }
 
     // DELETE /admin/users/:id - Delete user
-    if (req.method === 'DELETE' && path.startsWith('admin/users/')) {
+    // Also support POST with body._method = 'DELETE' to work around clients that only send POST
+    if ((req.method === 'DELETE' && path.startsWith('admin/users/')) || (req.method === 'POST' && path.startsWith('admin/users/') && body?._method === 'DELETE')) {
       const userId = path.replace('admin/users/', '');
       const authHeader = req.headers.get('authorization');
       const { userId: callerId, role: callerRole } = await getCallerRole(authHeader);

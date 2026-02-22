@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Pencil, Trash2, Loader2, Calendar, Clock, User, Scissors, ShoppingBag } from 'lucide-react';
+import { Pencil, Trash2, Loader2, Calendar, Clock, User, Scissors, ShoppingBag, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -41,12 +41,29 @@ interface Appointment {
   photo_url?: string | null;
 }
 
+interface ProductSale {
+  id: string;
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  sale_date: string;
+  sale_time: string;
+  status: 'pending' | 'confirmed' | 'cancelled';
+  barber_id: string;
+  notes?: string | null;
+  product?: { name: string } | null;
+  barber?: { name: string } | null;
+}
+
 const HistoricoCP = () => {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(false);
   const [barbers, setBarbers] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [productSales, setProductSales] = useState<ProductSale[]>([]);
+  const [loadingProductSales, setLoadingProductSales] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
   const [deletingAppointment, setDeletingAppointment] = useState<Appointment | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -73,6 +90,7 @@ const HistoricoCP = () => {
   const [manualDate, setManualDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [manualTime, setManualTime] = useState<string>(() => format(new Date(), 'HH:mm'));
   const [manualSaving, setManualSaving] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
   // Form de edição
   const [editForm, setEditForm] = useState({
@@ -92,6 +110,7 @@ const HistoricoCP = () => {
 
   useEffect(() => {
     loadAppointments();
+    loadProductSales();
   }, [filterDateFrom, filterDateTo, filterBarber, filterService, filterStatus, filterType]);
 
   const loadBarbers = async () => {
@@ -106,6 +125,51 @@ const HistoricoCP = () => {
       toast.error('Erro ao carregar barbeiros');
     } else {
       setBarbers(data || []);
+    }
+  };
+
+  const loadProductSales = async () => {
+    setLoadingProductSales(true);
+    try {
+      let query = supabase
+        .from('product_sales')
+        .select(`
+          id,
+          product_id,
+          quantity,
+          unit_price,
+          total_price,
+          sale_date,
+          sale_time,
+          status,
+          barber_id,
+          notes,
+          product:products(name),
+          barber:barbers(name)
+        `);
+
+      if (filterDateFrom) {
+        query = query.gte('sale_date', filterDateFrom);
+      }
+      if (filterDateTo) {
+        query = query.lte('sale_date', filterDateTo);
+      }
+      if (filterBarber !== 'all') {
+        query = query.eq('barber_id', filterBarber);
+      }
+
+      const { data, error } = await query
+        .order('sale_date', { ascending: false })
+        .order('sale_time', { ascending: false });
+
+      if (error) throw error;
+      setProductSales((data || []) as ProductSale[]);
+    } catch (error: any) {
+      console.error('Error loading product sales:', error);
+      toast.error('Erro ao carregar vendas de produtos: ' + error.message);
+      setProductSales([]);
+    } finally {
+      setLoadingProductSales(false);
     }
   };
 
@@ -472,15 +536,24 @@ const HistoricoCP = () => {
     <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
         <CardHeader className="p-3 sm:p-4 md:p-6">
-          <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+          <CardTitle className="flex items-center justify-between gap-2 text-lg sm:text-xl">
             <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
             <span className="hidden sm:inline">Histórico CP - Agendamentos</span>
             <span className="sm:hidden">Histórico CP</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 text-xs ml-auto"
+              onClick={() => setShowFilters(v => !v)}
+            >
+              <Filter className="h-3 w-3 mr-1" />
+              {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+            </Button>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
-          {/* Filtros */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-4 sm:mb-6">
+          <div className={`${showFilters ? '' : 'hidden'} mb-4 sm:mb-6 pb-3 border-b border-border`}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
             <div>
               <Label className="text-sm text-muted-foreground mb-1 block">Data Inicial</Label>
               <Input
@@ -559,6 +632,7 @@ const HistoricoCP = () => {
                   <SelectItem value="manual">Manual</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
             </div>
           </div>
 
@@ -754,6 +828,86 @@ const HistoricoCP = () => {
         </CardContent>
       </Card>
 
+      {/* Tabela de vendas de produtos */}
+      <Card className="bg-card border-border mt-6">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+            <ShoppingBag className="h-4 w-4 text-primary" />
+            Vendas de Produtos
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loadingProductSales ? (
+            <div className="flex items-center justify-center py-8 sm:py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : productSales.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8 sm:py-12 text-sm">
+              Nenhuma venda encontrada com os filtros selecionados.
+            </p>
+          ) : (
+            <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '800px' }}>
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Data</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[60px] sm:w-[80px]">Horário</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[160px] sm:w-[200px]">Produto</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[90px]">Qtd</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[110px] sm:w-[130px]">Total</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[140px]">Barbeiro</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[90px] sm:w-[110px]">Status</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2">Observação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productSales.map((sale) => (
+                      <tr key={sale.id} className="border-b border-border/50 hover:bg-muted/50">
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          <div className="text-xs sm:text-sm">
+                            {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
+                          </div>
+                        </td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2 text-xs sm:text-sm">{sale.sale_time}</td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          <div className="text-xs sm:text-sm truncate" title={sale.product?.name || 'Produto'}>
+                            {sale.product?.name || 'Produto'}
+                          </div>
+                        </td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">{sale.quantity}</td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">R$ {Number(sale.total_price).toFixed(2)}</td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          <div className="text-xs sm:text-sm truncate" title={sale.barber?.name || barbers.find(b => b.id === sale.barber_id)?.name || 'N/A'}>
+                            {sale.barber?.name || barbers.find(b => b.id === sale.barber_id)?.name || 'N/A'}
+                          </div>
+                        </td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          {sale.status === 'confirmed' && (
+                            <Badge className="bg-green-500/20 text-green-600 text-xs">Confirmado</Badge>
+                          )}
+                          {sale.status === 'pending' && (
+                            <Badge variant="outline" className="border-yellow-500 text-yellow-600 text-xs">Pendente</Badge>
+                          )}
+                          {sale.status === 'cancelled' && (
+                            <Badge variant="destructive" className="text-xs">Cancelado</Badge>
+                          )}
+                        </td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          <div className="text-xs text-muted-foreground truncate" title={sale.notes || ''}>
+                            {sale.notes || '-'}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Dialog de Edição */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="max-w-[95vw] sm:max-w-md overflow-hidden">
@@ -866,6 +1020,10 @@ const HistoricoCP = () => {
 
       <Dialog open={imageDialogOpen} onOpenChange={setImageDialogOpen}>
         <DialogContent className="max-w-[95vw] sm:max-w-3xl p-0 overflow-hidden">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Visualizar foto do atendimento</DialogTitle>
+            <DialogDescription>Pré-visualização da foto anexada ao agendamento.</DialogDescription>
+          </DialogHeader>
           <img
             src={imagePreviewUrl || ''}
             alt="Foto do atendimento"

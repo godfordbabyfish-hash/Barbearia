@@ -15,11 +15,11 @@ BEGIN
     RAISE LOG 'delete_barber_advance_admin called with advance_id: %', advance_id;
     
     -- Verificar se o usuário atual é gestor/admin
-    -- Primeiro, verificar na tabela profiles se existe um perfil com role admin/manager
+    -- Usar a tabela user_roles, que armazena os papéis do usuário
     SELECT role INTO user_role 
-    FROM profiles 
-    WHERE id = auth.uid() 
-    AND role IN ('admin', 'manager');
+    FROM user_roles
+    WHERE user_id = auth.uid()
+    AND role IN ('admin', 'gestor');
     
     -- Se não encontrou na tabela profiles, verificar se é o usuário admin padrão
     IF user_role IS NULL THEN

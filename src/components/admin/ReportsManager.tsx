@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { FileText, Download, Calendar, DollarSign, Users, TrendingUp } from 'lucide-react';
+import { FileText, Download, Calendar, DollarSign, Users, TrendingUp, Filter } from 'lucide-react';
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import jsPDF from 'jspdf';
@@ -49,6 +49,7 @@ const ReportsManager = () => {
   const [customDateTo, setCustomDateTo] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [generating, setGenerating] = useState(false);
   const [recalculatingProducts, setRecalculatingProducts] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
   const parseLocalISODate = (iso: string): Date => {
     try {
@@ -811,14 +812,23 @@ const ReportsManager = () => {
   return (
     <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       <CardHeader className="p-3 sm:p-4 md:p-6">
-        <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+        <CardTitle className="flex items-center justify-between gap-2 text-lg sm:text-xl">
           <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
           Relatórios Financeiros
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 px-2 text-xs ml-auto"
+            onClick={() => setShowFilters(v => !v)}
+          >
+            <Filter className="h-3 w-3 mr-1" />
+            {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+          </Button>
         </CardTitle>
       </CardHeader>
       <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
         <div className="space-y-4 sm:space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          <div className={`${showFilters ? '' : 'hidden'} grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 pb-3 border-b border-border`}>
             {/* Period Selection */}
             <div>
               <Label className="text-sm">Período do Relatório</Label>
@@ -914,7 +924,7 @@ const ReportsManager = () => {
           </div>
 
           {/* Custom Date Range */}
-          {reportPeriod === 'custom' && (
+          {reportPeriod === 'custom' && showFilters && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 p-3 sm:p-4 bg-secondary/30 rounded-lg">
               <div>
                 <Label className="text-sm">Data Inicial</Label>

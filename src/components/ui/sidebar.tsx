@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -163,7 +163,13 @@ const Sidebar = React.forwardRef<
             } as React.CSSProperties
           }
           side={side}
+          aria-labelledby="mobile-sidebar-title"
+          aria-describedby="mobile-sidebar-desc"
         >
+          <SheetHeader className="sr-only">
+            <SheetTitle id="mobile-sidebar-title">Menu lateral</SheetTitle>
+            <SheetDescription id="mobile-sidebar-desc">Navegação do aplicativo</SheetDescription>
+          </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
       </Sheet>

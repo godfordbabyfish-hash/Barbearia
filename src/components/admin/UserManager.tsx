@@ -416,8 +416,14 @@ export const UserManager = () => {
       const { data, error } = await supabase.functions.invoke('api', {
         body: {
           action: `admin/users/${selectedUser.id}`,
+          _method: 'DELETE',
         },
-          method: 'DELETE',
+        headers: {
+          Authorization: session?.access_token ? `Bearer ${session.access_token}` : '',
+          'Content-Type': 'application/json',
+        },
+        // Use POST and instruct the function via _method to perform DELETE,
+        // improving compatibility across environments.
       });
 
       if (error) {

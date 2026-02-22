@@ -160,14 +160,13 @@ const BarberAdvancesManager = () => {
   };
 
   const handleDeleteAdvance = async (advanceId: string) => {
-    console.log('🗑️ Tentando remover vale via RPC:', advanceId);
+    console.log('🗑️ Tentando remover vale via RPC delete_barber_advance_admin:', advanceId);
     
     try {
-      // Usar a nova função RPC que contorna o RLS de forma segura
       const { data: rpcResult, error: rpcError } = await supabase
         .rpc('delete_barber_advance_admin', { advance_id: advanceId });
 
-      console.log('📊 Resultado RPC:', { rpcResult, rpcError });
+      console.log('📊 Resultado RPC delete_barber_advance_admin:', { rpcResult, rpcError });
 
       if (rpcError) {
         console.error("❌ Erro na função RPC:", rpcError);
@@ -175,30 +174,18 @@ const BarberAdvancesManager = () => {
         return;
       }
 
-      // Verificar se a função RPC retornou sucesso
       if (rpcResult && rpcResult.success) {
-        console.log('✅ Vale removido com sucesso via RPC!');
         toast.success(rpcResult.message || "Vale removido com sucesso!");
-        
-        // Atualizar a interface imediatamente removendo o vale da lista local
-        setAdvances(prevAdvances => 
-          prevAdvances.filter(adv => adv.id !== advanceId)
-        );
-        
-        // Recarregar a lista para garantir sincronização
-        console.log('🔄 Recarregando lista de vales...');
+        setAdvances(prev => prev.filter(a => a.id !== advanceId));
         await loadAdvances();
-        console.log('✅ Lista recarregada!');
       } else {
-        // A função RPC retornou erro
-        const errorMessage = rpcResult?.error || "Erro desconhecido na remoção";
-        console.error("❌ RPC retornou erro:", errorMessage);
+        const errorMessage = rpcResult?.error || "Erro desconhecido na remoção do vale";
+        console.error("❌ RPC retornou erro lógico:", errorMessage);
         toast.error(errorMessage);
       }
-      
     } catch (error: any) {
-      console.error("❌ Exception ao chamar RPC:", error);
-      toast.error("Erro ao remover vale: " + error.message);
+      console.error("❌ Exception ao chamar RPC delete_barber_advance_admin:", error);
+      toast.error("Erro ao remover vale: " + (error?.message || 'desconhecido'));
     }
   };
 

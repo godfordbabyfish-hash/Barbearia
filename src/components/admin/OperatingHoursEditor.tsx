@@ -229,8 +229,8 @@ const OperatingHoursEditor = () => {
                 )}
               </div>
               
-              {/* Lunch Break Section - Only for shop hours */}
-              {viewMode === 'shop' && !currentHours[day].closed && (
+              {/* Lunch Break Section - for shop and individual barbers */}
+              {!currentHours[day].closed && (
                 <div className="mt-3 pt-3 border-t border-border/50 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
                   <div className="flex items-center gap-2">
                     <Coffee className="w-4 h-4 text-muted-foreground" />

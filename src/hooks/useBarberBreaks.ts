@@ -82,8 +82,8 @@ export const useBarberBreaks = (barberId: string | null) => {
       .from('appointments')
       .select(`
         appointment_time,
-        service:services(duration, title),
-        profiles:client_id(name)
+        client_name,
+        service:services(duration, title)
       `)
       .eq('barber_id', barberId)
       .eq('appointment_date', date)
@@ -114,7 +114,7 @@ export const useBarberBreaks = (barberId: string | null) => {
         return {
           hasConflict: true,
           appointment: {
-            clientName: apt.profiles?.name || 'Cliente',
+            clientName: apt.client_name || 'Cliente',
             serviceTitle: apt.service.title || 'Serviço',
             appointmentTime: apt.appointment_time,
             appointmentEndTime: minutesToTime(aptEndMinutes),
