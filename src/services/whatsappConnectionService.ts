@@ -84,6 +84,14 @@ class WhatsAppConnectionService {
       }
     });
   }
+  
+  private sanitizeMessage(msg?: string): string | undefined {
+    if (!msg) return msg;
+    if (msg.includes('Railway')) {
+      return 'Erro na Evolution API (servidor local). Reinicie o serviço local, verifique a URL pública do Cloudflare Tunnel/Workers e gere um novo QR.';
+    }
+    return msg;
+  }
 
   async getStatus(): Promise<WhatsAppConnectionState> {
     if (this.isManualMode) {
@@ -126,13 +134,13 @@ class WhatsAppConnectionService {
       } else {
         this.updateState({
           status: 'error',
-          message: data?.error || 'Erro ao verificar status',
+          message: this.sanitizeMessage(data?.error) || 'Erro ao verificar status',
         });
       }
     } catch (error: any) {
       this.updateState({
         status: 'error',
-        message: error.message || 'Erro de conexão',
+        message: this.sanitizeMessage(error.message) || 'Erro de conexão',
       });
     }
 
@@ -186,7 +194,7 @@ class WhatsAppConnectionService {
     } catch (error: any) {
       this.updateState({
         status: 'error',
-        message: error.message || 'Erro ao conectar',
+        message: this.sanitizeMessage(error.message) || 'Erro ao conectar',
       });
       throw error;
     }
@@ -218,7 +226,7 @@ class WhatsAppConnectionService {
     } catch (error: any) {
       this.updateState({
         status: 'error',
-        message: error.message || 'Erro ao desconectar',
+        message: this.sanitizeMessage(error.message) || 'Erro ao desconectar',
       });
       throw error;
     }

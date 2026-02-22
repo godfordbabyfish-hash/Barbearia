@@ -7,31 +7,67 @@ echo   INICIANDO SISTEMA BARBEARIA
 echo ========================================
 echo.
 
-REM Verificar se Node.js está instalado
+set TOOLS_DIR=%~dp0tools
+set NODE_VERSION=20.19.0
+set NODE_ZIP=node-v%NODE_VERSION%-win-x64.zip
+set NODE_URL=https://nodejs.org/dist/v%NODE_VERSION%/%NODE_ZIP%
+set NODE_DIR=%TOOLS_DIR%\node-v%NODE_VERSION%-win-x64
+set RAND=%RANDOM%
+set NODE_ZIP_BASENAME=node-v%NODE_VERSION%-win-x64
+set NODE_ZIP_PATH=%TOOLS_DIR%\%NODE_ZIP_BASENAME%-%RAND%.zip
 where node >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERRO] Node.js nao encontrado!
-    echo [INFO] Por favor, instale o Node.js de https://nodejs.org
+    if exist "%NODE_DIR%\node.exe" (
+        set PATH=%NODE_DIR%;%PATH%
+    ) else (
+        echo [INFO] Node.js nao encontrado. Instalando versao portavel...
+        if not exist "%TOOLS_DIR%" mkdir "%TOOLS_DIR%"
+        powershell -NoLogo -NoProfile -Command "Invoke-WebRequest -Uri '%NODE_URL%' -OutFile '%NODE_ZIP_PATH%'" || (
+            curl.exe -L "%NODE_URL%" -o "%NODE_ZIP_PATH%" || (
+                echo [ERRO] Falha ao baixar Node.js
+                pause
+                exit /b 1
+            )
+        )
+        powershell -NoLogo -NoProfile -Command "Expand-Archive -Path '%NODE_ZIP_PATH%' -DestinationPath '%TOOLS_DIR%' -Force" || (
+            echo [ERRO] Falha ao extrair Node.js
+            pause
+            exit /b 1
+        )
+        set PATH=%NODE_DIR%;%PATH%
+    )
+)
+where node >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [ERRO] Node.js ainda nao encontrado
     pause
     exit /b 1
 )
 
-REM Verificar se npm está instalado
+set "NPM_CMD="
 where npm >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERRO] npm nao encontrado!
-    echo [INFO] Por favor, instale o Node.js que inclui o npm
-    pause
-    exit /b 1
+    if exist "%NODE_DIR%\npm.cmd" (
+        set "NPM_CMD=%NODE_DIR%\npm.cmd"
+        echo [INFO] Usando npm portavel
+    ) else (
+        echo [ERRO] npm nao encontrado
+        pause
+        exit /b 1
+    )
 )
 
-echo [OK] Node.js e npm encontrados!
+echo [OK] Ambiente Node.js pronto!
 echo.
 
 REM Verificar se node_modules existe
 if not exist "node_modules" (
     echo [INFO] Instalando dependencias...
-    call npm install
+    if defined NPM_CMD (
+        call %NPM_CMD% install
+    ) else (
+        call npm install
+    )
     if %errorlevel% neq 0 (
         echo [ERRO] Falha ao instalar dependencias!
         pause
@@ -137,8 +173,11 @@ echo.
 echo ========================================
 echo.
 
-REM Iniciar servidor (sem pausar em caso de erro para ver a mensagem)
-npm run dev
+if defined NPM_CMD (
+    call %NPM_CMD% run dev
+) else (
+    npm run dev
+)
 
 REM Se chegou aqui, o servidor parou
 echo.

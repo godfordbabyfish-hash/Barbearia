@@ -27,7 +27,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import BarberFinancialDashboard from '@/components/BarberFinancialDashboard';
 import { BarberBreakManager } from '@/components/admin/BarberBreakManager';
-import { ProductSalesManager } from '@/components/ProductSalesManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
@@ -87,12 +86,18 @@ const BarbeiroDashboard = () => {
   const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'completed' | 'cancelled' | 'confirmed'>('all');
   const [historyFilterService, setHistoryFilterService] = useState<string>('all');
   const [historyFilterPayment, setHistoryFilterPayment] = useState<'all' | 'pix' | 'dinheiro'>('all');
-  const [activeTab, setActiveTab] = useState<'agendamentos' | 'vendas' | 'horarios' | 'financeiro' | 'historico'>('agendamentos');
+  const [activeTab, setActiveTab] = useState<'agendamentos' | 'horarios' | 'financeiro' | 'historico'>('agendamentos');
   const [showHistoryFilters, setShowHistoryFilters] = useState(false);
+  const [historySectionTab, setHistorySectionTab] = useState<'servicos' | 'produtos'>('servicos');
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
   const [productHistory, setProductHistory] = useState<any[]>([]);
   const [loadingProductHistory, setLoadingProductHistory] = useState(false);
+  const [showProductHistoryFilters, setShowProductHistoryFilters] = useState(false);
+  const [productHistoryFilterPeriod, setProductHistoryFilterPeriod] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
+  const [productHistoryFilterStatus, setProductHistoryFilterStatus] = useState<'all' | 'confirmed' | 'pending' | 'cancelled'>('all');
+  const [productHistoryFilterProductId, setProductHistoryFilterProductId] = useState<string>('all');
+  const [productFilterList, setProductFilterList] = useState<{ id: string, name: string }[]>([]);
   
   // Product sale dialog
   const [productSaleDialogOpen, setProductSaleDialogOpen] = useState(false);
@@ -165,7 +170,7 @@ const BarbeiroDashboard = () => {
       const { data } = await (supabase as any)
         .from('product_sales')
         .select(`
-          id, sale_date, sale_time, quantity, total_price, status, notes,
+          id, product_id, sale_date, sale_time, quantity, total_price, status, notes,
           product:products(name)
         `)
         .eq('barber_id', targetBarber)
@@ -179,22 +184,45 @@ const BarbeiroDashboard = () => {
       setLoadingProductHistory(false);
     }
   };
+  
+  const loadProductsForFilter = async () => {
+    try {
+      const { data, error } = await (supabase as any)
+        .from('products')
+        .select('id, name')
+        .eq('visible', true)
+        .order('name');
+      if (!error) {
+        setProductFilterList(data || []);
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar lista de produtos para filtro:', e);
+      setProductFilterList([]);
+    }
+  };
 
   useEffect(() => {
     if (activeTab === 'historico') {
       loadProductHistory();
+      loadProductsForFilter();
     }
   }, [activeTab, selectedBarber, currentUserBarber?.id]);
 
   const getFilteredProductHistory = () => {
     let filtered = [...productHistory];
-    if (historyFilterPeriod !== 'all') {
+    if (productHistoryFilterStatus !== 'all') {
+      filtered = filtered.filter((sale) => sale.status === productHistoryFilterStatus);
+    }
+    if (productHistoryFilterProductId !== 'all') {
+      filtered = filtered.filter((sale) => sale.product_id === productHistoryFilterProductId);
+    }
+    if (productHistoryFilterPeriod !== 'all') {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       filtered = filtered.filter((sale) => {
         const saleDate = new Date(sale.sale_date + 'T00:00:00');
         saleDate.setHours(0, 0, 0, 0);
-        switch (historyFilterPeriod) {
+        switch (productHistoryFilterPeriod) {
           case 'today':
             return saleDate.getTime() === today.getTime();
           case 'week':
@@ -2095,9 +2123,8 @@ const BarbeiroDashboard = () => {
         {(currentUserBarber || selectedBarber) && (
           <>
             <Tabs value={activeTab} onValueChange={setActiveTab as any} className="w-full">
-              <TabsList className="grid w-full grid-cols-5 mb-6">
+              <TabsList className="grid w-full grid-cols-4 mb-6">
                 <TabsTrigger value="agendamentos">Agendamentos</TabsTrigger>
-                <TabsTrigger value="vendas">Vendas</TabsTrigger>
                 <TabsTrigger value="horarios">Horários</TabsTrigger>
                 <TabsTrigger value="financeiro">Financeiro</TabsTrigger>
                 <TabsTrigger value="historico">Histórico</TabsTrigger>
@@ -2831,9 +2858,7 @@ const BarbeiroDashboard = () => {
             </Card>
           </TabsContent>
 
-          <TabsContent value="vendas" className="space-y-6" forceMount>
-            <ProductSalesManager barberId={currentUserBarber?.id || selectedBarber} />
-          </TabsContent>
+          
 
           <TabsContent value="horarios" className="space-y-6" forceMount>
             <BarberBreakManager barberId={currentUserBarber?.id || selectedBarber} />
@@ -2961,6 +2986,12 @@ const BarbeiroDashboard = () => {
               </TabsContent>
 
               <TabsContent value="historico" className="space-y-6" forceMount>
+                <Tabs value={historySectionTab} onValueChange={setHistorySectionTab as any} className="w-full">
+                  <TabsList className="grid w-full grid-cols-2 mb-4">
+                    <TabsTrigger value="servicos">Histórico de Serviços</TabsTrigger>
+                    <TabsTrigger value="produtos">Histórico de Produtos</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="servicos" className="space-y-6" forceMount>
                 <Card className="bg-card border-border">
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
@@ -3189,12 +3220,94 @@ const BarbeiroDashboard = () => {
                     })()}
                   </CardContent>
                 </Card>
-                
+                  </TabsContent>
+                  <TabsContent value="produtos" className="space-y-6" forceMount>
                 <Card className="bg-card border-border">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Histórico de Produtos</CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">Histórico de Produtos</CardTitle>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => setShowProductHistoryFilters((v) => !v)}
+                      >
+                        {showProductHistoryFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent>
+                    <div className={`mb-4 pb-3 border-b border-border ${showProductHistoryFilters ? '' : 'hidden'}`}>
+                      <div className="grid grid-cols-3 gap-2">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                              <Calendar className="h-3 w-3 mr-1" />
+                              Período: {
+                                productHistoryFilterPeriod === 'all' ? 'Todos' :
+                                productHistoryFilterPeriod === 'today' ? 'Hoje' :
+                                productHistoryFilterPeriod === 'week' ? 'Última Semana' :
+                                productHistoryFilterPeriod === 'month' ? 'Último Mês' : 'Último Ano'
+                              }
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">Período</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={productHistoryFilterPeriod} onValueChange={(v) => setProductHistoryFilterPeriod(v as any)}>
+                              <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="today">Hoje</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="week">Última Semana</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="month">Último Mês</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="year">Último Ano</DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                              <Filter className="h-3 w-3 mr-1" />
+                              Status: {
+                                productHistoryFilterStatus === 'all' ? 'Todos' :
+                                productHistoryFilterStatus === 'confirmed' ? 'Confirmado' :
+                                productHistoryFilterStatus === 'pending' ? 'Pendente' : 'Cancelado'
+                              }
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">Status</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={productHistoryFilterStatus} onValueChange={(v) => setProductHistoryFilterStatus(v as any)}>
+                              <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="confirmed">Confirmado</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="pending">Pendente</DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="cancelled">Cancelado</DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
+                              <ShoppingBag className="h-3 w-3 mr-1" />
+                              Produto: {
+                                productHistoryFilterProductId === 'all' 
+                                  ? 'Todos' 
+                                  : (productFilterList.find(p => p.id === productHistoryFilterProductId)?.name || 'Selecionado')
+                              }
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">Produto</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={productHistoryFilterProductId} onValueChange={setProductHistoryFilterProductId}>
+                              <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                              {productFilterList.map((p) => (
+                                <DropdownMenuRadioItem key={p.id} value={p.id}>{p.name}</DropdownMenuRadioItem>
+                              ))}
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
                     {loadingProductHistory ? (
                       <div className="flex items-center justify-center py-8">
                         <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -3250,6 +3363,8 @@ const BarbeiroDashboard = () => {
                     })()}
                   </CardContent>
                 </Card>
+                  </TabsContent>
+                </Tabs>
               </TabsContent>
             </Tabs>
           </>

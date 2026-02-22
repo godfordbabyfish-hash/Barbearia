@@ -281,28 +281,13 @@ const findQRCodeInObject = (input: any, visited = new Set<any>()): any | null =>
   return null;
 };
 
-// Get QR code for instance
+// Get QR code for instance (sem desconectar automaticamente)
 const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrcode?: any; error?: string }> => {
   try {
     console.log(`[WhatsApp Manager] Getting QR code for instance: ${instanceName}`);
     
-    // SEMPRE desconectar primeiro para limpar qualquer estado de autenticação inválido
-    console.log(`[WhatsApp Manager] Step 1: Disconnecting instance to clear auth state...`);
-    const disconnectResult = await disconnectInstance(instanceName);
-    console.log('[WhatsApp Manager] Disconnect result:', disconnectResult);
-    // Aumentar tempo de espera para dar tempo do bot Railway parar de tentar reconectar
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // Deletar a instância para limpar completamente o estado (incluindo credenciais inválidas)
-    // Isso é crítico para garantir que não há credenciais antigas causando erro 401
-    console.log(`[WhatsApp Manager] Step 2: Deleting instance to force clean state...`);
-    const deleteResult = await deleteInstance(instanceName);
-    console.log('[WhatsApp Manager] Delete result:', deleteResult);
-    // Aumentar tempo de espera após deletar para garantir que o bot Railway pare completamente
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // Verificar se a instância foi realmente deletada antes de recriar
-    console.log(`[WhatsApp Manager] Step 2.5: Verifying instance was deleted...`);
+    // Verificar instância atual sem desconectar
+    let instanceStatus: string | null = null;
     try {
       const listResponse = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
         method: 'GET',
@@ -310,76 +295,28 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
       });
       if (listResponse.ok) {
         const instances = await listResponse.json();
-        const instanceExists = instances.find((inst: any) => inst.instanceName === instanceName);
-        if (instanceExists) {
-          console.log('[WhatsApp Manager] Instance still exists after delete, waiting longer...');
-          await new Promise(resolve => setTimeout(resolve, 2000));
+        const found = instances.find((inst: any) => inst.instanceName === instanceName);
+        if (!found) {
+          const createResult = await createInstance(instanceName);
+          console.log('[WhatsApp Manager] Create result (missing instance):', createResult);
         } else {
-          console.log('[WhatsApp Manager] Instance successfully deleted');
+          instanceStatus = found.status || found.instance?.state || null;
+          console.log('[WhatsApp Manager] Current instance status:', instanceStatus);
+          if (instanceStatus === 'open') {
+            return { 
+              success: true, 
+              qrcode: { code: 'Instância já conectada. Use "Desconectar" para encerrar.' } 
+            };
+          }
         }
       }
     } catch (e) {
-      console.warn('[WhatsApp Manager] Could not verify instance deletion:', e);
-    }
-
-    // Recriar a instância (garantir que está limpa e sem credenciais antigas)
-    console.log(`[WhatsApp Manager] Step 3: Creating fresh instance...`);
-    const createResult = await createInstance(instanceName);
-    console.log('[WhatsApp Manager] Create result:', createResult);
-    if (!createResult.success && !createResult.error?.includes('already exists') && !createResult.error?.includes('409')) {
-      console.warn('[WhatsApp Manager] Create may have failed:', createResult.error);
-      // Continuar mesmo assim - pode ser que a instância já exista
-    }
-    // Aumentar tempo de espera após criar para garantir que a instância está pronta
-    // E dar tempo do bot Railway parar completamente de tentar reconectar
-    console.log(`[WhatsApp Manager] Step 3.5: Waiting for instance to stabilize and bot Railway to stop reconnecting...`);
-    await new Promise(resolve => setTimeout(resolve, 5000)); // Aumentado para 5 segundos
-
-    // Verificar se a instância está realmente pronta antes de tentar conectar
-    console.log(`[WhatsApp Manager] Step 3.6: Verifying instance is ready...`);
-    try {
-      const verifyResponse = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
-        method: 'GET',
-        headers: { 'apikey': evolutionApiKey },
-      });
-      if (verifyResponse.ok) {
-        const instances = await verifyResponse.json();
-        const instance = instances.find((inst: any) => inst.instanceName === instanceName);
-        if (instance) {
-          console.log(`[WhatsApp Manager] Instance verified:`, {
-            name: instance.instanceName,
-            state: instance.instance?.state || instance.state,
-            status: instance.status
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('[WhatsApp Manager] Could not verify instance readiness:', e);
-    }
-
-    // Verificar estado final da instância antes de tentar conectar
-    console.log(`[WhatsApp Manager] Step 3.7: Final instance state check before connect...`);
-    try {
-      const finalCheckResponse = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
-        method: 'GET',
-        headers: { 'apikey': evolutionApiKey },
-      });
-      if (finalCheckResponse.ok) {
-        const instances = await finalCheckResponse.json();
-        const instance = instances.find((inst: any) => inst.instanceName === instanceName);
-        if (instance) {
-          console.log(`[WhatsApp Manager] Final instance state:`, JSON.stringify(instance, null, 2));
-        } else {
-          console.warn(`[WhatsApp Manager] Instance ${instanceName} not found in final check!`);
-        }
-      }
-    } catch (e) {
-      console.warn('[WhatsApp Manager] Could not perform final instance check:', e);
+      console.warn('[WhatsApp Manager] Could not list instances before connect:', e);
     }
 
     // Agora tentar conectar e obter QR code com retry para erro 500
     // Adicionar ?qrcode=true para garantir que a API retorne o QR code
-    console.log(`[WhatsApp Manager] Step 4: Connecting to get QR code...`);
+    console.log(`[WhatsApp Manager] Step 2: Connecting to get QR code...`);
     console.log(`[WhatsApp Manager] Step 4 URL: ${evolutionApiUrl}/instance/connect/${instanceName}?qrcode=true`);
     console.log(`[WhatsApp Manager] Step 4 API Key present: ${!!evolutionApiKey}`);
     
@@ -438,7 +375,7 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
           }
           return {
             success: false,
-            error: 'Timeout ao conectar à Evolution API após 40 segundos (3 tentativas). A API pode estar muito lenta ou indisponível. Verifique o Railway Dashboard e tente novamente.'
+            error: 'Timeout ao conectar à Evolution API após 40 segundos (3 tentativas). A API pode estar lenta ou indisponível. Verifique o serviço local da Evolution API e a URL pública (Cloudflare) e tente novamente.'
           };
         }
         
@@ -455,7 +392,7 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
     if (!response) {
       return {
         success: false,
-        error: lastError?.message || 'Falha ao conectar à Evolution API após múltiplas tentativas. Verifique o Railway Dashboard.'
+        error: lastError?.message || 'Falha ao conectar à Evolution API após múltiplas tentativas. Verifique o serviço local e a URL pública (Cloudflare).'
       };
     }
 
@@ -498,7 +435,7 @@ const getQRCode = async (instanceName: string): Promise<{ success: boolean; qrco
         console.error(`[WhatsApp Manager] Step 4: Evolution API returned 500 error. Response:`, errorText);
         return { 
           success: false, 
-          error: `Erro interno na Evolution API (servidor Railway). A instância pode estar em estado inconsistente. SOLUÇÃO: 1) Remova a instância atual no painel admin (botão "Remover"), 2) Reinicie o serviço "whatsapp-bot-barbearia" no Railway Dashboard, 3) Crie uma nova instância e tente gerar o QR code novamente. Detalhes: ${errorData.message || errorData.error || errorText || 'Internal Server Error'}.` 
+          error: `Erro interno na Evolution API (servidor local). A instância pode estar em estado inconsistente. SOLUÇÃO: 1) Reinicie o serviço local da Evolution API, 2) Verifique a URL pública do Cloudflare Tunnel/Workers, 3) Gere um novo QR code e conecte novamente. Detalhes: ${errorData.message || errorData.error || errorText || 'Internal Server Error'}.` 
         };
       }
       
