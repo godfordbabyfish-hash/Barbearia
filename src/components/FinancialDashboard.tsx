@@ -169,8 +169,19 @@ const FinancialDashboard = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(appointmentsChannel);
-      supabase.removeChannel(productSalesChannel);
+      try {
+        // Tenta encerrar inscrição antes de remover o canal para evitar erros de WebSocket
+        (appointmentsChannel as any)?.unsubscribe?.();
+      } catch {}
+      try {
+        (productSalesChannel as any)?.unsubscribe?.();
+      } catch {}
+      try {
+        (supabase as any).removeChannel?.(appointmentsChannel);
+      } catch {}
+      try {
+        (supabase as any).removeChannel?.(productSalesChannel);
+      } catch {}
     };
   }, [period, dateFrom, dateTo, filterType, filterBarber, filterService, filterProduct, filterStatus]);
 

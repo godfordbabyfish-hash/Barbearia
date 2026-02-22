@@ -181,8 +181,18 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
-      supabase.removeChannel(salesChannel);
+      try {
+        (channel as any)?.unsubscribe?.();
+      } catch {}
+      try {
+        (salesChannel as any)?.unsubscribe?.();
+      } catch {}
+      try {
+        (supabase as any).removeChannel?.(channel);
+      } catch {}
+      try {
+        (supabase as any).removeChannel?.(salesChannel);
+      } catch {}
     };
   }, [barberId]);
 

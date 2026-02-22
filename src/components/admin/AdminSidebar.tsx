@@ -16,7 +16,7 @@ import {
   History
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -149,7 +149,16 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
               <Menu className="h-5 w-5" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-[280px] p-0">
+        <SheetContent
+          side="left"
+          className="w-[280px] p-0"
+          aria-labelledby="admin-sidebar-title"
+          aria-describedby="admin-sidebar-desc"
+        >
+          <SheetHeader className="sr-only">
+            <SheetTitle id="admin-sidebar-title">Menu do Painel</SheetTitle>
+            <SheetDescription id="admin-sidebar-desc">Navegação administrativa</SheetDescription>
+          </SheetHeader>
             <SidebarContent />
           </SheetContent>
         </Sheet>

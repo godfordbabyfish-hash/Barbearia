@@ -91,6 +91,8 @@ const BarbeiroDashboard = () => {
   const [showHistoryFilters, setShowHistoryFilters] = useState(false);
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
+  const [productHistory, setProductHistory] = useState<any[]>([]);
+  const [loadingProductHistory, setLoadingProductHistory] = useState(false);
   
   // Product sale dialog
   const [productSaleDialogOpen, setProductSaleDialogOpen] = useState(false);
@@ -104,6 +106,7 @@ const BarbeiroDashboard = () => {
   // Estado para prevenir submissões simultâneas de agendamentos
   const [creatingAppointment, setCreatingAppointment] = useState(false);
   const [hasBarberBreaks, setHasBarberBreaks] = useState(true);
+  const [todayBreaks, setTodayBreaks] = useState<any[]>([]);
   const [serviceSelectOpen, setServiceSelectOpen] = useState(false);
   const { getTimeSlotsForDate, isDateOpen } = useOperatingHours();
   const [availableNewSlots, setAvailableNewSlots] = useState<string[]>([]);
@@ -150,6 +153,69 @@ const BarbeiroDashboard = () => {
       });
   }, [appointments, selectedBarber, currentUserBarber?.id]);
 
+  const loadProductHistory = async () => {
+    try {
+      setLoadingProductHistory(true);
+      const targetBarber = selectedBarber || currentUserBarber?.id;
+      if (!targetBarber) {
+        setProductHistory([]);
+        setLoadingProductHistory(false);
+        return;
+      }
+      const { data } = await (supabase as any)
+        .from('product_sales')
+        .select(`
+          id, sale_date, sale_time, quantity, total_price, status, notes,
+          product:products(name)
+        `)
+        .eq('barber_id', targetBarber)
+        .order('sale_date', { ascending: false })
+        .order('sale_time', { ascending: false });
+      setProductHistory(data || []);
+    } catch (e) {
+      console.warn('Erro ao carregar histórico de produtos do barbeiro:', e);
+      setProductHistory([]);
+    } finally {
+      setLoadingProductHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'historico') {
+      loadProductHistory();
+    }
+  }, [activeTab, selectedBarber, currentUserBarber?.id]);
+
+  const getFilteredProductHistory = () => {
+    let filtered = [...productHistory];
+    if (historyFilterPeriod !== 'all') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      filtered = filtered.filter((sale) => {
+        const saleDate = new Date(sale.sale_date + 'T00:00:00');
+        saleDate.setHours(0, 0, 0, 0);
+        switch (historyFilterPeriod) {
+          case 'today':
+            return saleDate.getTime() === today.getTime();
+          case 'week':
+            const weekAgo = new Date(today);
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            return saleDate >= weekAgo;
+          case 'month':
+            const monthAgo = new Date(today);
+            monthAgo.setMonth(monthAgo.getMonth() - 1);
+            return saleDate >= monthAgo;
+          case 'year':
+            const yearAgo = new Date(today);
+            yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+            return saleDate >= yearAgo;
+          default:
+            return true;
+        }
+      });
+    }
+    return filtered;
+  };
   const sendBarberPendingWhatsApp = async (barberId: string) => {
     try {
       const todayStr = new Date().toISOString().split('T')[0];
@@ -163,7 +229,6 @@ const BarbeiroDashboard = () => {
           photo_url,
           payment_method,
           client_name,
-          client:profiles(name),
           service:services(title)
         `)
         .eq('barber_id', barberId)
@@ -388,6 +453,67 @@ const BarbeiroDashboard = () => {
     }
   };
 
+  const loadTodayBreaks = async () => {
+    try {
+      const barberId = selectedBarber || currentUserBarber?.id;
+      if (!barberId) {
+        setTodayBreaks([]);
+        return;
+      }
+
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      const todayStr = `${yyyy}-${mm}-${dd}`;
+
+      const { data: breaksData, error: breaksError } = await (supabase as any)
+        .from('barber_breaks')
+        .select('id, date, start_time, end_time, notes')
+        .eq('barber_id', barberId)
+        .eq('date', todayStr)
+        .order('start_time', { ascending: true });
+
+      if (breaksError && breaksError.code !== 'PGRST116' && breaksError.code !== 'PGRST205' && breaksError.code !== '42P01') {
+        console.warn('Error loading today breaks:', breaksError);
+      }
+
+      let combined: any[] = breaksData || [];
+
+      try {
+        const barber = barbers.find(b => b.id === barberId) as any;
+        if (barber?.availability) {
+          const availability = typeof barber.availability === 'string'
+            ? JSON.parse(barber.availability)
+            : barber.availability;
+          const dayKey = getDayKey(new Date(todayStr + 'T00:00:00'));
+          const dayAvailability = availability?.[dayKey];
+          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
+            combined = [
+              ...combined,
+              {
+                id: `lunch-${barberId}-${todayStr}`,
+                date: todayStr,
+                start_time: dayAvailability.lunchStart,
+                end_time: dayAvailability.lunchEnd,
+                notes: 'Almoço',
+                isLunch: true,
+              },
+            ];
+          }
+        }
+      } catch (err) {
+        console.warn('Error loading lunch break for today:', err);
+      }
+
+      combined.sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)));
+      setTodayBreaks(combined);
+    } catch (err) {
+      console.error('Error in loadTodayBreaks:', err);
+      setTodayBreaks([]);
+    }
+  };
+
   const addMinutesToTime = (time: string, minutes: number) => {
     const [h, m] = time.split(':').map(Number);
     const base = new Date(2000, 0, 1, h, m, 0, 0);
@@ -425,6 +551,26 @@ const BarbeiroDashboard = () => {
           .eq('barber_id', barberId)
           .eq('date', newAppointment.date),
       ]);
+
+      let lunchBreak: { start_time: string; end_time: string } | null = null;
+      try {
+        const barber = barbers.find(b => b.id === barberId) as any;
+        if (barber?.availability) {
+          const availability = typeof barber.availability === 'string'
+            ? JSON.parse(barber.availability)
+            : barber.availability;
+          const dayKey = getDayKey(dateObj);
+          const dayAvailability = availability?.[dayKey];
+          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
+            lunchBreak = {
+              start_time: dayAvailability.lunchStart,
+              end_time: dayAvailability.lunchEnd,
+            };
+          }
+        }
+      } catch (e) {
+        console.warn('Falha ao validar horário de almoço do barbeiro (novo agendamento):', e);
+      }
       const daySlots = getTimeSlotsForDate(dateObj);
       const now = new Date();
       const todayStr = now.toISOString().split('T')[0];
@@ -435,7 +581,11 @@ const BarbeiroDashboard = () => {
         const dur = a.service?.duration || 30;
         return { start: a.appointment_time.slice(0,5), end: addMinutesToTime(a.appointment_time.slice(0,5), dur) };
       });
-      const breakRanges = (breaks || []).map((b: any) => ({ start: b.start_time.slice(0,5), end: b.end_time.slice(0,5) }));
+      const combinedBreaks = [
+        ...(breaks || []),
+        ...(lunchBreak ? [lunchBreak] : []),
+      ];
+      const breakRanges = combinedBreaks.map((b: any) => ({ start: b.start_time.slice(0,5), end: b.end_time.slice(0,5) }));
       const fitsInHours = (slot: string) => {
         // Ensure each 30-min block within service duration exists within operating hours
         const blocks = Math.ceil(serviceDuration / 30);
@@ -588,6 +738,58 @@ const BarbeiroDashboard = () => {
       loadAppointments();
     }
   }, [selectedBarber]);
+
+  useEffect(() => {
+    const barberId = selectedBarber || currentUserBarber?.id;
+    if (!barberId) return;
+
+    const channelName = `barber-breaks-${barberId}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'barber_breaks',
+          filter: `barber_id=eq.${barberId}`,
+        },
+        () => {
+          loadTodayBreaks();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedBarber, currentUserBarber?.id]);
+
+  useEffect(() => {
+    const barberId = selectedBarber || currentUserBarber?.id;
+    if (!barberId) return;
+
+    const channelName = `barber-lunch-${barberId}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'barbers',
+          filter: `id=eq.${barberId}`,
+        },
+        () => {
+          loadTodayBreaks();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedBarber, currentUserBarber?.id]);
 
   const formatWhatsappNumber = (raw: string) => {
     const digits = (raw || '').replace(/\D/g, '');
@@ -840,6 +1042,8 @@ const BarbeiroDashboard = () => {
     } else {
       setAppointments([]);
     }
+
+    await loadTodayBreaks();
   };
 
   const loadAdvances = async () => {
@@ -1668,7 +1872,6 @@ const BarbeiroDashboard = () => {
   const getAppointmentsByBarber = () => {
     const today = new Date().toISOString().split('T')[0];
     
-    // Filtrar agendamentos de hoje e futuros (pendentes e confirmados)
     const relevantAppointments = appointments
       .filter(a => {
         const isToday = a.appointment_date === today;
@@ -1677,16 +1880,43 @@ const BarbeiroDashboard = () => {
         return (isToday || isFuture) && isActiveStatus;
       })
       .sort((a, b) => {
-        // Ordenar por data primeiro, depois por horário
         if (a.appointment_date !== b.appointment_date) {
           return a.appointment_date.localeCompare(b.appointment_date);
         }
         return a.appointment_time.localeCompare(b.appointment_time);
       });
 
-    // Agrupar por barbeiro
+    let appointmentsWithBreaks = [...relevantAppointments];
+    const currentBarberId = selectedBarber || currentUserBarber?.id;
+    if (currentBarberId && todayBreaks.length > 0) {
+      const breakAppointments = todayBreaks.map((brk) => {
+        const startTime = String(brk.start_time || '').slice(0, 5);
+        const isLunch = brk.isLunch === true || brk.notes === 'Almoço';
+        const title = isLunch ? 'Almoço' : 'Pausa';
+        return {
+          id: `break-${brk.id}`,
+          barber_id: currentBarberId,
+          appointment_date: brk.date,
+          appointment_time: startTime,
+          client_name: title,
+          status: 'break',
+          service: { title },
+          notes: brk.notes || title,
+          isBreak: true,
+          break_start_time: brk.start_time,
+          break_end_time: brk.end_time,
+        };
+      });
+      appointmentsWithBreaks = [...appointmentsWithBreaks, ...breakAppointments].sort((a, b) => {
+        if (a.appointment_date !== b.appointment_date) {
+          return a.appointment_date.localeCompare(b.appointment_date);
+        }
+        return a.appointment_time.localeCompare(b.appointment_time);
+      });
+    }
+
     const appointmentsByBarber = barbers.map(barber => {
-      const barberAppointments = relevantAppointments.filter(a => a.barber_id === barber.id);
+      const barberAppointments = appointmentsWithBreaks.filter(a => a.barber_id === barber.id);
       return {
         barber,
         appointments: barberAppointments,
@@ -2352,9 +2582,14 @@ const BarbeiroDashboard = () => {
                               {list.length > 0 ? (
                                 <div className="space-y-3">
                                   {list.map((appointment) => {
-                                    const clientName = appointment.client_name || appointment.client?.name || 'Local';
+                                    const isBreak = appointment.isBreak || appointment.status === 'break';
+                                    const clientName = isBreak
+                                      ? (appointment.service?.title || 'Pausa')
+                                      : (appointment.client_name || appointment.client?.name || 'Local');
                                     const clientInitial = clientName.charAt(0).toUpperCase();
                                     const appointmentTime = appointment.appointment_time.slice(0, 5);
+                                    const breakStart = (appointment.break_start_time || appointment.appointment_time || '').slice(0, 5);
+                                    const breakEnd = (appointment.break_end_time || '').slice(0, 5);
                                     const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
                                     const bookingTypeLabel = appointment.booking_type === 'local' ? 'Local' : 
                                                            appointment.booking_type === 'manual' ? 'Manual' : 'Online';
@@ -2362,40 +2597,70 @@ const BarbeiroDashboard = () => {
                                                            appointment.booking_type === 'manual' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
                                                            'bg-green-500/20 text-green-400 border-green-500/30';
 
+                                    const cardClasses = isBreak
+                                      ? 'p-3 rounded-lg border cursor-default bg-red-500/10 border-red-400'
+                                      : 'p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-primary/5 border-primary/30';
+
+                                    const statusLabel = isBreak
+                                      ? 'Pausa / Almoço'
+                                      : (appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente');
+
+                                    const statusClasses = isBreak
+                                      ? 'px-2 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-500'
+                                      : `px-2 py-0.5 rounded text-xs font-medium ${
+                                          appointment.status === 'confirmed'
+                                            ? 'bg-green-500/20 text-green-400'
+                                            : 'bg-yellow-500/20 text-yellow-400'
+                                        }`;
+
                                     return (
                                       <div 
                                         key={appointment.id} 
-                                        className="p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-primary/5 border-primary/30"
-                                        onClick={() => handleAppointmentClick(appointment)}
+                                        className={cardClasses}
+                                        onClick={() => {
+                                          if (!isBreak) {
+                                            handleAppointmentClick(appointment);
+                                          }
+                                        }}
                                       >
                                         <div className="flex items-center gap-3">
-                                          <Avatar className="h-10 w-10 border border-border">
-                                            <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
-                                            <AvatarFallback className="bg-secondary text-foreground font-semibold">
+                                          <Avatar className={`h-10 w-10 border ${isBreak ? 'border-red-400 bg-red-500/10' : 'border-border'}`}>
+                                            <AvatarImage src={isBreak ? '' : (appointment.client?.photo_url || '')} alt={clientName} />
+                                            <AvatarFallback className={isBreak ? 'bg-red-500/20 text-red-500 font-semibold' : 'bg-secondary text-foreground font-semibold'}>
                                               {clientInitial}
                                             </AvatarFallback>
                                           </Avatar>
                                           <div className="flex-1 space-y-1">
                                             <div className="flex items-center justify-between">
-                                              <p className="font-semibold text-sm">{appointment.service?.title || 'Serviço'}</p>
+                                              <p className={`font-semibold text-sm ${isBreak ? 'text-red-600' : ''}`}>
+                                                {appointment.service?.title || 'Serviço'}
+                                              </p>
                                               <div className="flex items-center gap-2">
-                                                <span className="px-2 py-1 rounded text-xs font-medium bg-primary/20 text-primary">
-                                                  HOJE às {appointmentTime}
+                                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                                  isBreak ? 'bg-red-500/20 text-red-600' : 'bg-primary/20 text-primary'
+                                                }`}>
+                                                  {isBreak
+                                                    ? `HOJE ${breakStart}${breakEnd ? ` - ${breakEnd}` : ''}`
+                                                    : `HOJE às ${appointmentTime}`
+                                                  }
                                                 </span>
                                               </div>
                                             </div>
                                             <div className="flex items-center justify-between">
-                                              <p className="text-xs text-muted-foreground">Cliente: {clientName}</p>
+                                              <p className={`text-xs ${isBreak ? 'text-red-600' : 'text-muted-foreground'}`}>
+                                                {isBreak
+                                                  ? `Horário de pausa: ${breakStart}${breakEnd ? ` - ${breakEnd}` : ''}`
+                                                  : `Cliente: ${clientName}`
+                                                }
+                                              </p>
                                               <div className="flex items-center gap-2">
-                                                <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
-                                                  {bookingTypeLabel}
-                                                </span>
-                                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                                  appointment.status === 'confirmed'
-                                                    ? 'bg-green-500/20 text-green-400'
-                                                    : 'bg-yellow-500/20 text-yellow-400'
-                                                }`}>
-                                                  {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
+                                                {!isBreak && (
+                                                  <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
+                                                    {bookingTypeLabel}
+                                                  </span>
+                                                )}
+                                                <span className={statusClasses}>
+                                                  {statusLabel}
                                                 </span>
                                               </div>
                                             </div>
@@ -2458,9 +2723,14 @@ const BarbeiroDashboard = () => {
                               {list.length > 0 ? (
                                 <div className="space-y-3">
                                   {list.map((appointment) => {
-                                    const clientName = appointment.client_name || appointment.client?.name || 'Local';
+                                    const isBreak = appointment.isBreak || appointment.status === 'break';
+                                    const clientName = isBreak
+                                      ? (appointment.service?.title || 'Pausa')
+                                      : (appointment.client_name || appointment.client?.name || 'Local');
                                     const clientInitial = clientName.charAt(0).toUpperCase();
                                     const appointmentTime = appointment.appointment_time.slice(0, 5);
+                                    const breakStart = (appointment.break_start_time || appointment.appointment_time || '').slice(0, 5);
+                                    const breakEnd = (appointment.break_end_time || '').slice(0, 5);
                                     const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
                                     const bookingTypeLabel = appointment.booking_type === 'local' ? 'Local' : 
                                                            appointment.booking_type === 'manual' ? 'Manual' : 'Online';
@@ -2468,40 +2738,70 @@ const BarbeiroDashboard = () => {
                                                            appointment.booking_type === 'manual' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
                                                            'bg-green-500/20 text-green-400 border-green-500/30';
 
+                                    const cardClasses = isBreak
+                                      ? 'p-3 rounded-lg border cursor-default bg-red-500/10 border-red-400'
+                                      : 'p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-card border-border';
+
+                                    const statusLabel = isBreak
+                                      ? 'Pausa / Almoço'
+                                      : (appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente');
+
+                                    const statusClasses = isBreak
+                                      ? 'px-2 py-0.5 rounded text-xs font-medium bg-red-500/20 text-red-500'
+                                      : `px-2 py-0.5 rounded text-xs font-medium ${
+                                          appointment.status === 'confirmed'
+                                            ? 'bg-green-500/20 text-green-400'
+                                            : 'bg-yellow-500/20 text-yellow-400'
+                                        }`;
+
                                     return (
                                       <div 
                                         key={appointment.id} 
-                                        className="p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-card border-border"
-                                        onClick={() => handleAppointmentClick(appointment)}
+                                        className={cardClasses}
+                                        onClick={() => {
+                                          if (!isBreak) {
+                                            handleAppointmentClick(appointment);
+                                          }
+                                        }}
                                       >
                                         <div className="flex items-center gap-3">
-                                          <Avatar className="h-10 w-10 border border-border">
-                                            <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
-                                            <AvatarFallback className="bg-secondary text-foreground font-semibold">
+                                          <Avatar className={`h-10 w-10 border ${isBreak ? 'border-red-400 bg-red-500/10' : 'border-border'}`}>
+                                            <AvatarImage src={isBreak ? '' : (appointment.client?.photo_url || '')} alt={clientName} />
+                                            <AvatarFallback className={isBreak ? 'bg-red-500/20 text-red-500 font-semibold' : 'bg-secondary text-foreground font-semibold'}>
                                               {clientInitial}
                                             </AvatarFallback>
                                           </Avatar>
                                           <div className="flex-1 space-y-1">
                                             <div className="flex items-center justify-between">
-                                              <p className="font-semibold text-sm">{appointment.service?.title || 'Serviço'}</p>
+                                              <p className={`font-semibold text-sm ${isBreak ? 'text-red-600' : ''}`}>
+                                                {appointment.service?.title || 'Serviço'}
+                                              </p>
                                               <div className="flex items-center gap-2">
-                                                <span className="px-2 py-1 rounded text-xs font-medium bg-secondary text-muted-foreground">
-                                                  {format(appointmentDate, 'dd/MM', { locale: ptBR })} às {appointmentTime}
+                                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                                  isBreak ? 'bg-red-500/20 text-red-600' : 'bg-secondary text-muted-foreground'
+                                                }`}>
+                                                  {isBreak
+                                                    ? `${format(appointmentDate, 'dd/MM', { locale: ptBR })} ${breakStart}${breakEnd ? ` - ${breakEnd}` : ''}`
+                                                    : `${format(appointmentDate, 'dd/MM', { locale: ptBR })} às ${appointmentTime}`
+                                                  }
                                                 </span>
                                               </div>
                                             </div>
                                             <div className="flex items-center justify-between">
-                                              <p className="text-xs text-muted-foreground">Cliente: {clientName}</p>
+                                              <p className={`text-xs ${isBreak ? 'text-red-600' : 'text-muted-foreground'}`}>
+                                                {isBreak
+                                                  ? `Horário de pausa: ${breakStart}${breakEnd ? ` - ${breakEnd}` : ''}`
+                                                  : `Cliente: ${clientName}`
+                                                }
+                                              </p>
                                               <div className="flex items-center gap-2">
-                                                <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
-                                                  {bookingTypeLabel}
-                                                </span>
-                                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                                  appointment.status === 'confirmed'
-                                                    ? 'bg-green-500/20 text-green-400'
-                                                    : 'bg-yellow-500/20 text-yellow-400'
-                                                }`}>
-                                                  {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
+                                                {!isBreak && (
+                                                  <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
+                                                    {bookingTypeLabel}
+                                                  </span>
+                                                )}
+                                                <span className={statusClasses}>
+                                                  {statusLabel}
                                                 </span>
                                               </div>
                                             </div>
@@ -2886,6 +3186,67 @@ const BarbeiroDashboard = () => {
                           : 'Nenhum agendamento encontrado com os filtros selecionados'}
                       </p>
                     );
+                    })()}
+                  </CardContent>
+                </Card>
+                
+                <Card className="bg-card border-border">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Histórico de Produtos</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {loadingProductHistory ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                      </div>
+                    ) : (() => {
+                      const sales = getFilteredProductHistory();
+                      return sales.length > 0 ? (
+                        <div className="space-y-3">
+                          {sales.map((sale) => (
+                            <div key={sale.id} className="p-3 rounded-lg border bg-secondary/20 border-border">
+                              <div className="flex justify-between items-start gap-3">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-bold text-sm">{sale.product?.name || 'Produto'}</p>
+                                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                      sale.status === 'confirmed' ? 'bg-green-500/20 text-green-500' :
+                                      sale.status === 'pending' ? 'bg-yellow-500/20 text-yellow-600' :
+                                      'bg-red-500/20 text-red-500'
+                                    }`}>
+                                      {sale.status === 'confirmed' ? 'Confirmado' : sale.status === 'pending' ? 'Pendente' : 'Cancelado'}
+                                    </span>
+                                  </div>
+                                  {sale.notes && (
+                                    <p className="text-xs text-muted-foreground">{sale.notes}</p>
+                                  )}
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                    <div className="flex items-center gap-2">
+                                      <Calendar className="h-3 w-3" />
+                                      <span>{new Date(sale.sale_date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Clock className="h-3 w-3" />
+                                      <span className="font-bold text-primary">{String(sale.sale_time).slice(0,5)}</span>
+                                    </div>
+                                    <div className="text-primary font-bold">
+                                      R$ {Number(sale.total_price).toFixed(2)}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="text-xs text-right min-w-[80px]">
+                                  <div className="text-muted-foreground">Qtd</div>
+                                  <div className="font-semibold">{sale.quantity}</div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-center text-muted-foreground py-8">
+                          Nenhuma venda de produto encontrada no período selecionado
+                        </p>
+                      );
                     })()}
                   </CardContent>
                 </Card>

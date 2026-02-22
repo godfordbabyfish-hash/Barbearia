@@ -85,11 +85,9 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
 
   useEffect(() => {
     if (dialogOpen && !editingBreak) {
-      // Reset form when opening for new break
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      const today = new Date();
       setFormData({
-        date: format(tomorrow, 'yyyy-MM-dd'),
+        date: format(today, 'yyyy-MM-dd'),
         startTime: '',
         endTime: '',
       });
@@ -103,6 +101,86 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
       setConflictInfo(null);
     }
   }, [dialogOpen, editingBreak]);
+
+  useEffect(() => {
+    if (!formData.date || editingBreak) return;
+    if (formData.startTime || formData.endTime) return;
+    if (!barberId) return;
+
+    const [year, month, day] = formData.date.split('-').map(Number);
+    const selectedDate = new Date(year, (month || 1) - 1, day || 1);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    selectedDate.setHours(0, 0, 0, 0);
+
+    const dayKey = getDayKey(selectedDate as any);
+    const dayHours = operatingHours[dayKey];
+    if (!dayHours || dayHours.closed) return;
+
+    const [openH, openM] = dayHours.open.split(':').map(Number);
+    const [closeH, closeM] = dayHours.close.split(':').map(Number);
+    const openMinutes = openH * 60 + openM;
+    const closeMinutes = closeH * 60 + closeM;
+
+    const minutesToTime = (m: number) => {
+      const h = Math.floor(m / 60);
+      const mm = m % 60;
+      return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    };
+
+    const suggest = async () => {
+      let startMinutes: number;
+      if (selectedDate.getTime() === today.getTime()) {
+        const now = new Date();
+        const nowMinutes = now.getHours() * 60 + now.getMinutes();
+        startMinutes = Math.max(nowMinutes, openMinutes);
+        startMinutes = Math.ceil(startMinutes / 30) * 30;
+      } else if (selectedDate > today) {
+        startMinutes = openMinutes;
+      } else {
+        return;
+      }
+
+      if (startMinutes >= closeMinutes) return;
+
+      let safeStartMinutes = startMinutes;
+      const maxIterations = 20;
+
+      for (let i = 0; i < maxIterations; i++) {
+        const startStr = minutesToTime(safeStartMinutes);
+        const endStr = minutesToTime(closeMinutes);
+        const conflict = await checkConflict(
+          barberId,
+          formData.date,
+          startStr,
+          endStr,
+          editingBreak?.id
+        );
+
+        if (!conflict.hasConflict || !conflict.appointment) {
+          const suggestedStart = startStr;
+          const suggestedEnd = endStr;
+          setFormData(prev => ({
+            ...prev,
+            startTime: suggestedStart,
+            endTime: suggestedEnd,
+          }));
+          return;
+        }
+
+        const [endH, endM] = conflict.appointment.appointmentEndTime.split(':').map(Number);
+        const conflictEndMinutes = endH * 60 + endM;
+        safeStartMinutes = Math.max(safeStartMinutes, conflictEndMinutes);
+        safeStartMinutes = Math.ceil(safeStartMinutes / 30) * 30;
+
+        if (safeStartMinutes >= closeMinutes) {
+          return;
+        }
+      }
+    };
+
+    suggest();
+  }, [formData.date, editingBreak, operatingHours, barberId]);
 
   // Check for conflicts when form data changes
   useEffect(() => {
@@ -124,7 +202,7 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
     } else {
       setConflictInfo(null);
     }
-  }, [formData.date, formData.startTime, formData.endTime, barberId, editingBreak?.id, checkConflict]);
+  }, [formData.date, formData.startTime, formData.endTime, barberId, editingBreak?.id]);
 
   const handleSave = async () => {
     if (!formData.date || !formData.startTime || !formData.endTime) {
@@ -137,8 +215,9 @@ export const BarberBreakManager = ({ barberId }: BarberBreakManagerProps) => {
       return;
     }
 
-    // Check if date is in the past
-    const selectedDate = new Date(formData.date);
+    // Check if date is in the past (parse como data local para evitar bug de fuso)
+    const [year, month, day] = formData.date.split('-').map(Number);
+    const selectedDate = new Date(year, (month || 1) - 1, day || 1);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     selectedDate.setHours(0, 0, 0, 0);

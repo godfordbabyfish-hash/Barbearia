@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { ShoppingBag, Plus, Loader2, DollarSign, Calendar, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { ShoppingBag, Plus, Loader2, DollarSign, Calendar, CheckCircle, XCircle, AlertCircle, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
@@ -49,6 +49,10 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [dateFrom, setDateFrom] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [dateTo, setDateTo] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'pending' | 'cancelled'>('all');
   const [selectedProduct, setSelectedProduct] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(1);
   const [saleDate, setSaleDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
@@ -98,7 +102,7 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
 
   const loadSales = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+    let query = supabase
       .from('product_sales')
       .select(`
         id,
@@ -114,7 +118,14 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
         status,
         product:products(id, name, price, stock)
       `)
-      .eq('barber_id', barberId)
+      .eq('barber_id', barberId);
+    if (dateFrom && dateTo) {
+      query = query.gte('sale_date', dateFrom).lte('sale_date', dateTo);
+    }
+    if (statusFilter !== 'all') {
+      query = query.eq('status', statusFilter);
+    }
+    const { data, error } = await query
       .order('sale_date', { ascending: false })
       .order('sale_time', { ascending: false })
       .limit(50);
@@ -270,14 +281,54 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
               Registre vendas de produtos do shop e acompanhe suas comissões
             </CardDescription>
           </div>
-          <Button onClick={() => setDialogOpen(true)} size="sm" className="flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 text-xs"
+              onClick={() => setShowFilters(v => !v)}
+            >
+              <Filter className="h-3 w-3 mr-1" />
+              {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+            </Button>
+            <Button onClick={() => setDialogOpen(true)} size="sm" className="flex-shrink-0">
             <Plus className="h-4 w-4 mr-2" />
             <span className="hidden sm:inline">Nova Venda</span>
             <span className="sm:hidden">Venda</span>
-          </Button>
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="w-full p-3 sm:p-4 md:p-6" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+        <div className={`${showFilters ? '' : 'hidden'} mb-4 pb-3 border-b border-border`}>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Data Inicial</Label>
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Data Final</Label>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">Status</Label>
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="confirmed">Confirmado</SelectItem>
+                  <SelectItem value="pending">Pendente</SelectItem>
+                  <SelectItem value="cancelled">Cancelado</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="mt-3">
+            <Button size="sm" variant="outline" onClick={loadSales}>Aplicar filtros</Button>
+          </div>
+        </div>
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
