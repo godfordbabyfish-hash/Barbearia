@@ -13,7 +13,8 @@ import {
   X,
   MessageSquare,
   LogOut,
-  History
+  History,
+  ListChecks
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
@@ -44,6 +45,7 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
     { id: 'users', label: 'Usuários', icon: <User className="h-4 w-4" />, adminOnly: true },
     { id: 'financial', label: 'Financeiro', icon: <DollarSign className="h-4 w-4" /> },
     { id: 'historico-cp', label: 'Histórico CP', icon: <History className="h-4 w-4" /> },
+    { id: 'fila', label: 'Fila', icon: <ListChecks className="h-4 w-4" /> },
     { id: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
     // Gestor também pode acessar as Configurações do Site
     { id: 'config', label: 'Configurações', icon: <Settings className="h-4 w-4" />, adminOnly: true },

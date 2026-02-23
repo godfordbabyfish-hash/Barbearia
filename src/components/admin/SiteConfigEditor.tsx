@@ -8,6 +8,58 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { Palette, MapPin } from 'lucide-react';
 
+const hslToHex = (hsl: string): string => {
+  try {
+    const parts = hsl.trim().split(/\s+/);
+    if (parts.length < 3) return '#000000';
+    const h = Math.max(0, Math.min(360, parseFloat(parts[0])));
+    const s = Math.max(0, Math.min(100, parseFloat(parts[1].replace('%', '')))) / 100;
+    const l = Math.max(0, Math.min(100, parseFloat(parts[2].replace('%', '')))) / 100;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - c / 2;
+    let r1 = 0, g1 = 0, b1 = 0;
+    if (h >= 0 && h < 60) { r1 = c; g1 = x; b1 = 0; }
+    else if (h >= 60 && h < 120) { r1 = x; g1 = c; b1 = 0; }
+    else if (h >= 120 && h < 180) { r1 = 0; g1 = c; b1 = x; }
+    else if (h >= 180 && h < 240) { r1 = 0; g1 = x; b1 = c; }
+    else if (h >= 240 && h < 300) { r1 = x; g1 = 0; b1 = c; }
+    else { r1 = c; g1 = 0; b1 = x; }
+    const r = Math.round((r1 + m) * 255);
+    const g = Math.round((g1 + m) * 255);
+    const b = Math.round((b1 + m) * 255);
+    const toHex = (v: number) => v.toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  } catch {
+    return '#000000';
+  }
+};
+
+const hexToHsl = (hex: string): string => {
+  try {
+    const clean = hex.replace('#', '');
+    const r = parseInt(clean.substring(0, 2), 16) / 255;
+    const g = parseInt(clean.substring(2, 4), 16) / 255;
+    const b = parseInt(clean.substring(4, 6), 16) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const d = max - min;
+    let h = 0;
+    if (d !== 0) {
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h = Math.round(h * 60);
+      if (h < 0) h += 360;
+    }
+    const l = (max + min) / 2;
+    const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+    return `${Math.round(h)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+  } catch {
+    return '0 0% 0%';
+  }
+};
+
 const defaultThemeColors = {
   primary: '45 100% 60%',
   primary_foreground: '0 0% 5%',
@@ -189,87 +241,102 @@ const SiteConfigEditor = () => {
           <div className="space-y-3 sm:space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               <div>
-                <Label className="text-sm">Cor Primária (HSL)</Label>
-                <Input
-                  value={themeColors.primary ?? ''}
-                  onChange={(e) => setThemeColors({ ...themeColors, primary: e.target.value })}
-                  placeholder="45 100% 60%"
-                  className="w-full"
-                />
+                <Label className="text-sm">Cor Primária</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="color"
+                    value={hslToHex(themeColors.primary ?? '')}
+                    onChange={(e) => setThemeColors({ ...themeColors, primary: hexToHsl(e.target.value) })}
+                    className="w-14 h-10 p-1"
+                  />
+                  <Input value={`hsl(${themeColors.primary})`} disabled className="flex-1" />
+                </div>
                 <div 
                   className="mt-2 h-8 sm:h-10 rounded border"
                   style={{ backgroundColor: `hsl(${themeColors.primary})` }}
                 />
               </div>
               <div>
-                <Label className="text-sm">Cor Secundária (HSL)</Label>
-                <Input
-                  value={themeColors.secondary ?? ''}
-                  onChange={(e) => setThemeColors({ ...themeColors, secondary: e.target.value })}
-                  placeholder="0 0% 12%"
-                  className="w-full"
-                />
+                <Label className="text-sm">Cor Secundária</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="color"
+                    value={hslToHex(themeColors.secondary ?? '')}
+                    onChange={(e) => setThemeColors({ ...themeColors, secondary: hexToHsl(e.target.value) })}
+                    className="w-14 h-10 p-1"
+                  />
+                  <Input value={`hsl(${themeColors.secondary})`} disabled className="flex-1" />
+                </div>
                 <div 
                   className="mt-2 h-8 sm:h-10 rounded border"
                   style={{ backgroundColor: `hsl(${themeColors.secondary})` }}
                 />
               </div>
               <div>
-                <Label className="text-sm">Cor de Fundo (HSL)</Label>
-                <Input
-                  value={themeColors.background ?? ''}
-                  onChange={(e) => setThemeColors({ ...themeColors, background: e.target.value })}
-                  placeholder="0 0% 5%"
-                  className="w-full"
-                />
+                <Label className="text-sm">Cor de Fundo</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="color"
+                    value={hslToHex(themeColors.background ?? '')}
+                    onChange={(e) => setThemeColors({ ...themeColors, background: hexToHsl(e.target.value) })}
+                    className="w-14 h-10 p-1"
+                  />
+                  <Input value={`hsl(${themeColors.background})`} disabled className="flex-1" />
+                </div>
                 <div 
                   className="mt-2 h-8 sm:h-10 rounded border"
                   style={{ backgroundColor: `hsl(${themeColors.background})` }}
                 />
               </div>
               <div>
-                <Label className="text-sm">Cor de Texto (HSL)</Label>
-                <Input
-                  value={themeColors.foreground ?? ''}
-                  onChange={(e) => setThemeColors({ ...themeColors, foreground: e.target.value })}
-                  placeholder="0 0% 98%"
-                  className="w-full"
-                />
+                <Label className="text-sm">Cor de Texto</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="color"
+                    value={hslToHex(themeColors.foreground ?? '')}
+                    onChange={(e) => setThemeColors({ ...themeColors, foreground: hexToHsl(e.target.value) })}
+                    className="w-14 h-10 p-1"
+                  />
+                  <Input value={`hsl(${themeColors.foreground})`} disabled className="flex-1" />
+                </div>
                 <div 
                   className="mt-2 h-8 sm:h-10 rounded border"
                   style={{ backgroundColor: `hsl(${themeColors.foreground})` }}
                 />
               </div>
               <div>
-                <Label className="text-sm">Cor Principal dos Títulos (HSL)</Label>
-                <Input
-                  value={themeColors.sectionTitlePrimary ?? ''}
-                  onChange={(e) => setThemeColors({ ...themeColors, sectionTitlePrimary: e.target.value })}
-                  placeholder="0 0% 98%"
-                  className="w-full"
-                />
+                <Label className="text-sm">Cor Principal dos Títulos</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="color"
+                    value={hslToHex(themeColors.sectionTitlePrimary ?? '')}
+                    onChange={(e) => setThemeColors({ ...themeColors, sectionTitlePrimary: hexToHsl(e.target.value) })}
+                    className="w-14 h-10 p-1"
+                  />
+                  <Input value={`hsl(${themeColors.sectionTitlePrimary})`} disabled className="flex-1" />
+                </div>
                 <div 
                   className="mt-2 h-8 sm:h-10 rounded border"
                   style={{ backgroundColor: `hsl(${themeColors.sectionTitlePrimary})` }}
                 />
               </div>
               <div>
-                <Label className="text-sm">Cor de Destaque dos Títulos (HSL)</Label>
-                <Input
-                  value={themeColors.sectionTitleAccent ?? ''}
-                  onChange={(e) => setThemeColors({ ...themeColors, sectionTitleAccent: e.target.value })}
-                  placeholder="45 100% 60%"
-                  className="w-full"
-                />
+                <Label className="text-sm">Cor de Destaque dos Títulos</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="color"
+                    value={hslToHex(themeColors.sectionTitleAccent ?? '')}
+                    onChange={(e) => setThemeColors({ ...themeColors, sectionTitleAccent: hexToHsl(e.target.value) })}
+                    className="w-14 h-10 p-1"
+                  />
+                  <Input value={`hsl(${themeColors.sectionTitleAccent})`} disabled className="flex-1" />
+                </div>
                 <div 
                   className="mt-2 h-8 sm:h-10 rounded border"
                   style={{ backgroundColor: `hsl(${themeColors.sectionTitleAccent})` }}
                 />
               </div>
             </div>
-            <p className="text-sm text-muted-foreground">
-              💡 Use valores HSL (Hue Saturation Lightness). Exemplo: "45 100% 60%" para dourado.
-            </p>
             <Button onClick={saveThemeColors} className="w-full sm:w-auto">Salvar Cores</Button>
           </div>
         </CardContent>

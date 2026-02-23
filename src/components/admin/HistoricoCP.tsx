@@ -80,6 +80,7 @@ const HistoricoCP = () => {
   const [filterService, setFilterService] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
+  const [filterPayment, setFilterPayment] = useState<'all' | 'pix' | 'dinheiro' | 'cartao' | 'none'>('all');
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [manualType, setManualType] = useState<'service' | 'product'>('service');
   const [manualBarberId, setManualBarberId] = useState<string>('');
@@ -111,7 +112,7 @@ const HistoricoCP = () => {
   useEffect(() => {
     loadAppointments();
     loadProductSales();
-  }, [filterDateFrom, filterDateTo, filterBarber, filterService, filterStatus, filterType]);
+  }, [filterDateFrom, filterDateTo, filterBarber, filterService, filterStatus, filterType, filterPayment]);
 
   const loadBarbers = async () => {
     const { data, error } = await supabase
@@ -251,16 +252,29 @@ const HistoricoCP = () => {
 
       if (error) throw error;
 
-      // Carregar dados dos clientes separadamente
-      if (data && data.length > 0) {
-        const clientIds = [...new Set(data.map(apt => apt.client_id))];
+      const raw = (data || []) as any[];
+      const filteredByPayment =
+        filterPayment === 'all'
+          ? raw
+          : raw.filter((apt) => {
+              const payments = Array.isArray(apt.appointment_payments) ? apt.appointment_payments : [];
+              if (filterPayment === 'none') {
+                return (!apt.payment_method || apt.payment_method === '') && payments.length === 0;
+              }
+              const topMatch = apt.payment_method === filterPayment;
+              const nestedMatch = payments.some((p: any) => p?.payment_method === filterPayment);
+              return topMatch || nestedMatch;
+            });
+
+      if (filteredByPayment && filteredByPayment.length > 0) {
+        const clientIds = [...new Set(filteredByPayment.map(apt => apt.client_id))];
         const { data: clientsData } = await supabase
           .from('profiles')
           .select('id, name, phone')
           .in('id', clientIds);
 
         const clientsMap = new Map(clientsData?.map(c => [c.id, c]) || []);
-        const appointmentsWithClients = data.map(apt => ({
+        const appointmentsWithClients = filteredByPayment.map(apt => ({
           ...apt,
           client: clientsMap.get(apt.client_id) || null,
         }));
@@ -553,7 +567,7 @@ const HistoricoCP = () => {
         </CardHeader>
         <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
           <div className={`${showFilters ? '' : 'hidden'} mb-4 sm:mb-6 pb-3 border-b border-border`}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3 sm:gap-4">
             <div>
               <Label className="text-sm text-muted-foreground mb-1 block">Data Inicial</Label>
               <Input
@@ -630,6 +644,21 @@ const HistoricoCP = () => {
                   <SelectItem value="local">Local</SelectItem>
                   <SelectItem value="online">Online</SelectItem>
                   <SelectItem value="manual">Manual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-sm text-muted-foreground mb-1 block">Pagamento</Label>
+              <Select value={filterPayment} onValueChange={(v) => setFilterPayment(v as any)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="pix">Pix</SelectItem>
+                  <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                  <SelectItem value="cartao">Cartão</SelectItem>
+                  <SelectItem value="none">Sem pagamento</SelectItem>
                 </SelectContent>
               </Select>
             </div>

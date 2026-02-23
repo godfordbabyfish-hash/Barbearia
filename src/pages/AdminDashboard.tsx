@@ -33,6 +33,7 @@ import { uploadPublicImage } from '@/utils/storage';
 import { WhatsAppManager } from '@/components/admin/WhatsAppManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
+import FilaDaBarbearia from '@/pages/FilaDaBarbearia';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -1085,6 +1086,13 @@ const AdminDashboard = () => {
             {activeTab === 'historico-cp' && (
               <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
                 <HistoricoCP />
+              </div>
+            )}
+
+            {activeTab === 'fila' && (
+              <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Fila da Barbearia</h2>
+                <FilaDaBarbearia />
               </div>
             )}
 

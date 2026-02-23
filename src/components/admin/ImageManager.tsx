@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Upload, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { uploadPublicImage } from '@/utils/storage';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
 interface ImageItem {
   id: string;
@@ -200,63 +201,66 @@ const ImageManager = () => {
   }, {} as Record<string, ImageItem[]>);
 
   return (
-    <div className="space-y-8">
+    <Accordion type="multiple" defaultValue={[]} className="space-y-2">
       {Object.entries(imagesByCategory).map(([category, categoryImages]) => (
-        <div key={category} className="space-y-4">
-          <h3 className="text-2xl font-bold border-b border-border pb-2">
+        <AccordionItem key={category} value={category}>
+          <AccordionTrigger className="text-xl font-bold">
             {getCategoryLabel(category)}
-          </h3>
-          <div className="grid gap-4">
-            {categoryImages.map((imageItem) => (
-          <Card key={imageItem.id} className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center justify-between">
-                <span>{imageItem.label}</span>
-                <span className="text-sm text-muted-foreground font-normal">
-                  {getCategoryLabel(imageItem.category)}
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col md:flex-row gap-4 items-center">
-                {imageItem.currentUrl && (
-                  <div className="w-32 h-32 flex-shrink-0">
-                    <img 
-                      src={imageItem.currentUrl} 
-                      alt={imageItem.label}
-                      className="w-full h-full object-cover rounded border border-border"
-                    />
-                  </div>
-                )}
-                <div className="flex-1 space-y-2">
-                  <Label htmlFor={`upload-${imageItem.id}`}>
-                    Escolher nova imagem
-                  </Label>
-                  <Input
-                    id={`upload-${imageItem.id}`}
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImageUpload(imageItem, file);
-                    }}
-                    disabled={uploading === imageItem.id}
-                  />
-                  {uploading === imageItem.id && (
-                    <p className="text-sm text-muted-foreground flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Enviando...
-                    </p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-            ))}
-          </div>
-        </div>
+            <span className="ml-2 text-xs text-muted-foreground">({categoryImages.length})</span>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="grid gap-4">
+              {categoryImages.map((imageItem) => (
+                <Card key={imageItem.id} className="bg-card border-border">
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center justify-between">
+                      <span>{imageItem.label}</span>
+                      <span className="text-sm text-muted-foreground font-normal">
+                        {getCategoryLabel(imageItem.category)}
+                      </span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-col md:flex-row gap-4 items-center">
+                      {imageItem.currentUrl && (
+                        <div className="w-32 h-32 flex-shrink-0">
+                          <img 
+                            src={imageItem.currentUrl} 
+                            alt={imageItem.label}
+                            className="w-full h-full object-cover rounded border border-border"
+                          />
+                        </div>
+                      )}
+                      <div className="flex-1 space-y-2">
+                        <Label htmlFor={`upload-${imageItem.id}`}>
+                          Escolher nova imagem
+                        </Label>
+                        <Input
+                          id={`upload-${imageItem.id}`}
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleImageUpload(imageItem, file);
+                          }}
+                          disabled={uploading === imageItem.id}
+                        />
+                        {uploading === imageItem.id && (
+                          <p className="text-sm text-muted-foreground flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Enviando...
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
       ))}
-    </div>
+    </Accordion>
   );
 };
 
