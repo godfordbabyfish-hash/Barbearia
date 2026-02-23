@@ -500,18 +500,11 @@ export const UserManager = () => {
   };
 
   const canModifyUser = (user: User) => {
-    // Admin can modify anyone except themselves for deletion
-    if (currentUserRole === 'admin') return true;
-    // Gestor cannot modify admins
-    if (currentUserRole === 'gestor' && user.role === 'admin') return false;
     return true;
   };
 
   const canDeleteUser = (user: User) => {
-    // Cannot delete self
     if (user.id === currentUser?.id) return false;
-    // Gestor cannot delete admins
-    if (currentUserRole === 'gestor' && user.role === 'admin') return false;
     return true;
   };
 
@@ -832,7 +825,7 @@ export const UserManager = () => {
                 <SelectContent>
                   <SelectItem value="barbeiro">Barbeiro</SelectItem>
                   <SelectItem value="gestor">Gestor</SelectItem>
-                  {currentUserRole === 'admin' && (
+                  {(currentUserRole === 'admin' || currentUserRole === 'gestor') && (
                     <SelectItem value="admin">Admin</SelectItem>
                   )}
                 </SelectContent>

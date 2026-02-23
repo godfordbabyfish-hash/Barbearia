@@ -52,14 +52,9 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
     { id: 'images', label: 'Imagens', icon: <ImageIcon className="h-4 w-4" />, adminOnly: true },
   ];
 
-  // Itens marcados como adminOnly só aparecem para admin,
-  // com exceção de "config", "users" e "whatsapp", que também são liberados para gestor.
   const filteredMenuItems = menuItems.filter(item => {
     if (!item.adminOnly) return true;
-    if ((item.id === 'config' || item.id === 'users' || item.id === 'whatsapp') && (role === 'admin' || role === 'gestor')) {
-      return true;
-    }
-    return role === 'admin';
+    return role === 'admin' || role === 'gestor';
   });
 
   const handleTabChange = (tab: string) => {
