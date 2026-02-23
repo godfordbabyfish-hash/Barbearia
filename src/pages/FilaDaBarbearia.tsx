@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Home, MapPin, Globe, Clock, Users, Scissors, LayoutDashboard, Ban } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Home, MapPin, Globe, Clock, Users, Scissors, LayoutDashboard, Ban, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { QuickBookingDialog } from "@/components/QuickBookingDialog";
 import { format, addMinutes } from "date-fns";
@@ -10,6 +13,8 @@ import { getAvailableSlotsForBarber, BarberBreak } from "@/utils/availability";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "sonner";
+import { defaultBarberAvailability } from "@/hooks/useBarberAvailability";
 
 interface Appointment {
   id: string;
@@ -33,12 +38,27 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const [barbers, setBarbers] = useState<any[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [availableSlotsByBarber, setAvailableSlotsByBarber] = useState<Record<string, string[]>>({});
-  const [barberBreaksByBarber, setBarberBreaksByBarber] = useState<Record<string, BarberBreak[]>>({});
+  type BreakRow = { id?: string; start_time: string; end_time: string };
+  const [barberBreaksByBarber, setBarberBreaksByBarber] = useState<Record<string, BreakRow[]>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState("");
   const [quickBookingOpen, setQuickBookingOpen] = useState(false);
   const [quickBookingPreselectedBarberId, setQuickBookingPreselectedBarberId] = useState<string | null>(null);
   const [currentUserBarberId, setCurrentUserBarberId] = useState<string | null>(null);
+  const [breakDialogOpen, setBreakDialogOpen] = useState(false);
+  const [breakBarberId, setBreakBarberId] = useState<string | null>(null);
+  const [breakStart, setBreakStart] = useState<string>("");
+  const [breakEnd, setBreakEnd] = useState<string>("");
+  const [breakMode, setBreakMode] = useState<"block" | "release">("block");
+  const [breakSubmitting, setBreakSubmitting] = useState(false);
+  const [breakDate, setBreakDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
+  const [breaksForDialog, setBreaksForDialog] = useState<any[]>([]);
+  const [openDayDialogOpen, setOpenDayDialogOpen] = useState(false);
+  const [openDayBarberId, setOpenDayBarberId] = useState<string | null>(null);
+  const [openDayStart, setOpenDayStart] = useState<string>("");
+  const [openDayEnd, setOpenDayEnd] = useState<string>("");
+  const [manageBreaksOpen, setManageBreaksOpen] = useState(false);
+  const [manageBreaksBarberId, setManageBreaksBarberId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
   const { role } = useAuth();
@@ -117,7 +137,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       }
       const { data, error } = await (supabase as any)
         .from("barber_breaks")
-        .select("barber_id, start_time, end_time")
+        .select("id, barber_id, start_time, end_time")
         .in("barber_id", barberIds)
         .eq("date", todayStr)
         .order("start_time");
@@ -125,10 +145,11 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         setBarberBreaksByBarber({});
         return;
       }
-      const map: Record<string, BarberBreak[]> = {};
+      const map: Record<string, BreakRow[]> = {};
       (data || []).forEach((row: any) => {
         if (!map[row.barber_id]) map[row.barber_id] = [];
         map[row.barber_id].push({
+          id: row.id,
           start_time: row.start_time,
           end_time: row.end_time,
         });
@@ -312,6 +333,24 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     }
   };
 
+  const getBarberAvailableUntilToday = (barber: any): string | null => {
+    try {
+      const availability = typeof barber.availability === "string"
+        ? JSON.parse(barber.availability)
+        : barber.availability;
+      const dayKeyMap = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const;
+      const dayKey = dayKeyMap[todayDate.getDay()];
+      const day = availability?.[dayKey];
+      if (!day || day.closed) return null;
+      if (day.close) return String(day.close).slice(0,5);
+      const shopSlots = getTimeSlotsForDate(todayDate);
+      return shopSlots.length > 0 ? shopSlots[shopSlots.length - 1] : null;
+    } catch {
+      const shopSlots = getTimeSlotsForDate(todayDate);
+      return shopSlots.length > 0 ? shopSlots[shopSlots.length - 1] : null;
+    }
+  };
+
   // Compute available slots per barber (for barber cards)
   useEffect(() => {
     if (hoursLoading || barbers.length === 0 || !isDateOpen(todayDate)) {
@@ -408,19 +447,123 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   };
 
   const handleSlotClick = (slot: string) => {
+    setManageBreaksOpen(false);
     setSelectedSlot(slot);
     setQuickBookingPreselectedBarberId(null);
     setDialogOpen(true);
   };
 
   const handleBarberCardClick = (barberId: string) => {
-    setQuickBookingPreselectedBarberId(barberId);
-    setQuickBookingOpen(true);
+    setManageBreaksBarberId(barberId);
+    setManageBreaksOpen(true);
   };
 
   const handleQuickBookingClose = (open: boolean) => {
     setQuickBookingOpen(open);
     if (!open) setQuickBookingPreselectedBarberId(null);
+  };
+
+  const openBreakDialog = (barberId: string, mode: "block" | "release") => {
+    setManageBreaksOpen(false);
+    setBreakBarberId(barberId);
+    setBreakMode(mode);
+    const now = new Date();
+    const start = format(now, "HH:mm");
+    const end = format(addMinutes(now, 30), "HH:mm");
+    setBreakStart(start);
+    setBreakEnd(end);
+    setBreakDate(format(new Date(), "yyyy-MM-dd"));
+    setBreakDialogOpen(true);
+  };
+
+  const openOpenDayDialog = (barberId: string) => {
+    setManageBreaksOpen(false);
+    setOpenDayBarberId(barberId);
+    const shopSlots = getTimeSlotsForDate(todayDate);
+    const defaultStart = shopSlots[0] || "09:00";
+    const defaultEnd = shopSlots[shopSlots.length - 1] || "18:00";
+    setOpenDayStart(defaultStart);
+    setOpenDayEnd(defaultEnd);
+    setOpenDayDialogOpen(true);
+  };
+
+  const handleSubmitBreak = async () => {
+    setBreakSubmitting(true);
+    try {
+      if (breakMode === "block") {
+        if (!breakBarberId || !breakStart || !breakEnd) {
+          toast.error("Preencha horário");
+          return;
+        }
+        if (breakEnd <= breakStart) {
+          toast.error("Fim deve ser maior que início");
+          return;
+        }
+        const { error } = await supabase
+          .from("barber_breaks")
+          .insert({
+            barber_id: breakBarberId,
+            date: breakDate,
+            start_time: breakStart,
+            end_time: breakEnd,
+          });
+        if (error) throw error;
+        toast.success("Intervalo bloqueado");
+      } else {
+        toast.success("Use os botões de excluir para liberar intervalos");
+      }
+      setBreakDialogOpen(false);
+      setBreakBarberId(null);
+      await loadBreaksForToday();
+      await calculateAvailableSlots();
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao atualizar intervalo");
+    } finally {
+      setBreakSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    const loadBreaksForDate = async () => {
+      if (!breakDialogOpen || !breakBarberId || !breakDate) {
+        setBreaksForDialog([]);
+        return;
+      }
+      const { data } = await (supabase as any)
+        .from("barber_breaks")
+        .select("id, start_time, end_time")
+        .eq("barber_id", breakBarberId)
+        .eq("date", breakDate)
+        .order("start_time");
+      setBreaksForDialog(data || []);
+    };
+    loadBreaksForDate();
+  }, [breakDialogOpen, breakBarberId, breakDate]);
+
+  const toggleClosedToday = async (barberId: string, closed: boolean) => {
+    try {
+      const { data, error } = await supabase
+        .from("barbers")
+        .select("availability")
+        .eq("id", barberId)
+        .maybeSingle();
+      if (error) throw error;
+      const base = data?.availability ? data.availability : {};
+      const dayKeyMap = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"] as const;
+      const dayKey = dayKeyMap[todayDate.getDay()];
+      const currentDay = base?.[dayKey] || defaultBarberAvailability[dayKey];
+      const newAvailability = { ...defaultBarberAvailability, ...base, [dayKey]: { ...currentDay, closed } };
+      const { error: updError } = await supabase
+        .from("barbers")
+        .update({ availability: newAvailability as any })
+        .eq("id", barberId);
+      if (updError) throw updError;
+      toast.success(closed ? "Barbeiro fechado hoje" : "Barbeiro aberto hoje");
+      await loadBarbers();
+      await calculateAvailableSlots();
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao atualizar disponibilidade");
+    }
   };
 
   return (
@@ -507,6 +650,28 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                             <Clock className="h-3 w-3" />
                             Hoje: {todayCount}
                           </span>
+                          {!closedToday && (
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Disponível até {(slots.length > 0 ? slots[slots.length - 1] : getBarberAvailableUntilToday(barber)) || '--:--'}
+                            </span>
+                          )}
+                          {(barberBreaksByBarber[barber.id] || []).length > 0 && (
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Pausas hoje:
+                              {(barberBreaksByBarber[barber.id] || []).slice(0, 3).map((br, idx) => (
+                                <span key={`${barber.id}-${br.id || br.start_time}-${idx}`} className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-destructive/15 text-destructive border border-destructive/30">
+                                  {String(br.start_time).slice(0,5)}-{String(br.end_time).slice(0,5)}
+                                </span>
+                              ))}
+                              {(barberBreaksByBarber[barber.id] || []).length > 3 && (
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-secondary text-secondary-foreground border border-border">
+                                  +{(barberBreaksByBarber[barber.id] || []).length - 3}
+                                </span>
+                              )}
+                            </span>
+                          )}
                           {/* Removido contador de futuros */}
                           {inProgressCount > 0 && (
                             <span className="flex items-center gap-1 text-warning">
@@ -515,6 +680,33 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                             </span>
                           )}
                         </div>
+                        {(role === "admin" || role === "gestor") && (
+                          <div className="mt-2 flex items-center justify-center gap-2">
+                            {closedToday ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                openOpenDayDialog(barber.id);
+                                }}
+                              >
+                                Abrir hoje
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleClosedToday(barber.id, true);
+                                }}
+                              >
+                                Fechar hoje
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -535,73 +727,114 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                   )}
 
                   <div className="flex-1 p-3">
-                    {appointments.length === 0 ? (
-                      <div className="text-center py-8 flex-1 flex items-center justify-center">
-                        <div>
-                          <Scissors className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-                          <p className="text-muted-foreground text-xs font-medium">Sem agendamentos</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 max-h-80 overflow-y-auto">
-                        {appointments.slice(0, 6).map((apt) => {
-                          const formattedDate = format(new Date(apt.appointment_date + "T12:00:00"), "dd/MM");
-                          const bookingTypeLabel = apt.booking_type === 'local' ? 'Local' : 
-                                                 apt.booking_type === 'online' ? 'Online' : 'Manual';
-                          const bookingTypeColor = apt.booking_type === 'local' ? 'bg-success/20 text-success border-success/30' : 
-                                                 apt.booking_type === 'online' ? 'bg-info/20 text-info border-info/30' : 
-                                                 'bg-orange-500/20 text-orange-400 border-orange-500/30';
-
-                          return (
-                            <div key={apt.id} className="flex items-center gap-2 p-2 bg-secondary/40 hover:bg-secondary/60 rounded-lg transition-all duration-200 border border-border/50">
-                              <div className="flex flex-col items-center justify-center min-w-[45px] p-1 rounded bg-muted/50 flex-shrink-0">
-                                <div className="text-[9px] font-bold text-primary leading-tight text-center">
-                                  {formattedDate}
-                                </div>
-                                <div className="text-[9px] font-semibold text-primary mt-0.5">
-                                  {apt.appointment_time.slice(0, 5)}
-                                </div>
-                              </div>
-                              <div className="flex flex-col gap-1 flex-shrink-0">
-                                {apt.status === 'in_progress' && (
-                                  <div className="flex items-center justify-center w-5 h-5 rounded-full bg-warning/20 text-warning text-[8px] font-bold">
-                                    ▶
-                                  </div>
-                                )}
-                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-medium border ${bookingTypeColor}`}>
-                                  {bookingTypeLabel.charAt(0)}
-                                </span>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="text-foreground text-xs font-semibold mb-0.5 break-words line-clamp-1">
-                                  {apt.client_name || apt.profiles.name}
-                                </div>
-                                <div className="text-muted-foreground text-[9px] break-words line-clamp-1">
-                                  {apt.services.title} ({apt.services.duration}min)
-                                </div>
-                                {apt.status === 'in_progress' && (
-                                  <div className="text-warning text-[8px] font-bold mt-0.5">
-                                    EM ATENDIMENTO
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {appointments.length > 6 && (
-                          <div className="text-center py-2">
-                            <span className="text-xs text-muted-foreground">
-                              +{appointments.length - 6} mais agendamentos
-                            </span>
+                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                      {appointments.length === 0 ? (
+                        <div className="text-center py-8 flex-1 flex items-center justify-center">
+                          <div>
+                            <Scissors className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                            <p className="text-muted-foreground text-xs font-medium">Sem agendamentos</p>
                           </div>
+                        </div>
+                      ) : (
+                        <>
+                          {appointments.slice(0, 6).map((apt) => {
+                            const formattedDate = format(new Date(apt.appointment_date + "T12:00:00"), "dd/MM");
+                            const bookingTypeLabel = apt.booking_type === 'local' ? 'Local' : 
+                                                   apt.booking_type === 'online' ? 'Online' : 'Manual';
+                            const bookingTypeColor = apt.booking_type === 'local' ? 'bg-success/20 text-success border-success/30' : 
+                                                   apt.booking_type === 'online' ? 'bg-info/20 text-info border-info/30' : 
+                                                   'bg-orange-500/20 text-orange-400 border-orange-500/30';
+
+                            return (
+                              <div key={apt.id} className="flex items-center gap-2 p-2 bg-secondary/40 hover:bg-secondary/60 rounded-lg transition-all duration-200 border border-border/50">
+                                <div className="flex flex-col items-center justify-center min-w-[45px] p-1 rounded bg-muted/50 flex-shrink-0">
+                                  <div className="text-[9px] font-bold text-primary leading-tight text-center">
+                                    {formattedDate}
+                                  </div>
+                                  <div className="text-[9px] font-semibold text-primary mt-0.5">
+                                    {apt.appointment_time.slice(0, 5)}
+                                  </div>
+                                </div>
+                                <div className="flex flex-col gap-1 flex-shrink-0">
+                                  {apt.status === 'in_progress' && (
+                                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-warning/20 text-warning text-[8px] font-bold">
+                                      ▶
+                                    </div>
+                                  )}
+                                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-medium border ${bookingTypeColor}`}>
+                                    {bookingTypeLabel.charAt(0)}
+                                  </span>
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-foreground text-xs font-semibold mb-0.5 break-words line-clamp-1">
+                                    {apt.client_name || apt.profiles.name}
+                                  </div>
+                                  <div className="text-muted-foreground text-[9px] break-words line-clamp-1">
+                                    {apt.services.title} ({apt.services.duration}min)
+                                  </div>
+                                  {apt.status === 'in_progress' && (
+                                    <div className="text-warning text-[8px] font-bold mt-0.5">
+                                      EM ATENDIMENTO
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {appointments.length > 6 && (
+                            <div className="text-center py-2">
+                              <span className="text-xs text-muted-foreground">
+                                +{appointments.length - 6} mais agendamentos
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="p-3 pt-2 border-t border-border text-center">
+                    {isReadOnly ? (
+                      <p className="text-muted-foreground text-xs font-medium">Visualização da fila (sem ações)</p>
+                    ) : (
+                      <div className="flex items-center justify-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setManageBreaksOpen(false);
+                            setQuickBookingPreselectedBarberId(barber.id);
+                            setQuickBookingOpen(true);
+                          }}
+                        >
+                          Agendar local
+                        </Button>
+                        {(role === "admin" || role === "gestor") && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openBreakDialog(barber.id, "block");
+                              }}
+                            >
+                              Bloquear intervalo
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openBreakDialog(barber.id, "release");
+                              }}
+                            >
+                              Liberar intervalo
+                            </Button>
+                          </>
                         )}
                       </div>
                     )}
-                  </div>
-                  <div className="p-3 pt-2 border-t border-border text-center">
-                    <p className="text-muted-foreground text-xs font-medium">
-                      {isReadOnly ? 'Visualização da fila (sem ações)' : 'Clique para agendar local'}
-                    </p>
                   </div>
                 </button>
                 );
@@ -630,6 +863,205 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
             timeSlot={quickBookingPreselectedBarberId ? "" : availableSlots[0] ?? ""}
             preselectedBarberId={quickBookingPreselectedBarberId ?? undefined}
           />
+        )}
+
+        {(role === "admin" || role === "gestor") && (
+          <Dialog open={breakDialogOpen} onOpenChange={setBreakDialogOpen}>
+            <DialogContent className="max-w-md w-[95vw]">
+              <DialogHeader>
+                <DialogTitle>{breakMode === "block" ? "Bloquear intervalo" : "Liberar intervalo"}</DialogTitle>
+                <DialogDescription>
+                  {breakMode === "block" ? "Selecione a data e o intervalo" : "Selecione a data e exclua pausas existentes"}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid grid-cols-1 gap-3 mt-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Data</Label>
+                    <Input
+                      type="date"
+                      value={breakDate}
+                      onChange={(e) => setBreakDate(e.target.value)}
+                      className="h-9 text-sm"
+                      min={format(new Date(), "yyyy-MM-dd")}
+                    />
+                  </div>
+                </div>
+                {breakMode === "block" && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Início</Label>
+                      <Input type="time" value={breakStart} onChange={(e) => setBreakStart(e.target.value)} className="h-9 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Fim</Label>
+                      <Input type="time" value={breakEnd} onChange={(e) => setBreakEnd(e.target.value)} className="h-9 text-sm" />
+                    </div>
+                  </div>
+                )}
+                {breakMode === "release" && (
+                  <div className="p-2 bg-secondary/20 rounded border border-border/50">
+                    <div className="text-xs font-semibold text-muted-foreground mb-2">Pausas nessa data</div>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {breaksForDialog.length > 0 ? (
+                        breaksForDialog.map((br) => (
+                          <div key={br.id || `${br.start_time}-${br.end_time}`} className="flex items-center justify-between p-2 bg-secondary/40 rounded border border-border/40">
+                            <span className="text-sm font-semibold">{String(br.start_time).slice(0,5)} - {String(br.end_time).slice(0,5)}</span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () => {
+                                if (!br.id) return;
+                                const { error } = await supabase
+                                  .from("barber_breaks")
+                                  .delete()
+                                  .eq("id", br.id);
+                                if (error) {
+                                  toast.error(error.message || "Erro ao excluir pausa");
+                                } else {
+                                  toast.success("Pausa excluída");
+                                  const { data } = await (supabase as any)
+                                    .from("barber_breaks")
+                                    .select("id, start_time, end_time")
+                                    .eq("barber_id", breakBarberId)
+                                    .eq("date", breakDate)
+                                    .order("start_time");
+                                  setBreaksForDialog(data || []);
+                                  await loadBreaksForToday();
+                                  await calculateAvailableSlots();
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" /> Excluir
+                            </Button>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-xs text-muted-foreground">Sem pausas nessa data</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end gap-2 mt-3">
+                <Button variant="outline" onClick={() => setBreakDialogOpen(false)} disabled={breakSubmitting}>Cancelar</Button>
+                {breakMode === "block" && (
+                  <Button onClick={handleSubmitBreak} disabled={breakSubmitting}>
+                    Bloquear
+                  </Button>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {(role === "admin" || role === "gestor") && (
+          <Dialog open={openDayDialogOpen} onOpenChange={setOpenDayDialogOpen}>
+            <DialogContent className="max-w-md w-[95vw]">
+              <DialogHeader>
+                <DialogTitle>Abrir hoje</DialogTitle>
+                <DialogDescription>Defina o período de atendimento de hoje</DialogDescription>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-3 mt-2">
+                <div>
+                  <Label className="text-xs">Início</Label>
+                  <Input type="time" value={openDayStart} onChange={(e) => setOpenDayStart(e.target.value)} className="h-9 text-sm" />
+                </div>
+                <div>
+                  <Label className="text-xs">Fim</Label>
+                  <Input type="time" value={openDayEnd} onChange={(e) => setOpenDayEnd(e.target.value)} className="h-9 text-sm" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-3">
+                <Button variant="outline" onClick={() => setOpenDayDialogOpen(false)}>Cancelar</Button>
+                <Button
+                  onClick={async () => {
+                    if (!openDayBarberId || !openDayStart || !openDayEnd || openDayEnd <= openDayStart) {
+                      toast.error("Defina horários válidos");
+                      return;
+                    }
+                    try {
+                      const { data, error } = await supabase
+                        .from("barbers")
+                        .select("availability")
+                        .eq("id", openDayBarberId)
+                        .maybeSingle();
+                      if (error) throw error;
+                      const base = data?.availability ? data.availability : {};
+                      const dayKeyMap = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"] as const;
+                      const dayKey = dayKeyMap[todayDate.getDay()];
+                      const currentDay = base?.[dayKey] || defaultBarberAvailability[dayKey];
+                      const newAvailability = { ...defaultBarberAvailability, ...base, [dayKey]: { ...currentDay, closed: false, open: openDayStart, close: openDayEnd } };
+                      const { error: updError } = await supabase
+                        .from("barbers")
+                        .update({ availability: newAvailability as any })
+                        .eq("id", openDayBarberId);
+                      if (updError) throw updError;
+                      toast.success("Dia aberto com período definido");
+                      setOpenDayDialogOpen(false);
+                      setOpenDayBarberId(null);
+                      await loadBarbers();
+                      await calculateAvailableSlots();
+                    } catch (e: any) {
+                      toast.error(e.message || "Erro ao abrir hoje");
+                    }
+                  }}
+                >
+                  Abrir
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {(role === "admin" || role === "gestor") && (
+          <Dialog open={manageBreaksOpen} onOpenChange={setManageBreaksOpen}>
+            <DialogContent className="max-w-lg w-[95vw]">
+              <DialogHeader>
+                <DialogTitle>Gerenciar pausas do dia</DialogTitle>
+                <DialogDescription>Inclua ou exclua intervalos para o barbeiro selecionado</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="p-2 bg-secondary/20 rounded border border-border/50">
+                  <div className="text-xs font-semibold text-muted-foreground mb-2">Pausas de hoje</div>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {(manageBreaksBarberId && (barberBreaksByBarber[manageBreaksBarberId] || []).length > 0) ? (
+                      (barberBreaksByBarber[manageBreaksBarberId] || []).map((br) => (
+                        <div key={`${manageBreaksBarberId}-${br.id || br.start_time}-${br.end_time}`} className="flex items-center justify-between p-2 bg-secondary/40 rounded border border-border/40">
+                          <span className="text-sm font-semibold">{br.start_time.slice(0,5)} - {br.end_time.slice(0,5)}</span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              if (!br.id) {
+                                toast.error("Não foi possível identificar a pausa");
+                                return;
+                              }
+                              const { error } = await supabase
+                                .from("barber_breaks")
+                                .delete()
+                                .eq("id", br.id);
+                              if (error) {
+                                toast.error(error.message || "Erro ao excluir pausa");
+                              } else {
+                                toast.success("Pausa excluída");
+                                await loadBreaksForToday();
+                                await calculateAvailableSlots();
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" /> Excluir
+                          </Button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-xs text-muted-foreground">Sem pausas hoje</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
 
       </main>
