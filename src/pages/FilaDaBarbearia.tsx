@@ -59,6 +59,12 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const [openDayEnd, setOpenDayEnd] = useState<string>("");
   const [manageBreaksOpen, setManageBreaksOpen] = useState(false);
   const [manageBreaksBarberId, setManageBreaksBarberId] = useState<string | null>(null);
+  const [viewSlotsOpen, setViewSlotsOpen] = useState(false);
+  const [viewSlotsBarberId, setViewSlotsBarberId] = useState<string | null>(null);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<Appointment | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
   const navigate = useNavigate();
   const { getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
   const { role } = useAuth();
@@ -454,8 +460,8 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   };
 
   const handleBarberCardClick = (barberId: string) => {
-    setManageBreaksBarberId(barberId);
-    setManageBreaksOpen(true);
+    setViewSlotsBarberId(barberId);
+    setViewSlotsOpen(true);
   };
 
   const handleQuickBookingClose = (open: boolean) => {
@@ -778,6 +784,23 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                                     </div>
                                   )}
                                 </div>
+                                {(role === "admin" || role === "gestor") && (
+                                  <div className="flex items-center gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-6 px-2 text-[10px]"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setCancelTarget(apt as any);
+                                        setCancelReason('');
+                                        setCancelDialogOpen(true);
+                                      }}
+                                    >
+                                      Cancelar
+                                    </Button>
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
@@ -845,7 +868,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
           {/* Removida aba de agendamentos futuros */}
         </Tabs>
 
-        {!isReadOnly && (
+        {!isReadOnly && !quickBookingOpen && (
           <QuickBookingDialog
             open={dialogOpen}
             onOpenChange={setDialogOpen}
@@ -854,8 +877,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
           />
         )}
 
-        {/* Quick Booking: from global card (timeSlot fixed) or from barber card (barber fixed, choose time) */}
-        {!isReadOnly && (
+        {!isReadOnly && quickBookingOpen && (
           <QuickBookingDialog
             open={quickBookingOpen}
             onOpenChange={handleQuickBookingClose}
@@ -956,6 +978,68 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         )}
 
         {(role === "admin" || role === "gestor") && (
+          <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+            <DialogContent className="max-w-md w-[95vw]">
+              <DialogHeader>
+                <DialogTitle>Cancelar agendamento</DialogTitle>
+                <DialogDescription>Informe um motivo (opcional) e confirme o cancelamento.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                {cancelTarget && (
+                  <div className="p-2 bg-secondary/30 rounded border border-border/40 text-sm">
+                    <div><strong>Cliente:</strong> {cancelTarget.client_name || (cancelTarget as any).profiles?.name || 'Local'}</div>
+                    <div><strong>Serviço:</strong> {cancelTarget.services?.title}</div>
+                    <div><strong>Data:</strong> {format(new Date(cancelTarget.appointment_date + 'T00:00:00'), 'dd/MM/yyyy')}</div>
+                    <div><strong>Hora:</strong> {cancelTarget.appointment_time}</div>
+                  </div>
+                )}
+                <div>
+                  <Label className="text-xs">Motivo (opcional)</Label>
+                  <Input
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="Ex.: cliente não compareceu"
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setCancelDialogOpen(false)} disabled={cancelling}>Fechar</Button>
+                  <Button
+                    onClick={async () => {
+                      if (!cancelTarget) return;
+                      setCancelling(true);
+                      try {
+                        const notes = cancelReason?.trim()
+                          ? `${cancelTarget.notes ? cancelTarget.notes + ' | ' : ''}Cancelado pelo gestor: ${cancelReason.trim()}`
+                          : cancelTarget.notes || null;
+                        const { error } = await supabase
+                          .from('appointments')
+                          .update({ status: 'cancelled', notes })
+                          .eq('id', cancelTarget.id);
+                        if (error) throw error;
+                        toast.success('Agendamento cancelado');
+                        setCancelDialogOpen(false);
+                        setCancelTarget(null);
+                        setCancelReason('');
+                        await loadAppointments();
+                        await calculateAvailableSlots();
+                      } catch (e: any) {
+                        toast.error('Erro ao cancelar', { description: e.message });
+                      } finally {
+                        setCancelling(false);
+                      }
+                    }}
+                    className="bg-destructive hover:bg-destructive/90"
+                    disabled={cancelling}
+                  >
+                    {cancelling ? 'Cancelando...' : 'Confirmar cancelamento'}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+        {(role === "admin" || role === "gestor") && (
           <Dialog open={openDayDialogOpen} onOpenChange={setOpenDayDialogOpen}>
             <DialogContent className="max-w-md w-[95vw]">
               <DialogHeader>
@@ -1015,47 +1099,27 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         )}
 
         {(role === "admin" || role === "gestor") && (
-          <Dialog open={manageBreaksOpen} onOpenChange={setManageBreaksOpen}>
-            <DialogContent className="max-w-lg w-[95vw]">
+          <Dialog open={viewSlotsOpen} onOpenChange={setViewSlotsOpen}>
+            <DialogContent className="max-w-md w-[95vw]">
               <DialogHeader>
-                <DialogTitle>Gerenciar pausas do dia</DialogTitle>
-                <DialogDescription>Inclua ou exclua intervalos para o barbeiro selecionado</DialogDescription>
+                <DialogTitle>Horários disponíveis</DialogTitle>
+                <DialogDescription>Visualização dos horários — sem ações</DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
                 <div className="p-2 bg-secondary/20 rounded border border-border/50">
-                  <div className="text-xs font-semibold text-muted-foreground mb-2">Pausas de hoje</div>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {(manageBreaksBarberId && (barberBreaksByBarber[manageBreaksBarberId] || []).length > 0) ? (
-                      (barberBreaksByBarber[manageBreaksBarberId] || []).map((br) => (
-                        <div key={`${manageBreaksBarberId}-${br.id || br.start_time}-${br.end_time}`} className="flex items-center justify-between p-2 bg-secondary/40 rounded border border-border/40">
-                          <span className="text-sm font-semibold">{br.start_time.slice(0,5)} - {br.end_time.slice(0,5)}</span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={async () => {
-                              if (!br.id) {
-                                toast.error("Não foi possível identificar a pausa");
-                                return;
-                              }
-                              const { error } = await supabase
-                                .from("barber_breaks")
-                                .delete()
-                                .eq("id", br.id);
-                              if (error) {
-                                toast.error(error.message || "Erro ao excluir pausa");
-                              } else {
-                                toast.success("Pausa excluída");
-                                await loadBreaksForToday();
-                                await calculateAvailableSlots();
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3 mr-1" /> Excluir
-                          </Button>
-                        </div>
+                  <div className="text-xs font-semibold text-muted-foreground mb-2">Hoje</div>
+                  <div className="flex flex-wrap gap-2">
+                    {(viewSlotsBarberId && (availableSlotsByBarber[viewSlotsBarberId] || []).length > 0) ? (
+                      (availableSlotsByBarber[viewSlotsBarberId] || []).map((s) => (
+                        <span
+                          key={`${viewSlotsBarberId}-${s}`}
+                          className="px-3 py-1 rounded-full text-sm font-semibold border border-border bg-secondary text-secondary-foreground"
+                        >
+                          {s}
+                        </span>
                       ))
                     ) : (
-                      <div className="text-xs text-muted-foreground">Sem pausas hoje</div>
+                      <span className="text-xs text-muted-foreground">Nenhum horário disponível hoje para este barbeiro.</span>
                     )}
                   </div>
                 </div>

@@ -52,6 +52,7 @@ interface ProductSale {
   status: 'pending' | 'confirmed' | 'cancelled';
   barber_id: string;
   notes?: string | null;
+  payment_method?: string | null;
   product?: { name: string } | null;
   barber?: { name: string } | null;
 }
@@ -72,6 +73,9 @@ const HistoricoCP = () => {
   const [deleting, setDeleting] = useState(false);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [deleteSaleDialogOpen, setDeleteSaleDialogOpen] = useState(false);
+  const [deletingSale, setDeletingSale] = useState<ProductSale | null>(null);
+  const [deletingSaleLoading, setDeletingSaleLoading] = useState(false);
 
   // Filtros
   const [filterDateFrom, setFilterDateFrom] = useState<string>('');
@@ -91,6 +95,7 @@ const HistoricoCP = () => {
   const [manualDate, setManualDate] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [manualTime, setManualTime] = useState<string>(() => format(new Date(), 'HH:mm'));
   const [manualSaving, setManualSaving] = useState(false);
+  const [manualPaymentMethod, setManualPaymentMethod] = useState<'pix' | 'dinheiro' | 'cartao'>('pix');
   const [showFilters, setShowFilters] = useState(false);
 
   // Form de edição
@@ -143,6 +148,7 @@ const HistoricoCP = () => {
           sale_date,
           sale_time,
           status,
+          payment_method,
           barber_id,
           notes,
           product:products(name),
@@ -164,11 +170,19 @@ const HistoricoCP = () => {
         .order('sale_time', { ascending: false });
 
       if (error) throw error;
-      setProductSales((data || []) as ProductSale[]);
+      const list = (data || []) as ProductSale[];
+      setProductSales(list);
+      try {
+        const total = list.reduce((sum, s) => sum + Number(s.total_price || 0), 0);
+        setProductsTotal(total);
+      } catch {
+        setProductsTotal(0);
+      }
     } catch (error: any) {
       console.error('Error loading product sales:', error);
       toast.error('Erro ao carregar vendas de produtos: ' + error.message);
       setProductSales([]);
+      setProductsTotal(0);
     } finally {
       setLoadingProductSales(false);
     }
@@ -280,8 +294,22 @@ const HistoricoCP = () => {
         }));
 
         setAppointments(appointmentsWithClients as Appointment[]);
+        try {
+          const servicesSum = appointmentsWithClients.reduce((sum: number, apt: any) => {
+            const status = String(apt.status || '');
+            if (status === 'confirmed' || status === 'completed') {
+              const price = Number(apt.service?.price || 0);
+              return sum + (price || 0);
+            }
+            return sum;
+          }, 0);
+          setServicesTotal(servicesSum);
+        } catch {
+          setServicesTotal(0);
+        }
       } else {
         setAppointments([]);
+        setServicesTotal(0);
       }
     } catch (error: any) {
       console.error('Error loading appointments:', error);
@@ -290,6 +318,9 @@ const HistoricoCP = () => {
       setLoading(false);
     }
   };
+
+  const [servicesTotal, setServicesTotal] = useState<number>(0);
+  const [productsTotal, setProductsTotal] = useState<number>(0);
 
   const handleEdit = (appointment: Appointment) => {
     setEditingAppointment(appointment);
@@ -352,15 +383,57 @@ const HistoricoCP = () => {
 
       if (error) throw error;
 
-      toast.success('Agendamento excluído com sucesso!');
+      // Verificar se ainda existe (política RLS pode impedir delete silenciosamente em alguns cenários)
+      const { data: stillThere } = await supabase
+        .from('appointments')
+        .select('id')
+        .eq('id', deletingAppointment.id)
+        .maybeSingle();
+
+      if (stillThere?.id) {
+        // Fallback: marca como cancelado para ocultar de fluxos operacionais
+        const { error: updError } = await supabase
+          .from('appointments')
+          .update({
+            status: 'cancelled',
+            notes: (deletingAppointment.notes ? deletingAppointment.notes + ' | ' : '') + 'Excluído (cancelado) pelo gestor',
+          })
+          .eq('id', deletingAppointment.id);
+        if (updError) throw updError;
+        toast.success('Agendamento cancelado (sem excluir por política)');
+      } else {
+        toast.success('Agendamento excluído com sucesso!');
+      }
+
       setDeleteDialogOpen(false);
       setDeletingAppointment(null);
-      loadAppointments();
+      await loadAppointments();
     } catch (error: any) {
       console.error('Error deleting appointment:', error);
       toast.error('Erro ao excluir agendamento: ' + error.message);
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleDeleteSale = async () => {
+    if (!deletingSale) return;
+    setDeletingSaleLoading(true);
+    try {
+      const { error } = await supabase
+        .from('product_sales')
+        .delete()
+        .eq('id', deletingSale.id);
+      if (error) throw error;
+      toast.success('Venda de produto excluída com sucesso!');
+      setDeleteSaleDialogOpen(false);
+      setDeletingSale(null);
+      loadProductSales();
+    } catch (error: any) {
+      console.error('Error deleting product sale:', error);
+      toast.error('Erro ao excluir venda: ' + error.message);
+    } finally {
+      setDeletingSaleLoading(false);
     }
   };
 
@@ -456,6 +529,7 @@ const HistoricoCP = () => {
             sale_date: manualDate,
             sale_time: manualTime,
             status: 'confirmed',
+            payment_method: manualPaymentMethod,
             notes: manualClientName.trim() ? `Histórico CP: ${manualClientName.trim()}` : 'Histórico CP: venda manual',
           });
 
@@ -852,6 +926,12 @@ const HistoricoCP = () => {
                   </tbody>
                 </table>
               </div>
+              <div className="flex justify-end mt-2">
+                <div className="text-right text-sm">
+                  <div className="text-muted-foreground">Total de serviços no período</div>
+                  <div className="font-bold text-primary">R$ {servicesTotal.toFixed(2)}</div>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>
@@ -886,8 +966,10 @@ const HistoricoCP = () => {
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[90px]">Qtd</th>
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[110px] sm:w-[130px]">Total</th>
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[140px]">Barbeiro</th>
+                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[110px] sm:w-[130px]">Pagamento</th>
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[90px] sm:w-[110px]">Status</th>
                       <th className="text-left py-2 sm:py-3 px-1 sm:px-2">Observação</th>
+                      <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Ações</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -912,6 +994,20 @@ const HistoricoCP = () => {
                           </div>
                         </td>
                         <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          {sale.payment_method === 'pix' && (
+                            <Badge className="bg-green-500/20 text-green-600 text-xs">Pix</Badge>
+                          )}
+                          {sale.payment_method === 'dinheiro' && (
+                            <Badge variant="outline" className="border-yellow-500 text-yellow-600 text-xs">Dinheiro</Badge>
+                          )}
+                          {sale.payment_method === 'cartao' && (
+                            <Badge className="bg-blue-500/20 text-blue-600 text-xs">Cartão</Badge>
+                          )}
+                          {!sale.payment_method && (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
                           {sale.status === 'confirmed' && (
                             <Badge className="bg-green-500/20 text-green-600 text-xs">Confirmado</Badge>
                           )}
@@ -927,10 +1023,31 @@ const HistoricoCP = () => {
                             {sale.notes || '-'}
                           </div>
                         </td>
+                        <td className="py-2 sm:py-3 px-1 sm:px-2">
+                          <div className="flex items-center justify-end">
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => {
+                                setDeletingSale(sale);
+                                setDeleteSaleDialogOpen(true);
+                              }}
+                              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                            >
+                              <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                            </Button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+              <div className="flex justify-end mt-3">
+                <div className="text-right text-sm">
+                  <div className="text-muted-foreground">Total de produtos no período</div>
+                  <div className="font-bold text-primary">R$ {productsTotal.toFixed(2)}</div>
+                </div>
               </div>
             </div>
           )}
@@ -1148,7 +1265,7 @@ const HistoricoCP = () => {
                 </div>
               </>
             )}
-            <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs text-muted-foreground mb-1 block">Data</Label>
                 <Input
@@ -1168,6 +1285,19 @@ const HistoricoCP = () => {
                 />
               </div>
             </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Pagamento</Label>
+                    <Select value={manualPaymentMethod} onValueChange={(v) => setManualPaymentMethod(v as 'pix' | 'dinheiro' | 'cartao')}>
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Selecione o método" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pix">Pix</SelectItem>
+                        <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                        <SelectItem value="cartao">Cartão</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
           </div>
           <div className="flex justify-end gap-2 mt-2">
             <Button variant="outline" onClick={() => setManualDialogOpen(false)} disabled={manualSaving}>
@@ -1205,6 +1335,38 @@ const HistoricoCP = () => {
               className="bg-destructive hover:bg-destructive/90"
             >
               {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog de Confirmação de Exclusão de Venda */}
+      <AlertDialog open={deleteSaleDialogOpen} onOpenChange={setDeleteSaleDialogOpen}>
+        <AlertDialogContent className="max-w-[95vw] sm:max-w-md overflow-hidden">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir esta venda de produto? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+            {deletingSale && (
+              <div className="mt-2 p-2 bg-destructive/10 rounded text-sm text-left">
+                <div><strong>Produto:</strong> {deletingSale.product?.name || 'N/A'}</div>
+                <div><strong>Data:</strong> {format(new Date(deletingSale.sale_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}</div>
+                <div><strong>Horário:</strong> {deletingSale.sale_time}</div>
+                <div><strong>Qtd:</strong> {deletingSale.quantity}</div>
+                <div><strong>Total:</strong> R$ {Number(deletingSale.total_price).toFixed(2)}</div>
+              </div>
+            )}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingSaleLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteSale}
+              disabled={deletingSaleLoading}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {deletingSaleLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>

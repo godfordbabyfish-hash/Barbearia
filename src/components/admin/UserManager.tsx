@@ -86,6 +86,8 @@ export const UserManager = () => {
   
   // Edit user dialog (role + barber info)
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
+  const [isBlocked, setIsBlocked] = useState<boolean>(false);
+  const [selectedUserCpf, setSelectedUserCpf] = useState<string>('');
   const [updatingRole, setUpdatingRole] = useState(false);
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [editUserData, setEditUserData] = useState({
@@ -460,11 +462,27 @@ export const UserManager = () => {
       experience: '',
       whatsapp_phone: '',
     });
+    setSelectedUserCpf(user.cpf || '');
+    setIsBlocked(false);
     setBarberData(null);
     setEditPassword('');
     setGeneratedPasswordInEdit(null);
     setShowEditPassword(false);
     setRoleDialogOpen(true);
+
+    try {
+      const { data: profile } = await (supabase as any)
+        .from('profiles')
+        .select('cpf, blocked')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (profile) {
+        setSelectedUserCpf(profile.cpf || user.cpf || '');
+        setIsBlocked(Boolean(profile.blocked));
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar bloqueio do perfil:', e);
+    }
 
     // Se for barbeiro, carregar dados do barbeiro
     if (user.role === 'barbeiro' || user.roles?.includes('barbeiro')) {
@@ -993,6 +1011,40 @@ export const UserManager = () => {
                       className="w-full"
                     />
                   </div>
+                <div className="w-full min-w-0">
+                  <Label>CPF</Label>
+                  <Input
+                    value={selectedUserCpf || ''}
+                    readOnly
+                    placeholder="Sem CPF"
+                    className="w-full bg-muted"
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <Button
+                      variant={isBlocked ? 'outline' : 'destructive'}
+                      onClick={async () => {
+                        if (!selectedUser) return;
+                        try {
+                          const { error } = await (supabase as any)
+                            .from('profiles')
+                            .update({ blocked: !isBlocked })
+                            .eq('id', selectedUser.id);
+                          if (error) {
+                            toast.error('Erro ao atualizar bloqueio', { description: error.message });
+                          } else {
+                            setIsBlocked(!isBlocked);
+                            toast.success(!isBlocked ? 'Cliente bloqueado' : 'Cliente desbloqueado');
+                          }
+                        } catch (err: any) {
+                          toast.error('Erro ao atualizar bloqueio', { description: err.message });
+                        }
+                      }}
+                      className="h-8"
+                    >
+                      {isBlocked ? 'Desbloquear' : 'Bloquear'}
+                    </Button>
+                  </div>
+                </div>
                 </div>
               </div>
 

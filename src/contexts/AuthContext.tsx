@@ -3,6 +3,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
 import { cleanCPF } from '@/utils/cpfValidation';
+import { toast } from 'sonner';
 
 type UserRole = 'admin' | 'gestor' | 'cliente' | 'barbeiro';
 
@@ -50,6 +51,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        if (event === 'TOKEN_REFRESH_FAILED') {
+          toast.error('Sua sessão expirou. Faça login novamente.');
+          await supabase.auth.signOut();
+          setSession(null);
+          setUser(null);
+          setRole(null);
+          navigate('/auth');
+          setLoading(false);
+          return;
+        }
+
         setSession(session);
         setUser(session?.user ?? null);
         

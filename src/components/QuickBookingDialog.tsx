@@ -313,11 +313,31 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       })();
       return;
     }
+    if (role === "gestor" || role === "admin") {
+      if (selectedServiceId) {
+        // Avança direto para criação do agendamento
+        void (async () => {
+          try {
+            await handleSubmit(selectedServiceId);
+          } catch (e) {
+            // handleSubmit já mostra toasts
+          }
+        })();
+      } else {
+        // Se por algum motivo não houver serviço, volta para seleção
+        setStep("service");
+      }
+      return;
+    }
     setStep("client");
   };
 
   const handleClientNameNext = () => {
-    setStep("service");
+    if (role === "gestor" || role === "admin") {
+      setStep("time");
+    } else {
+      setStep("service");
+    }
   };
 
   const handleServiceSelect = async (serviceId: string) => {
@@ -327,8 +347,12 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       setStep("barber");
       return;
     }
-    setStep("time");
     await loadSlotsForBarber(selectedBarberId);
+    if (role === "gestor" || role === "admin") {
+      setStep("client");
+    } else {
+      setStep("time");
+    }
   };
 
   const handleSubmit = async (serviceId: string) => {
@@ -995,7 +1019,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
                   color: "#000",
                 }}
               >
-                Continuar para Serviços
+                {role === "gestor" || role === "admin" ? "Continuar para Horários" : "Continuar para Serviços"}
               </Button>
             </div>
           </>
