@@ -104,6 +104,8 @@ const BarbeiroDashboard = () => {
   const [availableProducts, setAvailableProducts] = useState<any[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [productQuantity, setProductQuantity] = useState<number>(1);
+  const [productPaymentMethod, setProductPaymentMethod] = useState<'pix' | 'dinheiro' | 'cartao'>('pix');
+  const [productPhotoFile, setProductPhotoFile] = useState<File | null>(null);
   const [savingProductSale, setSavingProductSale] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -170,7 +172,7 @@ const BarbeiroDashboard = () => {
       const { data } = await (supabase as any)
         .from('product_sales')
         .select(`
-          id, product_id, sale_date, sale_time, quantity, total_price, status, notes,
+          id, product_id, sale_date, sale_time, quantity, total_price, status, notes, payment_method, photo_url,
           product:products(name)
         `)
         .eq('barber_id', targetBarber)
@@ -710,6 +712,20 @@ const BarbeiroDashboard = () => {
       const commissionPercentage = individualCommission > 0 ? individualCommission : fixedCommission;
       const commissionValue = (totalPrice * commissionPercentage) / 100;
 
+      // Upload optional photo
+      let salePhotoUrl: string | null = null;
+      if (productPhotoFile) {
+        try {
+          const { uploadPublicImage } = await import('@/utils/storage');
+          salePhotoUrl = await uploadPublicImage(productPhotoFile, {
+            bucket: 'site-images',
+            category: 'product-sales',
+          });
+        } catch (e) {
+          console.warn('Erro ao enviar foto da venda:', e);
+        }
+      }
+
       const { error } = await supabase
         .from('product_sales')
         .insert({
@@ -722,6 +738,8 @@ const BarbeiroDashboard = () => {
           commission_value: commissionValue,
           sale_date: format(new Date(), 'yyyy-MM-dd'),
           sale_time: format(new Date(), 'HH:mm'),
+          payment_method: productPaymentMethod,
+          photo_url: salePhotoUrl,
         });
 
       if (error) throw error;
@@ -747,6 +765,8 @@ const BarbeiroDashboard = () => {
       setProductSaleDialogOpen(false);
       setSelectedProductId('');
       setProductQuantity(1);
+      setProductPaymentMethod('pix');
+      setProductPhotoFile(null);
       
       // Recarregar produtos para atualizar estoque
       loadProductsForSale();
@@ -2389,6 +2409,35 @@ const BarbeiroDashboard = () => {
                           )}
                         </div>
 
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-sm font-medium">Forma de Pagamento</Label>
+                            <Select value={productPaymentMethod} onValueChange={(v) => setProductPaymentMethod(v as any)}>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selecione" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="pix">Pix</SelectItem>
+                                <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                                <SelectItem value="cartao">Cartão</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium">Foto (opcional)</Label>
+                            <Input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => setProductPhotoFile(e.target.files?.[0] || null)}
+                            />
+                            {productPhotoFile && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {productPhotoFile.name}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
                         <div className="p-3 bg-secondary/50 rounded-lg space-y-2">
                           <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">Valor Unitário:</span>
@@ -3333,6 +3382,27 @@ const BarbeiroDashboard = () => {
                                   {sale.notes && (
                                     <p className="text-xs text-muted-foreground">{sale.notes}</p>
                                   )}
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                    <div className="flex items-center gap-2">
+                                      <span>Pagamento:</span>
+                                      <span className="font-semibold text-primary">
+                                        {sale.payment_method ? (sale.payment_method === 'pix' ? 'Pix' : sale.payment_method === 'cartao' ? 'Cartão' : 'Dinheiro') : '-'}
+                                      </span>
+                                    </div>
+                                    {sale.photo_url && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs"
+                                        onClick={() => {
+                                          setPhotoModalUrl(sale.photo_url);
+                                          setPhotoModalOpen(true);
+                                        }}
+                                      >
+                                        Ver foto
+                                      </Button>
+                                    )}
+                                  </div>
                                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                     <div className="flex items-center gap-2">
                                       <Calendar className="h-3 w-3" />

@@ -1008,7 +1008,24 @@ const Booking = () => {
         }
       }
 
-      // 2. Criar perfil se necessário (otimizado)
+      // 2. Bloqueio por CPF (perfil)
+      try {
+        const { data: profileBlock } = await (supabase as any)
+          .from('profiles')
+          .select('blocked, cpf')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (profileBlock?.blocked) {
+          toast.error('CPF bloqueado para agendamento', {
+            description: 'Entre em contato com a barbearia para desbloqueio.',
+          });
+          return;
+        }
+      } catch (e) {
+        // Ignorar erro de leitura de bloqueio e seguir para criar perfil/agenda
+      }
+
+      // 3. Criar perfil se necessário (otimizado)
       const { data: existingProfile } = await (supabase as any)
         .from('profiles')
         .select('id')
@@ -1025,7 +1042,7 @@ const Booking = () => {
           }], { onConflict: 'id' });
       }
 
-      // 3. Criar agendamento
+      // 4. Criar agendamento
       const payload: any = {
         client_id: user.id,
         service_id: formData.service,
@@ -1052,14 +1069,14 @@ const Booking = () => {
         return;
       }
 
-      // 4. Sucesso imediato - não esperar notificações
+      // 5. Sucesso imediato - não esperar notificações
       toast.success("Agendamento realizado com sucesso!", {
         description: "Você pode acompanhar no seu painel.",
       });
       
       setStep("success");
 
-      // 5. Processar notificações de forma assíncrona (não bloquear UI)
+      // 6. Processar notificações de forma assíncrona (não bloquear a UI)
       processNotificationsAsync(newAppointment.id, formData, services, user);
 
     } catch (error: any) {
