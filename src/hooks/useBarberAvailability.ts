@@ -41,8 +41,21 @@ export const useBarberAvailability = (barberId: string | null) => {
       console.error('Error loading barber availability:', error);
       setAvailability(defaultBarberAvailability);
     } else if (data?.availability) {
-      // Merge with defaults to ensure all days are present
-      setAvailability({ ...defaultBarberAvailability, ...data.availability });
+      const raw = data.availability;
+      const parsed =
+        typeof raw === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
+            })()
+          : raw;
+      const next = parsed && typeof parsed === 'object'
+        ? { ...defaultBarberAvailability, ...parsed }
+        : defaultBarberAvailability;
+      setAvailability(next);
     } else {
       setAvailability(defaultBarberAvailability);
     }
