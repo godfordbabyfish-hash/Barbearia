@@ -57,7 +57,7 @@ const isTimeConflict = (newTime: string, duration: number, existingAppointments:
 };
 
 const Booking = () => {
-  const { user } = useAuth();
+  const { user, blocked } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
@@ -749,13 +749,15 @@ const Booking = () => {
             filter: `barber_id=eq.${formData.barber}`,
           },
           () => {
-            // Debounce para evitar muitas atualizações
-            const timeoutId = setTimeout(() => {
+            // Forçar reload completo ao invés de debounce para evitar inconsistências
+            console.log('Appointment change detected, forcing full reload...');
+            setTimeout(() => {
               if (formData.date && formData.barber && formData.service) {
+                // Limpar cache local antes de recarregar
+                setAvailableSlots([]);
                 loadAvailableSlots();
               }
-            }, 500);
-            return () => clearTimeout(timeoutId);
+            }, 300);
           }
         )
         .subscribe();
@@ -814,6 +816,8 @@ const Booking = () => {
       // Respeitar disponibilidade diária do barbeiro (dias fechados e almoço)
       const selectedBarber = barbers.find(b => b.id === formData.barber);
       let lunchBreak: { start_time: string; end_time: string } | null = null;
+      
+      // 1. Verificar almoço na disponibilidade do barbeiro (prioridade)
       if (selectedBarber?.availability) {
         try {
           const availability = typeof selectedBarber.availability === 'string'
@@ -833,6 +837,43 @@ const Booking = () => {
         } catch (err) {
           console.error('Error parsing barber availability (getAvailableSlotsForDate):', err);
         }
+      }
+      
+      // 2. Se não tiver almoço configurado no barbeiro, usar almoço da barbearia (fallback)
+      if (!lunchBreak) {
+        try {
+          const { data: shopHours } = await supabase
+            .from('site_config')
+            .select('config_value')
+            .eq('config_key', 'operating_hours')
+            .maybeSingle();
+          
+          if (shopHours?.config_value) {
+            const operatingHours = shopHours.config_value;
+            const dayKey = getDayKey(selectedDate);
+            const dayHours = operatingHours?.[dayKey];
+            
+            if (dayHours?.hasLunchBreak && dayHours.lunchStart && dayHours.lunchEnd) {
+              lunchBreak = {
+                start_time: dayHours.lunchStart,
+                end_time: dayHours.lunchEnd,
+              };
+            }
+          }
+        } catch (err) {
+          console.error('Error loading shop operating hours for lunch break:', err);
+        }
+      }
+      
+      // 3. BLOQUEIO FORÇADO: Se for sábado e não tiver almoço configurado, aplicar almoço padrão (12:00-14:00)
+      // Isso corrige o problema onde o celular mostra horários disponíveis indevidamente
+      const dayKey = getDayKey(selectedDate);
+      if (!lunchBreak && dayKey === 'saturday') {
+        console.warn('Forcing Saturday lunch break (12:00-14:00) - no lunch configuration found');
+        lunchBreak = {
+          start_time: '12:00',
+          end_time: '14:00',
+        };
       }
       
       // Check if barbershop is open on this day
@@ -1183,6 +1224,23 @@ const Booking = () => {
   const filteredServices = services.filter((service) =>
     service.title.toLowerCase().includes(serviceSearch.toLowerCase())
   );
+
+  if (blocked) {
+    return (
+      <section id="agendamento" className="py-24 px-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl md:text-5xl font-bold mb-4">
+              Agendamento indisponível
+            </h2>
+            <p className="text-destructive text-lg">
+              Usuário bloqueado. Entre em contato com a barbearia para desbloqueio.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section id="agendamento" className="py-24 px-4">
