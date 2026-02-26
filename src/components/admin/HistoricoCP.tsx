@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Pencil, Trash2, Loader2, Calendar, Clock, User, Scissors, ShoppingBag, Filter } from 'lucide-react';
 import { format } from 'date-fns';
@@ -21,6 +22,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+
+// Hook para detectar mobile
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+  
+  return isMobile;
+};
 
 interface Appointment {
   id: string;
@@ -58,6 +76,7 @@ interface ProductSale {
 }
 
 const HistoricoCP = () => {
+  const isMobile = useIsMobile();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(false);
   const [barbers, setBarbers] = useState<any[]>([]);
@@ -82,6 +101,7 @@ const HistoricoCP = () => {
   const [filterDateTo, setFilterDateTo] = useState<string>('');
   const [filterBarber, setFilterBarber] = useState<string>('all');
   const [filterService, setFilterService] = useState<string>('all');
+  const [filterProduct, setFilterProduct] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
   const [filterPayment, setFilterPayment] = useState<'all' | 'pix' | 'dinheiro' | 'cartao' | 'none'>('all');
@@ -97,6 +117,7 @@ const HistoricoCP = () => {
   const [manualSaving, setManualSaving] = useState(false);
   const [manualPaymentMethod, setManualPaymentMethod] = useState<'pix' | 'dinheiro' | 'cartao'>('pix');
   const [showFilters, setShowFilters] = useState(false);
+  const [activeTab, setActiveTab] = useState<'services' | 'products'>('services');
 
   // Form de edição
   const [editForm, setEditForm] = useState({
@@ -117,7 +138,7 @@ const HistoricoCP = () => {
   useEffect(() => {
     loadAppointments();
     loadProductSales();
-  }, [filterDateFrom, filterDateTo, filterBarber, filterService, filterStatus, filterType, filterPayment]);
+  }, [filterDateFrom, filterDateTo, filterBarber, filterService, filterProduct, filterStatus, filterType, filterPayment]);
 
   const loadBarbers = async () => {
     const { data, error } = await supabase
@@ -163,6 +184,19 @@ const HistoricoCP = () => {
       }
       if (filterBarber !== 'all') {
         query = query.eq('barber_id', filterBarber);
+      }
+      if (filterProduct !== 'all') {
+        query = query.eq('product_id', filterProduct);
+      }
+      if (filterStatus !== 'all') {
+        query = query.eq('status', filterStatus);
+      }
+      if (filterPayment !== 'all') {
+        if (filterPayment === 'none') {
+          query = query.is('payment_method', null);
+        } else {
+          query = query.eq('payment_method', filterPayment);
+        }
       }
 
       const { data, error } = await query
@@ -470,6 +504,174 @@ const HistoricoCP = () => {
     );
   };
 
+  // Componentes Mobile
+  const MobileAppointmentCard = ({ appointment }: { appointment: Appointment }) => (
+    <Card className="mb-3 border-border/50">
+      <CardContent className="p-3">
+        <div className="flex justify-between items-start mb-2">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">
+              {format(new Date(appointment.appointment_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
+            </span>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm">{appointment.appointment_time}</span>
+          </div>
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => handleEdit(appointment)}
+              className="h-6 w-6 p-0"
+            >
+              <Pencil className="h-3 w-3" />
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                setDeletingAppointment(appointment);
+                setDeleteDialogOpen(true);
+              }}
+              className="h-6 w-6 p-0"
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+        
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <User className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <div className="text-sm font-medium">{appointment.client_name || appointment.client?.name || 'N/A'}</div>
+              {appointment.client?.phone && (
+                <div className="text-xs text-muted-foreground">{appointment.client.phone}</div>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Scissors className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <div className="text-sm">{appointment.barber?.name || 'N/A'}</div>
+              <div className="text-xs text-muted-foreground">{appointment.service?.title || 'N/A'}</div>
+              {appointment.service?.price && (
+                <div className="text-xs font-medium text-primary">R$ {appointment.service.price.toFixed(2)}</div>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1">
+              {getStatusBadge(appointment.status)}
+              {getTypeBadge(appointment.booking_type)}
+            </div>
+            {appointment.photo_url && (
+              <button
+                type="button"
+                onClick={() => {
+                  setImagePreviewUrl(appointment.photo_url || null);
+                  setImageDialogOpen(true);
+                }}
+                className="ml-auto"
+              >
+                <img
+                  src={appointment.photo_url}
+                  alt="Foto do atendimento"
+                  className="w-8 h-8 rounded-md object-cover border border-border"
+                />
+              </button>
+            )}
+          </div>
+          
+          {appointment.appointment_payments && appointment.appointment_payments.length > 0 && (
+            <div className="text-xs text-muted-foreground">
+              {appointment.appointment_payments.map((p, idx) => (
+                <div key={idx}>
+                  {p.payment_method === 'pix' ? 'Pix' : 
+                   p.payment_method === 'cartao' ? 'Cartão' : 
+                   p.payment_method === 'dinheiro' ? 'Dinheiro' : 'Outro'}: R$ {Number(p.amount).toFixed(2)}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const MobileProductCard = ({ sale }: { sale: ProductSale }) => (
+    <Card className="mb-3 border-border/50">
+      <CardContent className="p-3">
+        <div className="flex justify-between items-start mb-2">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">
+              {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
+            </span>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm">{sale.sale_time}</span>
+          </div>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => {
+              setDeletingSale(sale);
+              setDeleteSaleDialogOpen(true);
+            }}
+            className="h-6 w-6 p-0"
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        </div>
+        
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <ShoppingBag className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <div className="text-sm font-medium">{sale.product?.name || 'Produto'}</div>
+              <div className="text-xs text-muted-foreground">Qtd: {sale.quantity}</div>
+              <div className="text-sm font-medium text-primary">R$ {Number(sale.total_price).toFixed(2)}</div>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <User className="h-4 w-4 text-muted-foreground" />
+            <div className="text-sm">{sale.barber?.name || barbers.find(b => b.id === sale.barber_id)?.name || 'N/A'}</div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            {sale.status === 'confirmed' && (
+              <Badge className="bg-green-500/20 text-green-600 text-xs">Confirmado</Badge>
+            )}
+            {sale.status === 'pending' && (
+              <Badge variant="outline" className="border-yellow-500 text-yellow-600 text-xs">Pendente</Badge>
+            )}
+            {sale.status === 'cancelled' && (
+              <Badge variant="destructive" className="text-xs">Cancelado</Badge>
+            )}
+            {sale.payment_method === 'pix' && (
+              <Badge className="bg-green-500/20 text-green-600 text-xs">Pix</Badge>
+            )}
+            {sale.payment_method === 'dinheiro' && (
+              <Badge variant="outline" className="border-yellow-500 text-yellow-600 text-xs">Dinheiro</Badge>
+            )}
+            {sale.payment_method === 'cartao' && (
+              <Badge className="bg-blue-500/20 text-blue-600 text-xs">Cartão</Badge>
+            )}
+          </div>
+          
+          {sale.notes && (
+            <div className="text-xs text-muted-foreground truncate" title={sale.notes}>
+              {sale.notes}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   const handleOpenManualDialog = (type: 'service' | 'product') => {
     if (!manualBarberId) {
       toast.error('Selecione um barbeiro para lançar o registro manual');
@@ -626,7 +828,7 @@ const HistoricoCP = () => {
         <CardHeader className="p-3 sm:p-4 md:p-6">
           <CardTitle className="flex items-center justify-between gap-2 text-lg sm:text-xl">
             <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-            <span className="hidden sm:inline">Histórico CP - Agendamentos</span>
+            <span className="hidden sm:inline">Histórico CP</span>
             <span className="sm:hidden">Histórico CP</span>
             <Button
               variant="outline"
@@ -677,18 +879,28 @@ const HistoricoCP = () => {
               </Select>
             </div>
             <div>
-              <Label className="text-sm text-muted-foreground mb-1 block">Serviço</Label>
-              <Select value={filterService} onValueChange={setFilterService}>
+              <Label className="text-sm text-muted-foreground mb-1 block">
+                {activeTab === 'services' ? 'Serviço' : 'Produto'}
+              </Label>
+              <Select value={activeTab === 'services' ? filterService : filterProduct} onValueChange={activeTab === 'services' ? setFilterService : setFilterProduct}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Todos" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
-                  {services.map((service) => (
-                    <SelectItem key={service.id} value={service.id}>
-                      {service.title}
-                    </SelectItem>
-                  ))}
+                  {activeTab === 'services' ? (
+                    services.map((service) => (
+                      <SelectItem key={service.id} value={service.id}>
+                        {service.title}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    products.map((product) => (
+                      <SelectItem key={product.id} value={product.id}>
+                        {product.name}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -700,10 +912,20 @@ const HistoricoCP = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="confirmed">Confirmado</SelectItem>
-                  <SelectItem value="completed">Concluído</SelectItem>
-                  <SelectItem value="cancelled">Cancelado</SelectItem>
-                  <SelectItem value="pending">Pendente</SelectItem>
+                  {activeTab === 'services' ? (
+                    <>
+                      <SelectItem value="confirmed">Confirmado</SelectItem>
+                      <SelectItem value="completed">Concluído</SelectItem>
+                      <SelectItem value="cancelled">Cancelado</SelectItem>
+                      <SelectItem value="pending">Pendente</SelectItem>
+                    </>
+                  ) : (
+                    <>
+                      <SelectItem value="confirmed">Confirmado</SelectItem>
+                      <SelectItem value="pending">Pendente</SelectItem>
+                      <SelectItem value="cancelled">Cancelado</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -715,9 +937,13 @@ const HistoricoCP = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="local">Local</SelectItem>
-                  <SelectItem value="online">Online</SelectItem>
-                  <SelectItem value="manual">Manual</SelectItem>
+                  {activeTab === 'services' && (
+                    <>
+                      <SelectItem value="local">Local</SelectItem>
+                      <SelectItem value="online">Online</SelectItem>
+                      <SelectItem value="manual">Manual</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -787,270 +1013,302 @@ const HistoricoCP = () => {
             </Card>
           </div>
 
-          {/* Tabela de agendamentos */}
-          {loading ? (
-            <div className="flex items-center justify-center py-8 sm:py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            </div>
-          ) : appointments.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8 sm:py-12 text-sm">
-              Nenhum agendamento encontrado com os filtros selecionados.
-            </p>
-          ) : (
-            <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '860px' }}>
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Data</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[60px] sm:w-[80px]">Horário</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[150px]">Cliente</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[100px] sm:w-[120px]">Barbeiro</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[150px]">Serviço</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[100px] sm:w-[120px]">Pagamento</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[70px] sm:w-[80px]">Tipo</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Status</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[70px] sm:w-[80px]">Foto</th>
-                      <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {appointments.map((apt) => (
-                      <tr key={apt.id} className="border-b border-border/50 hover:bg-muted/50">
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          <div className="text-xs sm:text-sm">
-                            {format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
-                          </div>
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2 text-xs sm:text-sm">{apt.appointment_time}</td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          <div>
-                            <div className="font-medium text-xs sm:text-sm truncate" title={apt.client_name || apt.client?.name || 'N/A'}>
-                              {apt.client_name || apt.client?.name || 'N/A'}
-                            </div>
-                            {apt.client?.phone && (
-                              <div className="text-xs text-muted-foreground truncate" title={apt.client.phone}>
-                                {apt.client.phone}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          <div className="text-xs sm:text-sm truncate" title={apt.barber?.name || 'N/A'}>
-                            {apt.barber?.name || 'N/A'}
-                          </div>
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          <div>
-                            <div className="text-xs sm:text-sm truncate" title={apt.service?.title || 'N/A'}>
-                              {apt.service?.title || 'N/A'}
-                            </div>
-                            {apt.service?.price && (
-                              <div className="text-xs text-muted-foreground">
-                                R$ {apt.service.price.toFixed(2)}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          {apt.appointment_payments && apt.appointment_payments.length > 0 ? (
-                            <div className="flex flex-col gap-1">
-                              {apt.appointment_payments.map((p, idx) => (
-                                <span key={idx} className="text-xs text-muted-foreground whitespace-nowrap">
-                                  {p.payment_method === 'pix' ? 'Pix' : 
-                                   p.payment_method === 'cartao' ? 'Cartão' : 
-                                   p.payment_method === 'dinheiro' ? 'Dinheiro' : 'Outro'}: R$ {Number(p.amount).toFixed(2)}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-xs text-muted-foreground">
-                              {apt.payment_method ? (
-                                <>
-                                  {apt.payment_method === 'pix' ? 'Pix' : 
-                                   apt.payment_method === 'cartao' ? 'Cartão' : 
-                                   apt.payment_method === 'dinheiro' ? 'Dinheiro' : apt.payment_method}
-                                </>
-                              ) : '-'}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">{getTypeBadge(apt.booking_type)}</td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">{getStatusBadge(apt.status)}</td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          {apt.photo_url ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setImagePreviewUrl(apt.photo_url || null);
-                                setImageDialogOpen(true);
-                              }}
-                              className="block"
-                              title="Ver foto"
-                            >
-                              <img
-                                src={apt.photo_url}
-                                alt="Foto do atendimento"
-                                className="w-10 h-10 sm:w-12 sm:h-12 rounded-md object-cover border border-border"
-                              />
-                            </button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )}
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleEdit(apt)}
-                              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
-                            >
-                              <Pencil className="h-3 w-3 sm:h-4 sm:w-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => {
-                                setDeletingAppointment(apt);
-                                setDeleteDialogOpen(true);
-                              }}
-                              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
-                            >
-                              <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex justify-end mt-2">
-                <div className="text-right text-sm">
-                  <div className="text-muted-foreground">Total de serviços no período</div>
-                  <div className="font-bold text-primary">R$ {servicesTotal.toFixed(2)}</div>
-                </div>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          {/* Abas */}
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'services' | 'products')} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="services" className="flex items-center gap-2">
+                <Scissors className="h-4 w-4" />
+                Serviços
+              </TabsTrigger>
+              <TabsTrigger value="products" className="flex items-center gap-2">
+                <ShoppingBag className="h-4 w-4" />
+                Produtos
+              </TabsTrigger>
+            </TabsList>
 
-      {/* Tabela de vendas de produtos */}
-      <Card className="bg-card border-border mt-6">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-            <ShoppingBag className="h-4 w-4 text-primary" />
-            Vendas de Produtos
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loadingProductSales ? (
-            <div className="flex items-center justify-center py-8 sm:py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            </div>
-          ) : productSales.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8 sm:py-12 text-sm">
-              Nenhuma venda encontrada com os filtros selecionados.
-            </p>
-          ) : (
-            <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '800px' }}>
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Data</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[60px] sm:w-[80px]">Horário</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[160px] sm:w-[200px]">Produto</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[90px]">Qtd</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[110px] sm:w-[130px]">Total</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[140px]">Barbeiro</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[110px] sm:w-[130px]">Pagamento</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[90px] sm:w-[110px]">Status</th>
-                      <th className="text-left py-2 sm:py-3 px-1 sm:px-2">Observação</th>
-                      <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {productSales.map((sale) => (
-                      <tr key={sale.id} className="border-b border-border/50 hover:bg-muted/50">
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          <div className="text-xs sm:text-sm">
-                            {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
-                          </div>
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2 text-xs sm:text-sm">{sale.sale_time}</td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          <div className="text-xs sm:text-sm truncate" title={sale.product?.name || 'Produto'}>
-                            {sale.product?.name || 'Produto'}
-                          </div>
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">{sale.quantity}</td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">R$ {Number(sale.total_price).toFixed(2)}</td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          <div className="text-xs sm:text-sm truncate" title={sale.barber?.name || barbers.find(b => b.id === sale.barber_id)?.name || 'N/A'}>
-                            {sale.barber?.name || barbers.find(b => b.id === sale.barber_id)?.name || 'N/A'}
-                          </div>
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          {sale.payment_method === 'pix' && (
-                            <Badge className="bg-green-500/20 text-green-600 text-xs">Pix</Badge>
-                          )}
-                          {sale.payment_method === 'dinheiro' && (
-                            <Badge variant="outline" className="border-yellow-500 text-yellow-600 text-xs">Dinheiro</Badge>
-                          )}
-                          {sale.payment_method === 'cartao' && (
-                            <Badge className="bg-blue-500/20 text-blue-600 text-xs">Cartão</Badge>
-                          )}
-                          {!sale.payment_method && (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )}
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          {sale.status === 'confirmed' && (
-                            <Badge className="bg-green-500/20 text-green-600 text-xs">Confirmado</Badge>
-                          )}
-                          {sale.status === 'pending' && (
-                            <Badge variant="outline" className="border-yellow-500 text-yellow-600 text-xs">Pendente</Badge>
-                          )}
-                          {sale.status === 'cancelled' && (
-                            <Badge variant="destructive" className="text-xs">Cancelado</Badge>
-                          )}
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          <div className="text-xs text-muted-foreground truncate" title={sale.notes || ''}>
-                            {sale.notes || '-'}
-                          </div>
-                        </td>
-                        <td className="py-2 sm:py-3 px-1 sm:px-2">
-                          <div className="flex items-center justify-end">
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => {
-                                setDeletingSale(sale);
-                                setDeleteSaleDialogOpen(true);
-                              }}
-                              className="h-7 w-7 sm:h-8 sm:w-8 p-0"
-                            >
-                              <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex justify-end mt-3">
-                <div className="text-right text-sm">
-                  <div className="text-muted-foreground">Total de produtos no período</div>
-                  <div className="font-bold text-primary">R$ {productsTotal.toFixed(2)}</div>
+            {/* Aba de Serviços */}
+            <TabsContent value="services" className="mt-4">
+              {loading ? (
+                <div className="flex items-center justify-center py-8 sm:py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
-              </div>
-            </div>
-          )}
+              ) : appointments.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8 sm:py-12 text-sm">
+                  Nenhum agendamento encontrado com os filtros selecionados.
+                </p>
+              ) : (
+                <>
+                  {isMobile ? (
+                    // Mobile: Cards
+                    <div className="space-y-0">
+                      {appointments.map((apt) => (
+                        <MobileAppointmentCard key={apt.id} appointment={apt} />
+                      ))}
+                    </div>
+                  ) : (
+                    // Desktop: Tabela
+                    <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '860px' }}>
+                          <thead>
+                            <tr className="border-b border-border">
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Data</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[60px] sm:w-[80px]">Horário</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[150px]">Cliente</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[100px] sm:w-[120px]">Barbeiro</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[150px]">Serviço</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[100px] sm:w-[120px]">Pagamento</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[70px] sm:w-[80px]">Tipo</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Status</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[70px] sm:w-[80px]">Foto</th>
+                              <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {appointments.map((apt) => (
+                              <tr key={apt.id} className="border-b border-border/50 hover:bg-muted/50">
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  <div className="text-xs sm:text-sm">
+                                    {format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
+                                  </div>
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2 text-xs sm:text-sm">{apt.appointment_time}</td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  <div>
+                                    <div className="font-medium text-xs sm:text-sm truncate" title={apt.client_name || apt.client?.name || 'N/A'}>
+                                      {apt.client_name || apt.client?.name || 'N/A'}
+                                    </div>
+                                    {apt.client?.phone && (
+                                      <div className="text-xs text-muted-foreground truncate" title={apt.client.phone}>
+                                        {apt.client.phone}
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  <div className="text-xs sm:text-sm truncate" title={apt.barber?.name || 'N/A'}>
+                                    {apt.barber?.name || 'N/A'}
+                                  </div>
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  <div>
+                                    <div className="text-xs sm:text-sm truncate" title={apt.service?.title || 'N/A'}>
+                                      {apt.service?.title || 'N/A'}
+                                    </div>
+                                    {apt.service?.price && (
+                                      <div className="text-xs text-muted-foreground">
+                                        R$ {apt.service.price.toFixed(2)}
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  {apt.appointment_payments && apt.appointment_payments.length > 0 ? (
+                                    <div className="flex flex-col gap-1">
+                                      {apt.appointment_payments.map((p, idx) => (
+                                        <span key={idx} className="text-xs text-muted-foreground whitespace-nowrap">
+                                          {p.payment_method === 'pix' ? 'Pix' : 
+                                           p.payment_method === 'cartao' ? 'Cartão' : 
+                                           p.payment_method === 'dinheiro' ? 'Dinheiro' : 'Outro'}: R$ {Number(p.amount).toFixed(2)}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-muted-foreground">
+                                      {apt.payment_method ? (
+                                        <>
+                                          {apt.payment_method === 'pix' ? 'Pix' : 
+                                           apt.payment_method === 'cartao' ? 'Cartão' : 
+                                           apt.payment_method === 'dinheiro' ? 'Dinheiro' : apt.payment_method}
+                                        </>
+                                      ) : '-'}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">{getTypeBadge(apt.booking_type)}</td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">{getStatusBadge(apt.status)}</td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  {apt.photo_url ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setImagePreviewUrl(apt.photo_url || null);
+                                        setImageDialogOpen(true);
+                                      }}
+                                      className="block"
+                                      title="Ver foto"
+                                    >
+                                      <img
+                                        src={apt.photo_url}
+                                        alt="Foto do atendimento"
+                                        className="w-10 h-10 sm:w-12 sm:h-12 rounded-md object-cover border border-border"
+                                      />
+                                    </button>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">-</span>
+                                  )}
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleEdit(apt)}
+                                      className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                                    >
+                                      <Pencil className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() => {
+                                        setDeletingAppointment(apt);
+                                        setDeleteDialogOpen(true);
+                                      }}
+                                      className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                                    >
+                                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-end mt-2">
+                    <div className="text-right text-sm">
+                      <div className="text-muted-foreground">Total de serviços no período</div>
+                      <div className="font-bold text-primary">R$ {servicesTotal.toFixed(2)}</div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </TabsContent>
+
+            {/* Aba de Produtos */}
+            <TabsContent value="products" className="mt-4">
+              {loadingProductSales ? (
+                <div className="flex items-center justify-center py-8 sm:py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              ) : productSales.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8 sm:py-12 text-sm">
+                  Nenhuma venda encontrada com os filtros selecionados.
+                </p>
+              ) : (
+                <>
+                  {isMobile ? (
+                    // Mobile: Cards
+                    <div className="space-y-0">
+                      {productSales.map((sale) => (
+                        <MobileProductCard key={sale.id} sale={sale} />
+                      ))}
+                    </div>
+                  ) : (
+                    // Desktop: Tabela
+                    <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '800px' }}>
+                          <thead>
+                            <tr className="border-b border-border">
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Data</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[60px] sm:w-[80px]">Horário</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[160px] sm:w-[200px]">Produto</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[90px]">Qtd</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[110px] sm:w-[130px]">Total</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[140px]">Barbeiro</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[110px] sm:w-[130px]">Pagamento</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[90px] sm:w-[110px]">Status</th>
+                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2">Observação</th>
+                              <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {productSales.map((sale) => (
+                              <tr key={sale.id} className="border-b border-border/50 hover:bg-muted/50">
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  <div className="text-xs sm:text-sm">
+                                    {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
+                                  </div>
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2 text-xs sm:text-sm">{sale.sale_time}</td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  <div className="text-xs sm:text-sm truncate" title={sale.product?.name || 'Produto'}>
+                                    {sale.product?.name || 'Produto'}
+                                  </div>
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">{sale.quantity}</td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">R$ {Number(sale.total_price).toFixed(2)}</td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  <div className="text-xs sm:text-sm truncate" title={sale.barber?.name || barbers.find(b => b.id === sale.barber_id)?.name || 'N/A'}>
+                                    {sale.barber?.name || barbers.find(b => b.id === sale.barber_id)?.name || 'N/A'}
+                                  </div>
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  {sale.payment_method === 'pix' && (
+                                    <Badge className="bg-green-500/20 text-green-600 text-xs">Pix</Badge>
+                                  )}
+                                  {sale.payment_method === 'dinheiro' && (
+                                    <Badge variant="outline" className="border-yellow-500 text-yellow-600 text-xs">Dinheiro</Badge>
+                                  )}
+                                  {sale.payment_method === 'cartao' && (
+                                    <Badge className="bg-blue-500/20 text-blue-600 text-xs">Cartão</Badge>
+                                  )}
+                                  {!sale.payment_method && (
+                                    <span className="text-xs text-muted-foreground">-</span>
+                                  )}
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  {sale.status === 'confirmed' && (
+                                    <Badge className="bg-green-500/20 text-green-600 text-xs">Confirmado</Badge>
+                                  )}
+                                  {sale.status === 'pending' && (
+                                    <Badge variant="outline" className="border-yellow-500 text-yellow-600 text-xs">Pendente</Badge>
+                                  )}
+                                  {sale.status === 'cancelled' && (
+                                    <Badge variant="destructive" className="text-xs">Cancelado</Badge>
+                                  )}
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  <div className="text-xs text-muted-foreground truncate" title={sale.notes || ''}>
+                                    {sale.notes || '-'}
+                                  </div>
+                                </td>
+                                <td className="py-2 sm:py-3 px-1 sm:px-2">
+                                  <div className="flex items-center justify-end">
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() => {
+                                        setDeletingSale(sale);
+                                        setDeleteSaleDialogOpen(true);
+                                      }}
+                                      className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                                    >
+                                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-end mt-2">
+                    <div className="text-right text-sm">
+                      <div className="text-muted-foreground">Total de produtos no período</div>
+                      <div className="font-bold text-primary">R$ {productsTotal.toFixed(2)}</div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 
