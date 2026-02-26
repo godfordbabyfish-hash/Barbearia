@@ -11,6 +11,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   role: UserRole | null;
+  blocked: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, name: string) => Promise<{ error: any }>;
@@ -26,6 +27,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
+  const [blocked, setBlocked] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -69,9 +71,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setTimeout(async () => {
             const userRole = await fetchUserRole(session.user.id);
             setRole(userRole);
+            try {
+              const { data: prof } = await (supabase as any)
+                .from('profiles')
+                .select('blocked')
+                .eq('id', session.user.id)
+                .maybeSingle();
+              setBlocked(Boolean(prof?.blocked));
+            } catch {
+              setBlocked(false);
+            }
           }, 0);
         } else {
           setRole(null);
+          setBlocked(false);
         }
         
         setLoading(false);
@@ -85,6 +98,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (session?.user) {
         const userRole = await fetchUserRole(session.user.id);
         setRole(userRole);
+        try {
+          const { data: prof } = await (supabase as any)
+            .from('profiles')
+            .select('blocked')
+            .eq('id', session.user.id)
+            .maybeSingle();
+          setBlocked(Boolean(prof?.blocked));
+        } catch {
+          setBlocked(false);
+        }
       }
       
       setLoading(false);
@@ -375,6 +398,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           console.warn('Não foi possível salvar CPF no localStorage:', e);
         }
       }
+      try {
+        const { data: prof } = await (supabase as any)
+          .from('profiles')
+          .select('blocked')
+          .eq('id', signInData.user?.id)
+          .maybeSingle();
+        setBlocked(Boolean(prof?.blocked));
+        if (prof?.blocked) {
+          toast.error('Usuário bloqueado', { description: 'Entre em contato com a barbearia para desbloqueio.' });
+        }
+      } catch {}
 
       return { error: null };
     } catch (error: any) {
@@ -385,11 +419,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signOut = async () => {
     await supabase.auth.signOut();
     setRole(null);
+    setBlocked(false);
     navigate('/');
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, role, loading, signIn, signUp, signInOrSignUp, signUpWithCPF, signInWithCPF, signOut }}>
+    <AuthContext.Provider value={{ user, session, role, blocked, loading, signIn, signUp, signInOrSignUp, signUpWithCPF, signInWithCPF, signOut }}>
       {children}
     </AuthContext.Provider>
   );
