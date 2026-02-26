@@ -35,7 +35,7 @@ const defaultImages: Record<string, string> = {
 };
 
 const ClienteDashboard = () => {
-  const { user, role, signOut } = useAuth();
+  const { user, role, blocked, signOut } = useAuth();
   const navigate = useNavigate();
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
@@ -480,8 +480,14 @@ const ClienteDashboard = () => {
           </TabsList>
           
           <div className="mb-6">
+            {blocked ? (
+              <div className="p-3 rounded-lg border border-destructive/40 bg-destructive/10 text-destructive text-sm">
+                Usuário bloqueado. Entre em contato com a barbearia para desbloqueio.
+              </div>
+            ) : null}
             <Button
               onClick={() => {
+                if (blocked) return;
                 navigate('/');
                 setTimeout(() => {
                   const bookingSection = document.getElementById('agendamento');
@@ -492,8 +498,10 @@ const ClienteDashboard = () => {
                   }
                 }, 300);
               }}
+              disabled={blocked}
+              variant={blocked ? 'outline' : 'default'}
             >
-              Novo Agendamento
+              {blocked ? 'Usuário bloqueado' : 'Novo Agendamento'}
             </Button>
           </div>
 
@@ -621,7 +629,10 @@ const ClienteDashboard = () => {
                       <Card 
                         key={service.id} 
                         className="group overflow-hidden border-border hover:border-primary transition-all duration-300 hover:shadow-gold cursor-pointer"
-                        onClick={() => navigate('/', { state: { preSelectedService: service, scrollToBooking: true } })}
+                        onClick={() => {
+                          if (blocked) return;
+                          navigate('/', { state: { preSelectedService: service, scrollToBooking: true } });
+                        }}
                       >
                         <div className="relative h-24 md:h-48 overflow-hidden">
                           <img
