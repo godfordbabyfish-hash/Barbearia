@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Pencil, Trash2, Loader2, Calendar, Clock, User, Scissors, ShoppingBag, Filter } from 'lucide-react';
+import { Pencil, Trash2, Loader2, Calendar, Clock, User, Scissors, ShoppingBag, Filter, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -118,6 +118,8 @@ const HistoricoCP = () => {
   const [manualPaymentMethod, setManualPaymentMethod] = useState<'pix' | 'dinheiro' | 'cartao'>('pix');
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState<'services' | 'products'>('services');
+  const [completingAppointmentId, setCompletingAppointmentId] = useState<string | null>(null);
+  const [completingSaleId, setCompletingSaleId] = useState<string | null>(null);
 
   // Form de edição
   const [editForm, setEditForm] = useState({
@@ -504,6 +506,52 @@ const HistoricoCP = () => {
     );
   };
 
+  const handleCompleteAppointment = async (appointment: Appointment) => {
+    if (appointment.status === 'completed') return;
+    setCompletingAppointmentId(appointment.id);
+    try {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ status: 'completed' })
+        .eq('id', appointment.id);
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success('Serviço marcado como concluído.');
+      loadAppointments();
+    } catch (error: any) {
+      console.error('Error completing appointment:', error);
+      toast.error(error.message || 'Erro ao concluir o serviço.');
+    } finally {
+      setCompletingAppointmentId(null);
+    }
+  };
+
+  const handleCompleteProductSale = async (sale: ProductSale) => {
+    if (sale.status === 'confirmed') return;
+    setCompletingSaleId(sale.id);
+    try {
+      const { error } = await supabase
+        .from('product_sales')
+        .update({ status: 'confirmed' })
+        .eq('id', sale.id);
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success('Venda marcada como concluída.');
+      loadProductSales();
+    } catch (error: any) {
+      console.error('Error completing product sale:', error);
+      toast.error(error.message || 'Erro ao concluir a venda.');
+    } finally {
+      setCompletingSaleId(null);
+    }
+  };
+
   // Componentes Mobile
   const MobileAppointmentCard = ({ appointment }: { appointment: Appointment }) => (
     <Card className="mb-3 border-border/50">
@@ -518,6 +566,21 @@ const HistoricoCP = () => {
             <span className="text-sm">{appointment.appointment_time}</span>
           </div>
           <div className="flex gap-1">
+            {appointment.status !== 'completed' && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => handleCompleteAppointment(appointment)}
+                disabled={completingAppointmentId === appointment.id}
+                className="h-6 w-6 p-0"
+              >
+                {completingAppointmentId === appointment.id ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-3 w-3" />
+                )}
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -613,17 +676,34 @@ const HistoricoCP = () => {
             <Clock className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm">{sale.sale_time}</span>
           </div>
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={() => {
-              setDeletingSale(sale);
-              setDeleteSaleDialogOpen(true);
-            }}
-            className="h-6 w-6 p-0"
-          >
-            <Trash2 className="h-3 w-3" />
-          </Button>
+          <div className="flex gap-1">
+            {sale.status !== 'confirmed' && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => handleCompleteProductSale(sale)}
+                disabled={completingSaleId === sale.id}
+                className="h-6 w-6 p-0"
+              >
+                {completingSaleId === sale.id ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-3 w-3" />
+                )}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                setDeletingSale(sale);
+                setDeleteSaleDialogOpen(true);
+              }}
+              className="h-6 w-6 p-0"
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
         </div>
         
         <div className="space-y-2">
@@ -1150,6 +1230,21 @@ const HistoricoCP = () => {
                                 </td>
                                 <td className="py-2 sm:py-3 px-1 sm:px-2">
                                   <div className="flex items-center justify-end gap-1">
+                                    {apt.status !== 'completed' && (
+                                      <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => handleCompleteAppointment(apt)}
+                                        disabled={completingAppointmentId === apt.id}
+                                        className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                                      >
+                                        {completingAppointmentId === apt.id ? (
+                                          <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
+                                        ) : (
+                                          <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                                        )}
+                                      </Button>
+                                    )}
                                     <Button
                                       size="sm"
                                       variant="outline"
@@ -1279,6 +1374,21 @@ const HistoricoCP = () => {
                                 </td>
                                 <td className="py-2 sm:py-3 px-1 sm:px-2">
                                   <div className="flex items-center justify-end">
+                                    {sale.status !== 'confirmed' && (
+                                      <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => handleCompleteProductSale(sale)}
+                                        disabled={completingSaleId === sale.id}
+                                        className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                                      >
+                                        {completingSaleId === sale.id ? (
+                                          <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
+                                        ) : (
+                                          <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                                        )}
+                                      </Button>
+                                    )}
                                     <Button
                                       size="sm"
                                       variant="destructive"
