@@ -607,7 +607,22 @@ const HistoricoCP = () => {
           <div className="flex items-center gap-2">
             <User className="h-4 w-4 text-muted-foreground" />
             <div>
-              <div className="text-sm font-medium">{appointment.client_name || appointment.client?.name || 'N/A'}</div>
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-medium">{appointment.client_name || appointment.client?.name || 'N/A'}</div>
+                {(() => {
+                  try {
+                    const n = appointment.notes ? JSON.parse(appointment.notes) : null;
+                    if (n && n.fit === true) {
+                      return (
+                        <Badge className="bg-purple-600 text-white border-none text-[10px] h-5 w-fit px-2 font-bold uppercase shadow-sm">
+                          Encaixe
+                        </Badge>
+                      );
+                    }
+                  } catch {}
+                  return null;
+                })()}
+              </div>
               {appointment.client?.phone && (
                 <div className="text-xs text-muted-foreground">{appointment.client.phone}</div>
               )}
@@ -1172,8 +1187,23 @@ const HistoricoCP = () => {
                                 </td>
                                 <td className="py-2 sm:py-3 px-1 sm:px-2">
                                   <div>
-                                    <div className="text-xs sm:text-sm truncate" title={apt.service?.title || 'N/A'}>
-                                      {apt.service?.title || 'N/A'}
+                                    <div className="flex items-center gap-2 mb-1">
+                                      {(() => {
+                                        try {
+                                          const n = apt.notes ? JSON.parse(apt.notes) : null;
+                                          if (n && n.fit === true) {
+                                            return (
+                                              <Badge className="bg-purple-600 text-white border-none text-[10px] h-5 px-2 font-bold uppercase shadow-sm">
+                                                Encaixe
+                                              </Badge>
+                                            );
+                                          }
+                                        } catch {}
+                                        return null;
+                                      })()}
+                                      <div className="text-xs sm:text-sm font-medium truncate max-w-[120px]" title={apt.service?.title || 'N/A'}>
+                                        {apt.service?.title || 'N/A'}
+                                      </div>
                                     </div>
                                     {apt.service?.price && (
                                       <div className="text-xs text-muted-foreground">
