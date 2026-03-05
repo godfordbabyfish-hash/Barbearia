@@ -107,6 +107,11 @@ const BarbeiroDashboard = () => {
   const [productPaymentMethod, setProductPaymentMethod] = useState<'pix' | 'dinheiro' | 'cartao'>('pix');
   const [productPhotoFile, setProductPhotoFile] = useState<File | null>(null);
   const [savingProductSale, setSavingProductSale] = useState(false);
+  const [fitDialogOpen, setFitDialogOpen] = useState(false);
+  const [fitStartTime, setFitStartTime] = useState<string>('');
+  const [fitClientName, setFitClientName] = useState<string>('');
+  const [fitServiceId, setFitServiceId] = useState<string>('');
+  const [savingFit, setSavingFit] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   
@@ -1201,6 +1206,16 @@ const BarbeiroDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserBarber?.id]);
 
+  // Quando o dialog de conclusão for aberto, sugerir o valor do serviço
+  useEffect(() => {
+    if (completeDialogOpen && appointmentToComplete && payments.length === 0) {
+      const appointment = appointments.find(a => a.id === appointmentToComplete);
+      if (appointment?.service?.price) {
+        setCurrentPaymentAmount(appointment.service.price.toString());
+      }
+    }
+  }, [completeDialogOpen, appointmentToComplete, appointments]);
+
   const handleCreateAppointment = async () => {
     // Prevenir múltiplas submissões simultâneas
     if (creatingAppointment) {
@@ -1519,6 +1534,38 @@ const BarbeiroDashboard = () => {
   const handleUpdateStatus = async (id: string, status: string) => {
     // Se for para concluir, abre o dialog para adicionar foto
     if (status === 'completed') {
+      const isFit = (() => {
+        try {
+          const apt = appointments.find(a => a.id === id);
+          const n = apt?.notes ? JSON.parse(apt.notes) : null;
+          return n && n.fit === true;
+        } catch { return false; }
+      })();
+
+      if (isFit) {
+        // Para encaixe, atualizar o end_time no notes antes de abrir o dialog de conclusão
+        try {
+          const now = new Date();
+          const hh = String(now.getHours()).padStart(2, '0');
+          const mm = String(now.getMinutes()).padStart(2, '0');
+          const apt = appointments.find(a => a.id === id);
+          let n: any = {};
+          try { n = apt.notes ? JSON.parse(apt.notes) : {}; } catch { n = {}; }
+          n.fit = true;
+          n.end_time = `${hh}:${mm}`;
+          
+          await (supabase as any)
+            .from('appointments')
+            .update({ notes: JSON.stringify(n) })
+            .eq('id', id);
+          
+          // Atualizar o estado local do agendamento para refletir o novo end_time
+          setAppointments(prev => prev.map(a => a.id === id ? { ...a, notes: JSON.stringify(n) } : a));
+        } catch (e) {
+          console.error('Erro ao atualizar end_time do encaixe:', e);
+        }
+      }
+
       setAppointmentToComplete(id);
       setCompleteDialogOpen(true);
       return;
@@ -1621,15 +1668,34 @@ const BarbeiroDashboard = () => {
     }
 
     const amount = parseFloat(currentPaymentAmount);
-    setPayments([...payments, { method: currentPaymentMethod, amount }]);
-    setCurrentPaymentAmount('');
-    // Manter o método atual para facilitar entradas consecutivas do mesmo tipo ou resetar se preferir
+    const newPayments = [...payments, { method: currentPaymentMethod, amount }];
+    setPayments(newPayments);
+    
+    // Sugerir saldo restante para o próximo pagamento
+    if (appointmentToComplete) {
+      const appointment = appointments.find(a => a.id === appointmentToComplete);
+      const servicePrice = appointment?.service?.price || 0;
+      const totalPaid = newPayments.reduce((acc, curr) => acc + curr.amount, 0);
+      const remaining = Math.max(0, servicePrice - totalPaid);
+      setCurrentPaymentAmount(remaining > 0 ? remaining.toFixed(2) : '');
+    } else {
+      setCurrentPaymentAmount('');
+    }
   };
 
   const handleRemovePayment = (index: number) => {
     const newPayments = [...payments];
     newPayments.splice(index, 1);
     setPayments(newPayments);
+    
+    // Recalcular saldo restante sugerido
+    if (appointmentToComplete) {
+      const appointment = appointments.find(a => a.id === appointmentToComplete);
+      const servicePrice = appointment?.service?.price || 0;
+      const totalPaid = newPayments.reduce((acc, curr) => acc + curr.amount, 0);
+      const remaining = Math.max(0, servicePrice - totalPaid);
+      setCurrentPaymentAmount(remaining > 0 ? remaining.toFixed(2) : '');
+    }
   };
 
   const getTotalPaid = () => {
@@ -2052,16 +2118,27 @@ const BarbeiroDashboard = () => {
       return b.appointment_time.localeCompare(a.appointment_time);
     });
 
-  // Calculate completed appointments for different periods
-  const today = new Date().toISOString().split('T')[0];
-  const weekAgo = new Date();
-  weekAgo.setDate(weekAgo.getDate() - 7);
-  const monthAgo = new Date();
-  monthAgo.setMonth(monthAgo.getMonth() - 1);
+  // Calcular agendamentos concluídos para diferentes períodos (Apenas do mês atual)
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  
+  // Primeiro dia do mês atual
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  // Início da semana (Segunda-feira), mas não antes do início do mês
+  const startOfWeek = new Date(now);
+  const day = now.getDay(); // 0 (Dom) a 6 (Sáb)
+  const diffToMonday = now.getDate() - day + (day === 0 ? -6 : 1);
+  startOfWeek.setDate(diffToMonday);
+  startOfWeek.setHours(0, 0, 0, 0);
+  
+  // Se o início da semana caiu no mês anterior, limita ao dia 1 deste mês conforme solicitado
+  const finalWeekStart = startOfWeek < startOfMonth ? startOfMonth : startOfWeek;
 
   const todayCompleted = completedAppointments.filter(a => a.appointment_date === today);
-  const weekCompleted = completedAppointments.filter(a => new Date(a.appointment_date) >= weekAgo);
-  const monthCompleted = completedAppointments.filter(a => new Date(a.appointment_date) >= monthAgo);
+  const weekCompleted = completedAppointments.filter(a => new Date(a.appointment_date + 'T00:00:00') >= finalWeekStart);
+  const monthCompleted = completedAppointments.filter(a => new Date(a.appointment_date + 'T00:00:00') >= startOfMonth);
 
   return (
     <div className="min-h-screen bg-background py-6 px-4 overflow-x-hidden">
@@ -2510,87 +2587,127 @@ const BarbeiroDashboard = () => {
                 </DialogContent>
               </Dialog>
 
-              <Dialog open={pendingDialogOpen} onOpenChange={setPendingDialogOpen}>
+              <Dialog
+                open={fitDialogOpen}
+                onOpenChange={(open) => {
+                  setFitDialogOpen(open);
+                  if (open) {
+                    const now = new Date();
+                    const hh = String(now.getHours()).padStart(2, '0');
+                    const mm = String(now.getMinutes()).padStart(2, '0');
+                    setFitStartTime(`${hh}:${mm}`);
+                    setFitServiceId('');
+                  } else {
+                    setFitClientName('');
+                    setFitServiceId('');
+                  }
+                }}
+              >
                 <DialogTrigger asChild>
-                  <Button
-                    size="sm"
+                  <Button 
                     variant="outline"
-                    className="flex-1 min-w-0 h-8 px-1 text-xs gap-1"
-                    title="Pendências vencidas"
+                    size="sm"
+                    className="flex-1 min-w-0 h-8 px-1 text-xs"
+                    title="Iniciar Encaixe"
                   >
                     <Clock className="mr-1 h-3 w-3" />
-                    <span className="truncate">Pendências{pastPendingCount > 0 ? ` (${pastPendingCount})` : ''}</span>
+                    <span className="truncate">Encaixe</span>
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="sm:max-w-lg">
+                <DialogContent className="sm:max-w-md">
                   <DialogHeader>
-                    <DialogTitle>Pendências vencidas</DialogTitle>
-                    <DialogDescription>Agendamentos passados que ainda precisam ser concluídos.</DialogDescription>
+                    <DialogTitle>Iniciar Encaixe</DialogTitle>
+                    <DialogDescription>Cria um atendimento rápido entre horários.</DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-                    {pastPendingList.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Nenhuma pendência vencida encontrada.</p>
-                    ) : (
-                      pastPendingList.map((appointment) => {
-                        const clientName = appointment.client_name || appointment.client?.name || 'Local';
-                        const appointmentTime = (appointment.appointment_time || '').slice(0, 5);
-                        const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
-                        const bookingTypeLabel =
-                          appointment.booking_type === 'local'
-                            ? 'Local'
-                            : appointment.booking_type === 'manual'
-                            ? 'Manual'
-                            : 'Online';
-                        const bookingTypeColor =
-                          appointment.booking_type === 'local'
-                            ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                            : appointment.booking_type === 'manual'
-                            ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
-                            : 'bg-green-500/20 text-green-400 border-green-500/30';
-                        return (
-                          <div
-                            key={appointment.id}
-                            className="p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-red-500/5 border-red-500/30"
-                            onClick={() => {
-                              setPendingDialogOpen(false);
-                              handleAppointmentClick(appointment);
-                            }}
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="flex items-center gap-3">
-                                <Avatar className="h-9 w-9 border border-border">
-                                  <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
-                                  <AvatarFallback className="bg-secondary text-foreground font-semibold text-xs">
-                                    {(clientName || 'C').charAt(0).toUpperCase()}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1">
-                                  <p className="font-semibold text-sm">{appointment.service?.title || 'Serviço'}</p>
-                                  <p className="text-xs text-muted-foreground">Cliente: {clientName}</p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="px-2 py-1 rounded text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
-                                  {format(appointmentDate, 'dd/MM', { locale: ptBR })} às {appointmentTime}
-                                </span>
-                                <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
-                                  {bookingTypeLabel}
-                                </span>
-                                <span
-                                  className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                    appointment.status === 'confirmed'
-                                      ? 'bg-green-500/20 text-green-400'
-                                      : 'bg-yellow-500/20 text-yellow-400'
-                                  }`}
-                                >
-                                  {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
+                  <div className="space-y-4">
+                    <div>
+                      <Label>Serviço</Label>
+                      <select
+                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        value={fitServiceId}
+                        onChange={(e) => setFitServiceId(e.target.value)}
+                      >
+                        <option value="" disabled>Selecione um serviço</option>
+                        {services.map((service) => (
+                          <option key={service.id} value={service.id}>
+                            {service.title} - R$ {service.price}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label>Hora de início</Label>
+                      <Input
+                        type="time"
+                        value={fitStartTime}
+                        onChange={(e) => setFitStartTime(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label>Nome do Cliente (opcional)</Label>
+                      <Input
+                        value={fitClientName}
+                        onChange={(e) => setFitClientName(e.target.value)}
+                        placeholder="Local"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1"
+                        onClick={async () => {
+                          if (savingFit) return;
+                          const barberId = selectedBarber || currentUserBarber?.id;
+                          if (!barberId || !fitStartTime || !fitServiceId) return;
+                          setSavingFit(true);
+                          try {
+                            const profileId = generateUUID();
+                            const name = fitClientName?.trim() || 'Local';
+                            const { data: newProfile, error: profileError } = await (supabase as any)
+                              .from('profiles')
+                              .insert([{ id: profileId, name, is_temp_user: true }])
+                              .select('id')
+                              .single();
+                            if (profileError || !newProfile?.id) throw profileError || new Error('profile');
+                            const todayStr = new Date().toISOString().split('T')[0];
+                            
+                            const notes = JSON.stringify({ fit: true, start_time: fitStartTime });
+                            const { error: insertError } = await (supabase as any)
+                              .from('appointments')
+                              .insert([{
+                                client_id: newProfile.id,
+                                barber_id: barberId,
+                                service_id: fitServiceId,
+                                appointment_date: todayStr,
+                                appointment_time: fitStartTime,
+                                status: 'confirmed',
+                                booking_type: 'local',
+                                client_name: name,
+                                notes
+                              }]);
+                            if (insertError) throw insertError;
+                            toast.success('Encaixe iniciado');
+                            setFitDialogOpen(false);
+                            await loadAppointments();
+                          } catch (e: any) {
+                            console.error(e);
+                            toast.error('Erro ao iniciar encaixe: ' + (e?.message || 'desconhecido'));
+                          } finally {
+                            setSavingFit(false);
+                          }
+                        }}
+                        disabled={!fitStartTime || !fitServiceId || savingFit}
+                      >
+                        {savingFit ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Criando...
+                          </>
+                        ) : 'Iniciar'}
+                      </Button>
+                      <Button variant="outline" onClick={() => setFitDialogOpen(false)}>
+                        Fechar
+                      </Button>
+                    </div>
                   </div>
                 </DialogContent>
               </Dialog>
@@ -2658,6 +2775,13 @@ const BarbeiroDashboard = () => {
                               {list.length > 0 ? (
                                 <div className="space-y-3">
                                   {list.map((appointment) => {
+                                    const isFit = (() => {
+                                      try {
+                                        if (!appointment.notes) return false;
+                                        const n = JSON.parse(appointment.notes);
+                                        return n && n.fit === true;
+                                      } catch { return false; }
+                                    })();
                                     const isBreak = appointment.isBreak || appointment.status === 'break';
                                     const clientName = isBreak
                                       ? (appointment.service?.title || 'Pausa')
@@ -2667,11 +2791,12 @@ const BarbeiroDashboard = () => {
                                     const breakStart = (appointment.break_start_time || appointment.appointment_time || '').slice(0, 5);
                                     const breakEnd = (appointment.break_end_time || '').slice(0, 5);
                                     const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
-                                    const bookingTypeLabel = appointment.booking_type === 'local' ? 'Local' : 
-                                                           appointment.booking_type === 'manual' ? 'Manual' : 'Online';
-                                    const bookingTypeColor = appointment.booking_type === 'local' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
-                                                           appointment.booking_type === 'manual' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
-                                                           'bg-green-500/20 text-green-400 border-green-500/30';
+                                    const bookingTypeLabel = isFit ? 'Encaixe' : (appointment.booking_type === 'local' ? 'Local' : 
+                                                           appointment.booking_type === 'manual' ? 'Manual' : 'Online');
+                                    const bookingTypeColor = isFit ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                                                           : appointment.booking_type === 'local' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                                                           : appointment.booking_type === 'manual' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                                                           : 'bg-green-500/20 text-green-400 border-green-500/30';
 
                                     const cardClasses = isBreak
                                       ? 'p-3 rounded-lg border cursor-default bg-red-500/10 border-red-400'
@@ -2708,9 +2833,16 @@ const BarbeiroDashboard = () => {
                                           </Avatar>
                                           <div className="flex-1 space-y-1">
                                             <div className="flex items-center justify-between">
-                                              <p className={`font-semibold text-sm ${isBreak ? 'text-red-600' : ''}`}>
-                                                {appointment.service?.title || 'Serviço'}
-                                              </p>
+                                              <div className="flex items-center gap-2">
+                                                {isFit && (
+                                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white shadow-sm uppercase tracking-wider">
+                                                    Encaixe
+                                                  </span>
+                                                )}
+                                                <p className={`font-semibold text-sm ${isBreak ? 'text-red-600' : ''}`}>
+                                                  {appointment.service?.title || 'Serviço'}
+                                                </p>
+                                              </div>
                                               <div className="flex items-center gap-2">
                                                 <span className={`px-2 py-1 rounded text-xs font-medium ${
                                                   isBreak ? 'bg-red-500/20 text-red-600' : 'bg-primary/20 text-primary'
@@ -2799,6 +2931,13 @@ const BarbeiroDashboard = () => {
                               {list.length > 0 ? (
                                 <div className="space-y-3">
                                   {list.map((appointment) => {
+                                    const isFit = (() => {
+                                      try {
+                                        if (!appointment.notes) return false;
+                                        const n = JSON.parse(appointment.notes);
+                                        return n && n.fit === true;
+                                      } catch { return false; }
+                                    })();
                                     const isBreak = appointment.isBreak || appointment.status === 'break';
                                     const clientName = isBreak
                                       ? (appointment.service?.title || 'Pausa')
@@ -2808,11 +2947,12 @@ const BarbeiroDashboard = () => {
                                     const breakStart = (appointment.break_start_time || appointment.appointment_time || '').slice(0, 5);
                                     const breakEnd = (appointment.break_end_time || '').slice(0, 5);
                                     const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
-                                    const bookingTypeLabel = appointment.booking_type === 'local' ? 'Local' : 
-                                                           appointment.booking_type === 'manual' ? 'Manual' : 'Online';
-                                    const bookingTypeColor = appointment.booking_type === 'local' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
-                                                           appointment.booking_type === 'manual' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
-                                                           'bg-green-500/20 text-green-400 border-green-500/30';
+                                    const bookingTypeLabel = isFit ? 'Encaixe' : (appointment.booking_type === 'local' ? 'Local' : 
+                                                           appointment.booking_type === 'manual' ? 'Manual' : 'Online');
+                                    const bookingTypeColor = isFit ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                                                           : appointment.booking_type === 'local' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                                                           : appointment.booking_type === 'manual' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                                                           : 'bg-green-500/20 text-green-400 border-green-500/30';
 
                                     const cardClasses = isBreak
                                       ? 'p-3 rounded-lg border cursor-default bg-red-500/10 border-red-400'
@@ -2849,9 +2989,16 @@ const BarbeiroDashboard = () => {
                                           </Avatar>
                                           <div className="flex-1 space-y-1">
                                             <div className="flex items-center justify-between">
-                                              <p className={`font-semibold text-sm ${isBreak ? 'text-red-600' : ''}`}>
-                                                {appointment.service?.title || 'Serviço'}
-                                              </p>
+                                              <div className="flex items-center gap-2">
+                                                {isFit && (
+                                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white shadow-sm uppercase tracking-wider">
+                                                    Encaixe
+                                                  </span>
+                                                )}
+                                                <p className={`font-semibold text-sm ${isBreak ? 'text-red-600' : ''}`}>
+                                                  {appointment.service?.title || 'Serviço'}
+                                                </p>
+                                              </div>
                                               <div className="flex items-center gap-2">
                                                 <span className={`px-2 py-1 rounded text-xs font-medium ${
                                                   isBreak ? 'bg-red-500/20 text-red-600' : 'bg-secondary text-muted-foreground'
@@ -3045,14 +3192,100 @@ const BarbeiroDashboard = () => {
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-base">Histórico de Serviços</CardTitle>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 px-2 text-xs"
-                        onClick={() => setShowHistoryFilters((v) => !v)}
-                      >
-                        {showHistoryFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Dialog open={pendingDialogOpen} onOpenChange={setPendingDialogOpen}>
+                          <DialogTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 px-2 text-xs gap-1"
+                              title="Pendências vencidas"
+                            >
+                              <Clock className="h-3 w-3" />
+                              Pendências{pastPendingCount > 0 ? ` (${pastPendingCount})` : ''}
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="sm:max-w-lg">
+                            <DialogHeader>
+                              <DialogTitle>Pendências vencidas</DialogTitle>
+                              <DialogDescription>Agendamentos passados que ainda precisam ser concluídos.</DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+                              {pastPendingList.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">Nenhuma pendência vencida encontrada.</p>
+                              ) : (
+                                pastPendingList.map((appointment) => {
+                                  const clientName = appointment.client_name || appointment.client?.name || 'Local';
+                                  const appointmentTime = (appointment.appointment_time || '').slice(0, 5);
+                                  const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
+                                  const bookingTypeLabel =
+                                    appointment.booking_type === 'local'
+                                      ? 'Local'
+                                      : appointment.booking_type === 'manual'
+                                      ? 'Manual'
+                                      : 'Online';
+                                  const bookingTypeColor =
+                                    appointment.booking_type === 'local'
+                                      ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                                      : appointment.booking_type === 'manual'
+                                      ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                                      : 'bg-green-500/20 text-green-400 border-green-500/30';
+                                  return (
+                                    <div
+                                      key={appointment.id}
+                                      className="p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-red-500/5 border-red-500/30"
+                                      onClick={() => {
+                                        setPendingDialogOpen(false);
+                                        handleAppointmentClick(appointment);
+                                      }}
+                                    >
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-3">
+                                          <Avatar className="h-9 w-9 border border-border">
+                                            <AvatarImage src={appointment.client?.photo_url || ''} alt={clientName} />
+                                            <AvatarFallback className="bg-secondary text-foreground font-semibold text-xs">
+                                              {(clientName || 'C').charAt(0).toUpperCase()}
+                                            </AvatarFallback>
+                                          </Avatar>
+                                          <div className="flex-1">
+                                            <p className="font-semibold text-sm">{appointment.service?.title || 'Serviço'}</p>
+                                            <p className="text-xs text-muted-foreground">Cliente: {clientName}</p>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="px-2 py-1 rounded text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+                                            {format(appointmentDate, 'dd/MM', { locale: ptBR })} às {appointmentTime}
+                                          </span>
+                                          <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
+                                            {bookingTypeLabel}
+                                          </span>
+                                          <span
+                                            className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                              appointment.status === 'confirmed'
+                                                ? 'bg-green-500/20 text-green-400'
+                                                : 'bg-yellow-500/20 text-yellow-400'
+                                            }`}
+                                          >
+                                            {appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 px-2 text-xs"
+                          onClick={() => setShowHistoryFilters((v) => !v)}
+                        >
+                          {showHistoryFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -3156,7 +3389,18 @@ const BarbeiroDashboard = () => {
                             <div className="flex justify-between items-start">
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="font-bold text-base">{appointment.service?.title || 'Serviço'}</p>
+                                  {(() => {
+                                    try {
+                                      const n = appointment.notes ? JSON.parse(appointment.notes) : null;
+                                      if (n && n.fit === true) {
+                                        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white shadow-sm uppercase tracking-wider">Encaixe</span>;
+                                      }
+                                    } catch {}
+                                    return null;
+                                  })()}
+                                  <p className="font-bold text-base">
+                                    {appointment.service?.title || 'Serviço'}
+                                  </p>
                                   <span className={`px-2 py-1 rounded text-xs font-medium ${
                                     appointment.status === 'completed' ? 'bg-green-500/20 text-green-400' :
                                     appointment.status === 'confirmed' ? 'bg-blue-500/20 text-blue-400' :
