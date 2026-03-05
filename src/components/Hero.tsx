@@ -51,10 +51,6 @@ const Hero = () => {
     document.getElementById('agendamento')?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const scrollToServices = () => {
-    navigate('/servicos');
-  };
-
   const backgroundImage = config.image_url || heroImage;
 
   return (
@@ -92,17 +88,9 @@ const Hero = () => {
           <Button 
             onClick={scrollToBooking}
             size="lg" 
-            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-gold transition-all duration-300 hover:scale-105"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-gold transition-all duration-300 hover:scale-105 px-8"
           >
             Agendar Horário
-          </Button>
-          <Button 
-            onClick={scrollToServices}
-            size="lg" 
-            variant="outline"
-            className="border-primary/50 hover:bg-primary/10 transition-all duration-300"
-          >
-            Ver Serviços
           </Button>
         </div>
       </div>
