@@ -632,7 +632,14 @@ const BarbeiroDashboard = () => {
         return true;
       };
       const result = daySlots.filter((slot) => {
-        if (!newAppointment.isRetroactive && isToday && slot <= currentHHMM) return false;
+        // Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
+        if (!newAppointment.isRetroactive && isToday) {
+          const [sh, sm] = slot.split(':').map(Number);
+          const [ch, cm] = currentHHMM.split(':').map(Number);
+          const slotTotalMinutes = sh * 60 + sm;
+          const nowTotalMinutes = ch * 60 + cm;
+          if (slotTotalMinutes < (nowTotalMinutes - 10)) return false;
+        }
         if (!fitsInHours(slot)) return false;
         const slotEnd = addMinutesToTime(slot, serviceDuration);
         if (aptRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return false;
@@ -1312,11 +1319,11 @@ const BarbeiroDashboard = () => {
         let lunchBreak: { start_time: string; end_time: string } | null = null;
         try {
           const barber = barbers.find(b => b.id === barberId) as any;
+          const selectedDate = new Date(newAppointment.date + 'T00:00:00');
           if (barber?.availability) {
             const availability = typeof barber.availability === 'string'
               ? JSON.parse(barber.availability)
               : barber.availability;
-            const selectedDate = new Date(newAppointment.date + 'T00:00:00');
             const dayKey = getDayKey(selectedDate);
             const dayAvailability = availability?.[dayKey];
             if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
@@ -1324,6 +1331,27 @@ const BarbeiroDashboard = () => {
                 start_time: dayAvailability.lunchStart,
                 end_time: dayAvailability.lunchEnd,
               };
+            }
+          }
+
+          // Fallback para horário de almoço da loja se o barbeiro não tiver configurado
+          if (!lunchBreak) {
+            const { data: shopHours } = await supabase
+              .from('site_config')
+              .select('config_value')
+              .eq('config_key', 'operating_hours')
+              .maybeSingle();
+            
+            if (shopHours?.config_value) {
+              const operatingHours = shopHours.config_value as any;
+              const dayKey = getDayKey(selectedDate);
+              const dayHours = operatingHours?.[dayKey];
+              if (dayHours?.hasLunchBreak && dayHours.lunchStart && dayHours.lunchEnd) {
+                lunchBreak = {
+                  start_time: dayHours.lunchStart,
+                  end_time: dayHours.lunchEnd,
+                };
+              }
             }
           }
         } catch (err) {

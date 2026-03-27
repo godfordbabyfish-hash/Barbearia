@@ -44,16 +44,27 @@ const addMinutesToTime = (time: string, minutes: number) => {
   return `${String(newHours).padStart(2, '0')}:${String(newMins).padStart(2, '0')}`;
 };
 
-const isTimeConflict = (newTime: string, duration: number, existingAppointments: any[], selectedService: any) => {
+const isTimeConflict = (newTime: string, duration: number, existingAppointments: any[], breaks: any[] = []) => {
   const newEndTime = addMinutesToTime(newTime, duration);
   
-  return existingAppointments.some(apt => {
+  // 1. Check for conflicts with existing appointments
+  const hasAppointmentConflict = existingAppointments.some(apt => {
     const aptDuration = apt.service?.duration || 30;
     const aptEndTime = addMinutesToTime(apt.appointment_time, aptDuration);
     
-    // Check if times overlap
+    // Check if time ranges overlap
     return (newTime < aptEndTime && newEndTime > apt.appointment_time);
   });
+
+  if (hasAppointmentConflict) return true;
+
+  // 2. Check for conflicts with breaks
+  const hasBreakConflict = breaks.some(br => {
+    // Check if time ranges overlap
+    return (newTime < br.end_time && newEndTime > br.start_time);
+  });
+
+  return hasBreakConflict;
 };
 
 const Booking = () => {
@@ -377,8 +388,7 @@ const Booking = () => {
         };
         const availableTodaySlots = timeSlots.filter((slot) => {
           if (slot < currentTime) return false;
-          if (isSlotInBreak(slot, serviceDuration)) return false;
-          const hasConflict = isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === formData.service));
+          const hasConflict = isTimeConflict(slot, serviceDuration, appointments || [], breaks || []);
           return !hasConflict;
         });
         result[barber.id] = availableTodaySlots.length > 0;
@@ -513,8 +523,13 @@ const Booking = () => {
 
       // Verificar se há horários disponíveis hoje
       const availableTodaySlots = todayTimeSlots.filter(slot => {
-        // Filtrar horários passados
-        if (slot < currentTime) {
+        // Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
+        // Isso deve ser consistente com src/utils/availability.ts
+        const [hour, minute] = slot.split(':').map(Number);
+        const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+        const slotTotalMinutes = hour * 60 + minute;
+        const nowTotalMinutes = currentHour * 60 + currentMinute;
+        if (slotTotalMinutes < (nowTotalMinutes - 10)) {
           return false;
         }
 
@@ -661,6 +676,30 @@ const Booking = () => {
         .eq('barber_id', currentFormData.barber)
         .eq('date', dateStr);
       
+      // Adicionar verificação de almoço
+      let lunchBreak: { start_time: string; end_time: string } | null = null;
+      try {
+        const barber = barbers.find(b => b.id === currentFormData.barber);
+        if (barber?.availability) {
+          const availability = typeof barber.availability === 'string'
+            ? JSON.parse(barber.availability)
+            : barber.availability;
+          const dayKey = getDayKey(checkDate);
+          const dayAvailability = availability?.[dayKey];
+          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
+            lunchBreak = {
+              start_time: dayAvailability.lunchStart,
+              end_time: dayAvailability.lunchEnd,
+            };
+          }
+        }
+      } catch (e) { console.warn('Falha ao validar almoço em findNextAvailableDateTime:', e); }
+
+      const combinedBreaks = [
+        ...(breaks || []),
+        ...(lunchBreak ? [lunchBreak] : []),
+      ];
+
       // Ignore 404/table not found errors (table might not exist)
       if (breaksError && breaksError.code !== 'PGRST116' && breaksError.code !== 'PGRST205' && breaksError.code !== '42P01') {
         console.warn('Error loading barber breaks:', breaksError);
@@ -672,45 +711,21 @@ const Booking = () => {
       const isToday = checkDate.toDateString() === today.toDateString();
       const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
       
-      // Helper function to check if a slot overlaps with a break
-      const isSlotInBreak = (slotTime: string, slotDuration: number): boolean => {
-        if (!breaks || breaks.length === 0) return false;
-
-        const timeToMinutes = (time: string): number => {
-          const [hours, minutes] = time.split(':').map(Number);
-          return hours * 60 + minutes;
-        };
-
-        const slotStartMinutes = timeToMinutes(slotTime);
-        const slotEndMinutes = slotStartMinutes + slotDuration;
-
-        return breaks.some((breakItem: any) => {
-          const breakStartMinutes = timeToMinutes(breakItem.start_time);
-          const breakEndMinutes = timeToMinutes(breakItem.end_time);
-
-          // 1) Sobreposição padrão
-          if (slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes) return true;
-          return false;
-        });
-      };
-      
       const availableSlots = dayTimeSlots.filter(slot => {
-        // Use < instead of <= to include the current hour if we're still in the first 30 minutes
-        // For example, if current time is 09:15, 09:30 should still be available
-        if (isToday && slot < currentTime) {
-          return false;
+        // Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
+        // Isso deve ser consistente com src/utils/availability.ts
+        if (isToday) {
+          const [hour, minute] = slot.split(':').map(Number);
+          const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+          const slotTotalMinutes = hour * 60 + minute;
+          const nowTotalMinutes = currentHour * 60 + currentMinute;
+          if (slotTotalMinutes < (nowTotalMinutes - 10)) {
+            return false;
+          }
         }
 
-        // Filter out slots that overlap with breaks
-        if (isSlotInBreak(slot, serviceDuration)) {
-          return false;
-        }
-
-        const hasConflict = isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === currentFormData.service));
-        if (hasConflict) {
-          return false;
-        }
-        return true;
+        const hasConflict = isTimeConflict(slot, serviceDuration, appointments || [], combinedBreaks);
+        return !hasConflict;
       });
 
       if (availableSlots.length > 0) {
@@ -782,8 +797,12 @@ const Booking = () => {
         // Check if current selected time is still available in new slots
         const currentTimeStillAvailable = formData.time && slots.includes(formData.time);
         
-        // Only update if current time is not available or no time is selected
-        if (!currentTimeStillAvailable) {
+        // Se já houver um horário selecionado e o usuário estiver no passo de formulário, 
+        // NÃO sobrescrever o horário a menos que ele tenha se tornado realmente indisponível
+        // (por exemplo, outro cliente agendou o mesmo horário enquanto este preenchia o formulário)
+        if (step === "form" && currentTimeStillAvailable) {
+          // Manter o horário atual
+        } else if (!currentTimeStillAvailable) {
           setFormData(prev => ({
             ...prev,
             time: slots[0],
@@ -923,7 +942,7 @@ const Booking = () => {
     // Ajustar pelos conflitos do serviço selecionado (duração)
     const serviceDuration = getServiceDuration(formData.service, services);
     return baseSlots.filter(slot =>
-      !isTimeConflict(slot, serviceDuration, appointments || [], services.find(s => s.id === formData.service))
+      !isTimeConflict(slot, serviceDuration, appointments || [], combinedBreaks)
     );
     } catch (error) {
       console.error('Error in getAvailableSlotsForDate:', error);
@@ -974,9 +993,11 @@ const Booking = () => {
 
     try {
       // Verificar se o barbeiro está fechado neste dia
+      const selectedDate = new Date(formData.date + 'T00:00:00');
+      const selectedBarber = barbers.find(b => b.id === formData.barber);
+      let lunchBreak: { start_time: string; end_time: string } | null = null;
+
       try {
-        const selectedDate = new Date(formData.date + 'T00:00:00');
-        const selectedBarber = barbers.find(b => b.id === formData.barber);
         if (selectedBarber?.availability) {
           const availability = typeof selectedBarber.availability === 'string'
             ? JSON.parse(selectedBarber.availability)
@@ -989,13 +1010,19 @@ const Booking = () => {
             });
             return;
           }
+          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
+            lunchBreak = {
+              start_time: dayAvailability.lunchStart,
+              end_time: dayAvailability.lunchEnd,
+            };
+          }
         }
       } catch (err) {
         console.warn('Falha ao validar disponibilidade diária do barbeiro:', err);
       }
       
       // 1. Verificações rápidas em paralelo
-      const [existingAppointmentResult, breaksResult] = await Promise.allSettled([
+      const [existingAppointmentResult, breaksResult, shopHoursResult] = await Promise.allSettled([
         // Verificar se já existe agendamento no mesmo horário
         (supabase as any)
           .from('appointments')
@@ -1013,8 +1040,36 @@ const Booking = () => {
               .select('start_time, end_time')
               .eq('barber_id', formData.barber)
               .eq('date', formData.date)
-          : Promise.resolve({ data: [] })
+          : Promise.resolve({ data: [] }),
+
+        // Carregar almoço da loja se necessário
+        !lunchBreak
+          ? supabase
+              .from('site_config')
+              .select('config_value')
+              .eq('config_key', 'operating_hours')
+              .maybeSingle()
+          : Promise.resolve({ data: null })
       ]);
+
+      // Processar almoço da loja se fallback for necessário
+      if (!lunchBreak && shopHoursResult.status === 'fulfilled' && shopHoursResult.value.data) {
+        const operatingHours = shopHoursResult.value.data.config_value as any;
+        const dayKey = getDayKey(selectedDate);
+        const dayHours = operatingHours?.[dayKey];
+        if (dayHours?.hasLunchBreak && dayHours.lunchStart && dayHours.lunchEnd) {
+          lunchBreak = {
+            start_time: dayHours.lunchStart,
+            end_time: dayHours.lunchEnd,
+          };
+        }
+      }
+
+      // BLOQUEIO FORÇADO: Sábado almoço padrão
+      const dayKey = getDayKey(selectedDate);
+      if (!lunchBreak && dayKey === 'saturday') {
+        lunchBreak = { start_time: '12:00', end_time: '14:00' };
+      }
 
       // Verificar conflito de horário
       if (existingAppointmentResult.status === 'fulfilled' && existingAppointmentResult.value.data) {
@@ -1024,29 +1079,18 @@ const Booking = () => {
         return;
       }
 
-      // Verificar pausas do barbeiro
-      if (breaksResult.status === 'fulfilled' && breaksResult.value.data?.length > 0) {
-        const serviceDuration = getServiceDuration(formData.service, services);
-        const timeToMinutes = (time: string): number => {
-          const [hours, minutes] = time.split(':').map(Number);
-          return hours * 60 + minutes;
-        };
+      // Verificar pausas do barbeiro (incluindo almoço)
+      const serviceDuration = getServiceDuration(formData.service, services);
+      const manualBreaks = breaksResult.status === 'fulfilled' ? (breaksResult.value.data || []) : [];
+      const combinedBreaks = [...manualBreaks, ...(lunchBreak ? [lunchBreak] : [])];
 
-        const slotStartMinutes = timeToMinutes(formData.time);
-        const slotEndMinutes = slotStartMinutes + serviceDuration;
+      const isInBreak = isTimeConflict(formData.time, serviceDuration, [], combinedBreaks);
 
-        const isInBreak = breaksResult.value.data.some((breakItem: any) => {
-          const breakStartMinutes = timeToMinutes(breakItem.start_time);
-          const breakEndMinutes = timeToMinutes(breakItem.end_time);
-          return slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes;
+      if (isInBreak) {
+        toast.error("Horário indisponível", {
+          description: "Este horário está em uma pausa do barbeiro. Por favor, escolha outro horário.",
         });
-
-        if (isInBreak) {
-          toast.error("Horário indisponível", {
-            description: "Este horário está em uma pausa do barbeiro. Por favor, escolha outro horário.",
-          });
-          return;
-        }
+        return;
       }
 
       // 2. Bloqueio por CPF (perfil)
