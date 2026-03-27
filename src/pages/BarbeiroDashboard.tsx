@@ -1485,8 +1485,12 @@ const BarbeiroDashboard = () => {
     try {
       const selectedService = services.find(s => s.id === appointmentData.serviceId);
       const duration = selectedService?.duration || 30;
-      const startDateTime = new Date(`${appointmentData.date}T${appointmentData.time}:00`);
+      
+      // Usar formato local sem conversão para UTC para evitar discrepâncias de fuso horário no webhook
+      const localStartTime = `${appointmentData.date}T${appointmentData.time}:00`;
+      const startDateTime = new Date(localStartTime);
       const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
+      const localEndTime = `${appointmentData.date}T${endDateTime.getHours().toString().padStart(2, '0')}:${endDateTime.getMinutes().toString().padStart(2, '0')}:00`;
 
       // Processar webhook e WhatsApp em paralelo com timeouts
       const [webhookResult, whatsappResult] = await Promise.allSettled([
@@ -1499,8 +1503,8 @@ const BarbeiroDashboard = () => {
               clientName: appointmentData.clientName,
               phone: appointmentData.clientPhone || '00000000000',
               service: selectedService?.title || 'Serviço',
-              startTime: startDateTime.toISOString(),
-              endTime: endDateTime.toISOString(),
+              startTime: localStartTime,
+              endTime: localEndTime,
               userId: barberId,
               notes: null,
             }

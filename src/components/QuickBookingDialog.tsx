@@ -569,8 +569,12 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         try {
           const selectedService = services.find(s => s.id === serviceId);
           const duration = selectedService?.duration || 30;
-          const startDateTime = new Date(`${date}T${slotToUse}:00`);
+          
+          // Usar formato local sem conversão para UTC para evitar discrepâncias de fuso horário no webhook
+          const localStartTime = `${date}T${slotToUse}:00`;
+          const startDateTime = new Date(localStartTime);
           const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
+          const localEndTime = `${date}T${endDateTime.getHours().toString().padStart(2, '0')}:${endDateTime.getMinutes().toString().padStart(2, '0')}:00`;
 
           // Get the current user (barber who created the local appointment)
           const { data: { user: currentUser } } = await supabase.auth.getUser();
@@ -583,8 +587,8 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
               clientName: localName === "LOCAL" ? 'LOCAL (presencial)' : localName,
               phone: '00000000000',
               service: selectedService?.title || 'Serviço',
-              startTime: startDateTime.toISOString(),
-              endTime: endDateTime.toISOString(),
+              startTime: localStartTime,
+              endTime: localEndTime,
               userId: userId,
               notes: null,
             }
