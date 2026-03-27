@@ -120,6 +120,27 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
             };
           }
         }
+        
+        // Fallback para horário de almoço da loja se o barbeiro não tiver configurado
+        if (!lunchBreak) {
+          const { data: shopHours } = await supabase
+            .from('site_config')
+            .select('config_value')
+            .eq('config_key', 'operating_hours')
+            .maybeSingle();
+          
+          if (shopHours?.config_value) {
+            const operatingHours = shopHours.config_value as any;
+            const dayKey = getDayKey(dateObj) as any;
+            const dayHours = operatingHours?.[dayKey];
+            if (dayHours?.hasLunchBreak && dayHours.lunchStart && dayHours.lunchEnd) {
+              lunchBreak = {
+                start_time: dayHours.lunchStart,
+                end_time: dayHours.lunchEnd,
+              };
+            }
+          }
+        }
       } catch (e) {
         console.warn("Falha ao validar disponibilidade do barbeiro no dia selecionado:", e);
       }
@@ -164,7 +185,10 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         if (isToday) {
           const [ch, cm] = [now.getHours(), now.getMinutes()];
           const [sh, sm] = slot.split(':').map(Number);
-          if (sh < ch || (sh === ch && sm <= cm)) return 'past';
+          const slotTotalMinutes = sh * 60 + sm;
+          const nowTotalMinutes = ch * 60 + cm;
+          // Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
+          if (slotTotalMinutes < (nowTotalMinutes - 10)) return 'past';
         }
         const slotEnd = addMin(slot, 30);
         const overlaps = (s1: string, e1: string, s2: string, e2: string) => s1 < e2 && e1 > s2;
@@ -372,18 +396,47 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
 
     try {
       // Verificar se o dia está fechado para o barbeiro
+      let lunchBreak: { start_time: string; end_time: string } | null = null;
       try {
         const barber = barbers.find(b => b.id === selectedBarberId) as any;
+        const selectedDate = new Date(date + "T12:00:00");
         if (barber?.availability) {
           const availability = typeof barber.availability === "string"
             ? JSON.parse(barber.availability)
             : barber.availability;
-          const dayKey = getDayKey(new Date(date + "T12:00:00")) as any;
+          const dayKey = getDayKey(selectedDate) as any;
           if (availability?.[dayKey]?.closed) {
             toast.error("Barbeiro indisponível nesta data", {
               description: "Este barbeiro bloqueou a agenda para este dia.",
             });
             return;
+          }
+          if (availability?.[dayKey]?.hasLunchBreak && availability[dayKey].lunchStart && availability[dayKey].lunchEnd) {
+            lunchBreak = {
+              start_time: availability[dayKey].lunchStart,
+              end_time: availability[dayKey].lunchEnd,
+            };
+          }
+        }
+        
+        // Fallback para horário de almoço da loja
+        if (!lunchBreak) {
+          const { data: shopHours } = await supabase
+            .from('site_config')
+            .select('config_value')
+            .eq('config_key', 'operating_hours')
+            .maybeSingle();
+          
+          if (shopHours?.config_value) {
+            const operatingHours = shopHours.config_value as any;
+            const dayKey = getDayKey(selectedDate) as any;
+            const dayHours = operatingHours?.[dayKey];
+            if (dayHours?.hasLunchBreak && dayHours.lunchStart && dayHours.lunchEnd) {
+              lunchBreak = {
+                start_time: dayHours.lunchStart,
+                end_time: dayHours.lunchEnd,
+              };
+            }
           }
         }
       } catch (e) {
@@ -422,7 +475,13 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         .select('start_time, end_time')
         .eq('barber_id', selectedBarberId)
         .eq('date', date);
-      const hasBreakOverlap = (breaks || []).some((b: any) => {
+      
+      const combinedBreaks = [
+        ...(breaks || []),
+        ...(lunchBreak ? [lunchBreak] : []),
+      ];
+
+      const hasBreakOverlap = combinedBreaks.some((b: any) => {
         const bStart = timeToMinutes(b.start_time);
         const bEnd = timeToMinutes(b.end_time);
         return newStart < bEnd && newEnd > bStart;

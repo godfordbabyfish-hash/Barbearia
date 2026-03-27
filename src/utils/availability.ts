@@ -32,7 +32,11 @@ export function getAvailableSlotsForBarber(
   const slots = filterPast && isToday
     ? allSlots.filter((slot) => {
         const [hour, minute] = slot.split(":").map(Number);
-        return hour > currentHour || (hour === currentHour && minute > currentMinute);
+        // Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
+        // Por exemplo, se agora é 15:05, ainda permitir o slot das 15:00
+        const slotTotalMinutes = hour * 60 + minute;
+        const nowTotalMinutes = currentHour * 60 + currentMinute;
+        return slotTotalMinutes >= (nowTotalMinutes - 10);
       })
     : [...allSlots];
 

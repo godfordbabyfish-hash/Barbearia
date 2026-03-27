@@ -297,7 +297,10 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     // Filter out past time slots
     const slots = allSlots.filter(slot => {
       const [hour, minute] = slot.split(":").map(Number);
-      return hour > currentHour || (hour === currentHour && minute > currentMinute);
+      const slotTotalMinutes = hour * 60 + minute;
+      const nowTotalMinutes = currentHour * 60 + currentMinute;
+      // Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
+      return slotTotalMinutes >= (nowTotalMinutes - 10);
     });
 
     // Filter out booked slots
