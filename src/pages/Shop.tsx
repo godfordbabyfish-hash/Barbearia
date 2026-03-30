@@ -54,12 +54,24 @@ interface Barber {
   name: string;
 }
 
+interface FooterInfoConfig {
+  social?: {
+    whatsapp?: string;
+  };
+}
+
+interface CheckoutError {
+  message?: string;
+  details?: string;
+  hint?: string;
+}
+
 const Shop = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
   const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -86,7 +98,7 @@ const Shop = () => {
     loadProducts();
     loadBarbers();
     loadWhatsappNumber();
-  }, []);
+  }, [supabaseAnonKey, supabaseUrl, toast]);
 
   const loadProducts = async () => {
     const { data, error } = await supabase
@@ -124,7 +136,7 @@ const Shop = () => {
       .maybeSingle();
 
     if (data && !error) {
-      const footerInfo = data.config_value as any;
+      const footerInfo = data.config_value as FooterInfoConfig;
       if (footerInfo?.social?.whatsapp) {
         // Clean up the number
         const number = footerInfo.social.whatsapp.replace(/\D/g, '');
@@ -311,12 +323,13 @@ const Shop = () => {
         description: "O pedido foi registrado e a mensagem enviada.",
       });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const checkoutError = error as CheckoutError;
       console.error('Error processing checkout:', error);
-      console.error('Error details:', error?.message, error?.details, error?.hint);
+      console.error('Error details:', checkoutError?.message, checkoutError?.details, checkoutError?.hint);
       toast({
         title: "Erro ao processar",
-        description: `Erro: ${error?.message || "Ocorreu um erro ao registrar o pedido."}`,
+        description: `Erro: ${checkoutError?.message || "Ocorreu um erro ao registrar o pedido."}`,
         variant: "destructive",
       });
     } finally {

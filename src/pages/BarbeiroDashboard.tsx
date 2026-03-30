@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import type { Tables } from '@/integrations/supabase/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
@@ -23,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { useNotifications } from '@/hooks/useNotifications';
 import { sendWhatsAppMessage } from '@/services/whatsappService';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import BarberFinancialDashboard from '@/components/BarberFinancialDashboard';
 import { BarberBreakManager } from '@/components/admin/BarberBreakManager';
@@ -32,19 +34,99 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { listAdvancesByBarber, approveAdvance, rejectAdvance } from '@/integrations/supabase/barberAdvances';
+import type { BarberAdvance } from '@/integrations/supabase/barberAdvances';
 import { generateUUID } from '@/utils/uuid';
 import { useOperatingHours, getDayKey } from '@/hooks/useOperatingHours';
+
+type BarberRecord = Tables<'barbers'>;
+type ServiceRecord = Tables<'services'>;
+type AppointmentRecord = Tables<'appointments'>;
+type AppointmentPaymentRecord = Tables<'appointment_payments'>;
+type ProfileRecord = Tables<'profiles'>;
+type ProductRecord = Tables<'products'>;
+type ProductSaleRecord = Tables<'product_sales'>;
+type BarberBreakRecord = Tables<'barber_breaks'>;
+type AppointmentPaymentItem = Pick<AppointmentPaymentRecord, 'amount' | 'payment_method'>;
+type ClientProfile = Pick<ProfileRecord, 'id' | 'name' | 'phone' | 'whatsapp' | 'photo_url'>;
+type ClientWithPhone = Omit<ClientProfile, 'phone'> & { phone: string };
+type AppointmentWithRelations = Partial<AppointmentRecord> & {
+  id: string;
+  barber_id: string;
+  appointment_date: string;
+  appointment_time: string;
+  status: string;
+  service: Pick<ServiceRecord, 'title' | 'price' | 'duration'> | null;
+  appointment_payments?: AppointmentPaymentItem[] | null;
+  client?: ClientWithPhone | null;
+  isBreak?: boolean;
+  break_start_time?: string;
+  break_end_time?: string;
+};
+type PendingAppointmentItem = Pick<
+  AppointmentRecord,
+  'id' | 'appointment_date' | 'appointment_time' | 'status' | 'photo_url' | 'payment_method' | 'client_name'
+> & {
+  service: Pick<ServiceRecord, 'title'> | null;
+};
+type ProductHistoryItem = Pick<
+  ProductSaleRecord,
+  'id' | 'product_id' | 'sale_date' | 'sale_time' | 'quantity' | 'total_price' | 'status' | 'notes' | 'payment_method' | 'photo_url'
+> & {
+  product: Pick<ProductRecord, 'name'> | null;
+};
+type ProductFilterItem = Pick<ProductRecord, 'id' | 'name'>;
+type ProductOption = Pick<ProductRecord, 'id' | 'name' | 'price' | 'stock'>;
+type TodayBreakItem = Pick<BarberBreakRecord, 'id' | 'date' | 'start_time' | 'end_time' | 'notes'> & {
+  isLunch?: boolean;
+};
+type BarberAvailabilityDay = {
+  closed?: boolean;
+  hasLunchBreak?: boolean;
+  lunchStart?: string;
+  lunchEnd?: string;
+};
+type BarberAvailability = Record<string, BarberAvailabilityDay | undefined>;
+type UserMetadata = {
+  name?: string;
+};
+
+const getUserMetadata = (user: SupabaseUser | null | undefined): UserMetadata =>
+  (user?.user_metadata ?? {}) as UserMetadata;
+
+const getAvailabilityForDate = (availability: unknown, date: Date) => {
+  if (!availability || typeof availability !== 'object') return null;
+  const availabilityByDay = availability as BarberAvailability;
+  return availabilityByDay[getDayKey(date)] || null;
+};
+
+const getLunchBreakForDate = (
+  availability: unknown,
+  date: Date
+): Pick<BarberBreakRecord, 'start_time' | 'end_time'> | null => {
+  const availabilityForDate = getAvailabilityForDate(availability, date);
+  if (
+    availabilityForDate?.hasLunchBreak &&
+    availabilityForDate.lunchStart &&
+    availabilityForDate.lunchEnd
+  ) {
+    return {
+      start_time: availabilityForDate.lunchStart,
+      end_time: availabilityForDate.lunchEnd,
+    };
+  }
+
+  return null;
+};
 
 const BarbeiroDashboard = () => {
   const navigate = useNavigate();
   const { role: userRole, user, signOut } = useAuth();
-  const queryClient = useQueryClient();
   const [displayName, setDisplayName] = useState<string>('');
-  const [appointments, setAppointments] = useState<any[]>([]);
-  const [barbers, setBarbers] = useState<any[]>([]);
-  const [services, setServices] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState<AppointmentWithRelations[]>([]);
+  const [barbers, setBarbers] = useState<BarberRecord[]>([]);
+  const [services, setServices] = useState<ServiceRecord[]>([]);
   const [selectedBarber, setSelectedBarber] = useState<string>('');
-  const [currentUserBarber, setCurrentUserBarber] = useState<any>(null);
+  const [currentUserBarber, setCurrentUserBarber] = useState<BarberRecord | null>(null);
   const [showNewAppointment, setShowNewAppointment] = useState(false);
   const [newAppointment, setNewAppointment] = useState({
     clientName: '',
@@ -67,17 +149,17 @@ const BarbeiroDashboard = () => {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
   const [cancellationReason, setCancellationReason] = useState('');
-  const [advances, setAdvances] = useState<any[]>([]);
+  const [advances, setAdvances] = useState<BarberAdvance[]>([]);
   const [actionDialogOpen, setActionDialogOpen] = useState(false);
-  const [selectedAppointmentForAction, setSelectedAppointmentForAction] = useState<any | null>(null);
+  const [selectedAppointmentForAction, setSelectedAppointmentForAction] = useState<AppointmentWithRelations | null>(null);
   const [loadingAdvances, setLoadingAdvances] = useState(false);
   const [whatsappDialogOpen, setWhatsappDialogOpen] = useState(false);
-  const [whatsappAppointment, setWhatsappAppointment] = useState<any | null>(null);
+  const [whatsappAppointment, setWhatsappAppointment] = useState<AppointmentWithRelations | null>(null);
   const [whatsappNumber, setWhatsappNumber] = useState<string>('');
   
   // Estados para edição de agendamento
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [appointmentToEdit, setAppointmentToEdit] = useState<any | null>(null);
+  const [appointmentToEdit, setAppointmentToEdit] = useState<AppointmentWithRelations | null>(null);
   const [editAppointment, setEditAppointment] = useState({
     date: '',
     time: '',
@@ -91,17 +173,17 @@ const BarbeiroDashboard = () => {
   const [historySectionTab, setHistorySectionTab] = useState<'servicos' | 'produtos'>('servicos');
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
-  const [productHistory, setProductHistory] = useState<any[]>([]);
+  const [productHistory, setProductHistory] = useState<ProductHistoryItem[]>([]);
   const [loadingProductHistory, setLoadingProductHistory] = useState(false);
   const [showProductHistoryFilters, setShowProductHistoryFilters] = useState(false);
   const [productHistoryFilterPeriod, setProductHistoryFilterPeriod] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
   const [productHistoryFilterStatus, setProductHistoryFilterStatus] = useState<'all' | 'confirmed' | 'pending' | 'cancelled'>('all');
   const [productHistoryFilterProductId, setProductHistoryFilterProductId] = useState<string>('all');
-  const [productFilterList, setProductFilterList] = useState<{ id: string, name: string }[]>([]);
+  const [productFilterList, setProductFilterList] = useState<ProductFilterItem[]>([]);
   
   // Product sale dialog
   const [productSaleDialogOpen, setProductSaleDialogOpen] = useState(false);
-  const [availableProducts, setAvailableProducts] = useState<any[]>([]);
+  const [availableProducts, setAvailableProducts] = useState<ProductOption[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [productQuantity, setProductQuantity] = useState<number>(1);
   const [productPaymentMethod, setProductPaymentMethod] = useState<'pix' | 'dinheiro' | 'cartao'>('pix');
@@ -118,8 +200,7 @@ const BarbeiroDashboard = () => {
   // Estado para prevenir submissões simultâneas de agendamentos
   const [creatingAppointment, setCreatingAppointment] = useState(false);
   const [hasBarberBreaks, setHasBarberBreaks] = useState(true);
-  const [todayBreaks, setTodayBreaks] = useState<any[]>([]);
-  const [serviceSelectOpen, setServiceSelectOpen] = useState(false);
+  const [todayBreaks, setTodayBreaks] = useState<TodayBreakItem[]>([]);
   const { getTimeSlotsForDate, isDateOpen } = useOperatingHours();
   const [availableNewSlots, setAvailableNewSlots] = useState<string[]>([]);
   const [loadingNewSlots, setLoadingNewSlots] = useState(false);
@@ -174,7 +255,7 @@ const BarbeiroDashboard = () => {
         setLoadingProductHistory(false);
         return;
       }
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from('product_sales')
         .select(`
           id, product_id, sale_date, sale_time, quantity, total_price, status, notes, payment_method, photo_url,
@@ -183,7 +264,7 @@ const BarbeiroDashboard = () => {
         .eq('barber_id', targetBarber)
         .order('sale_date', { ascending: false })
         .order('sale_time', { ascending: false });
-      setProductHistory(data || []);
+      setProductHistory((data || []) as ProductHistoryItem[]);
     } catch (e) {
       console.warn('Erro ao carregar histórico de produtos do barbeiro:', e);
       setProductHistory([]);
@@ -194,13 +275,13 @@ const BarbeiroDashboard = () => {
   
   const loadProductsForFilter = async () => {
     try {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('products')
         .select('id, name')
         .eq('visible', true)
         .order('name');
       if (!error) {
-        setProductFilterList(data || []);
+        setProductFilterList((data || []) as ProductFilterItem[]);
       }
     } catch (e) {
       console.warn('Erro ao carregar lista de produtos para filtro:', e);
@@ -232,18 +313,21 @@ const BarbeiroDashboard = () => {
         switch (productHistoryFilterPeriod) {
           case 'today':
             return saleDate.getTime() === today.getTime();
-          case 'week':
+          case 'week': {
             const weekAgo = new Date(today);
             weekAgo.setDate(weekAgo.getDate() - 7);
             return saleDate >= weekAgo;
-          case 'month':
+          }
+          case 'month': {
             const monthAgo = new Date(today);
             monthAgo.setMonth(monthAgo.getMonth() - 1);
             return saleDate >= monthAgo;
-          case 'year':
+          }
+          case 'year': {
             const yearAgo = new Date(today);
             yearAgo.setFullYear(yearAgo.getFullYear() - 1);
             return saleDate >= yearAgo;
+          }
           default:
             return true;
         }
@@ -254,7 +338,7 @@ const BarbeiroDashboard = () => {
   const sendBarberPendingWhatsApp = async (barberId: string) => {
     try {
       const todayStr = new Date().toISOString().split('T')[0];
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('appointments')
         .select(`
           id,
@@ -275,21 +359,22 @@ const BarbeiroDashboard = () => {
         console.error('Error loading pending appointments for WhatsApp:', error);
         return;
       }
-      const ids = (data || []).map((a: any) => a.id);
+      const pendingAppointments = (data || []) as PendingAppointmentItem[];
+      const ids = pendingAppointments.map((appointment) => appointment.id);
       let paidIds = new Set<string>();
       if (ids.length > 0) {
-        const { data: pays } = await (supabase as any)
+        const { data: pays } = await supabase
           .from('appointment_payments')
           .select('appointment_id')
           .in('appointment_id', ids);
-        paidIds = new Set((pays || []).map((p: any) => p.appointment_id));
+        paidIds = new Set((pays || []).map((payment) => payment.appointment_id));
       }
       const now = new Date();
-      const pastPending = (data || []).filter((a: any) => {
-        if (paidIds.has(a.id)) return false;
-        if (a.photo_url || a.payment_method) return false;
-        const timeStr = (a.appointment_time || '00:00').slice(0, 5);
-        const dt = new Date(`${a.appointment_date}T${timeStr}:00`);
+      const pastPending = pendingAppointments.filter((appointment) => {
+        if (paidIds.has(appointment.id)) return false;
+        if (appointment.photo_url || appointment.payment_method) return false;
+        const timeStr = (appointment.appointment_time || '00:00').slice(0, 5);
+        const dt = new Date(`${appointment.appointment_date}T${timeStr}:00`);
         return dt < now;
       });
       if (pastPending.length === 0) return;
@@ -301,11 +386,11 @@ const BarbeiroDashboard = () => {
         return;
       }
       let msg = `🔔 *Pendências de Atendimento*\n*${barberName}*\n\n`;
-      pastPending.forEach((apt: any, idx: number) => {
-        const dd = new Date(apt.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR');
-        const hh = (apt.appointment_time || '').slice(0, 5);
-        const client = apt.client?.name || apt.client_name || 'Cliente';
-        const serv = apt.service?.title || 'Serviço';
+      pastPending.forEach((appointment, idx) => {
+        const dd = new Date(appointment.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR');
+        const hh = (appointment.appointment_time || '').slice(0, 5);
+        const client = appointment.client_name || 'Cliente';
+        const serv = appointment.service?.title || 'Serviço';
         msg += `${idx + 1}. ${dd} ${hh} — ${serv} — ${client}\n`;
       });
       msg += `\nTotal: ${pastPending.length}`;
@@ -326,7 +411,7 @@ const BarbeiroDashboard = () => {
   useEffect(() => {
     (async () => {
       try {
-        const { error } = await (supabase as any)
+        const { error } = await supabase
           .from('barber_breaks')
           .select('start_time')
           .limit(1);
@@ -362,14 +447,14 @@ const BarbeiroDashboard = () => {
         return;
       }
       try {
-        const { data } = await (supabase as any)
+        const { data } = await supabase
           .from('profiles')
           .select('name, cpf')
           .eq('id', user.id)
           .maybeSingle();
         const nameFromProfile = data?.name?.trim() || '';
         const cpfFromProfile = data?.cpf || '';
-        const nameFromMeta = (user as any)?.user_metadata?.name?.trim() || '';
+        const nameFromMeta = getUserMetadata(user).name?.trim() || '';
         const fallbackName = user.email?.split('@')[0] || 'Usuário';
         const nameLooksLikeCpf =
           nameFromProfile && nameFromProfile.replace(/\D/g, '') === cpfFromProfile;
@@ -502,7 +587,7 @@ const BarbeiroDashboard = () => {
       const dd = String(today.getDate()).padStart(2, '0');
       const todayStr = `${yyyy}-${mm}-${dd}`;
 
-      const { data: breaksData, error: breaksError } = await (supabase as any)
+      const { data: breaksData, error: breaksError } = await supabase
         .from('barber_breaks')
         .select('id, date, start_time, end_time, notes')
         .eq('barber_id', barberId)
@@ -513,29 +598,23 @@ const BarbeiroDashboard = () => {
         console.warn('Error loading today breaks:', breaksError);
       }
 
-      let combined: any[] = breaksData || [];
+      let combined: TodayBreakItem[] = (breaksData || []) as TodayBreakItem[];
 
       try {
-        const barber = barbers.find(b => b.id === barberId) as any;
-        if (barber?.availability) {
-          const availability = typeof barber.availability === 'string'
-            ? JSON.parse(barber.availability)
-            : barber.availability;
-          const dayKey = getDayKey(new Date(todayStr + 'T00:00:00'));
-          const dayAvailability = availability?.[dayKey];
-          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
-            combined = [
-              ...combined,
-              {
-                id: `lunch-${barberId}-${todayStr}`,
-                date: todayStr,
-                start_time: dayAvailability.lunchStart,
-                end_time: dayAvailability.lunchEnd,
-                notes: 'Almoço',
-                isLunch: true,
-              },
-            ];
-          }
+        const barber = barbers.find((item) => item.id === barberId);
+        const lunchBreak = getLunchBreakForDate(barber?.availability, new Date(todayStr + 'T00:00:00'));
+        if (lunchBreak) {
+          combined = [
+            ...combined,
+            {
+              id: `lunch-${barberId}-${todayStr}`,
+              date: todayStr,
+              start_time: lunchBreak.start_time,
+              end_time: lunchBreak.end_time,
+              notes: 'Almoço',
+              isLunch: true,
+            },
+          ];
         }
       } catch (err) {
         console.warn('Error loading lunch break for today:', err);
@@ -574,13 +653,13 @@ const BarbeiroDashboard = () => {
       }
       setLoadingNewSlots(true);
       const [{ data: appts }, { data: breaks }] = await Promise.all([
-        (supabase as any)
+        supabase
           .from('appointments')
           .select('appointment_time, service:services(duration), status')
           .eq('barber_id', barberId)
           .eq('appointment_date', newAppointment.date)
           .neq('status', 'cancelled'),
-        (supabase as any)
+        supabase
           .from('barber_breaks')
           .select('start_time, end_time')
           .eq('barber_id', barberId)
@@ -589,20 +668,8 @@ const BarbeiroDashboard = () => {
 
       let lunchBreak: { start_time: string; end_time: string } | null = null;
       try {
-        const barber = barbers.find(b => b.id === barberId) as any;
-        if (barber?.availability) {
-          const availability = typeof barber.availability === 'string'
-            ? JSON.parse(barber.availability)
-            : barber.availability;
-          const dayKey = getDayKey(dateObj);
-          const dayAvailability = availability?.[dayKey];
-          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
-            lunchBreak = {
-              start_time: dayAvailability.lunchStart,
-              end_time: dayAvailability.lunchEnd,
-            };
-          }
-        }
+        const barber = barbers.find(item => item.id === barberId);
+        lunchBreak = getLunchBreakForDate(barber?.availability, dateObj);
       } catch (e) {
         console.warn('Falha ao validar horário de almoço do barbeiro (novo agendamento):', e);
       }
@@ -612,15 +679,24 @@ const BarbeiroDashboard = () => {
       const isToday = newAppointment.date === todayStr;
       const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
       const overlaps = (s1: string, e1: string, s2: string, e2: string) => s1 < e2 && e1 > s2;
-      const aptRanges = (appts || []).map((a: any) => {
-        const dur = a.service?.duration || 30;
-        return { start: a.appointment_time.slice(0,5), end: addMinutesToTime(a.appointment_time.slice(0,5), dur) };
+      const aptRanges = ((appts || []) as Array<{
+        appointment_time: string;
+        service: Pick<ServiceRecord, 'duration'> | null;
+      }>).map((appointment) => {
+        const duration = appointment.service?.duration || 30;
+        return {
+          start: appointment.appointment_time.slice(0, 5),
+          end: addMinutesToTime(appointment.appointment_time.slice(0, 5), duration),
+        };
       });
       const combinedBreaks = [
-        ...(breaks || []),
+        ...((breaks || []) as Array<Pick<BarberBreakRecord, 'start_time' | 'end_time'>>),
         ...(lunchBreak ? [lunchBreak] : []),
       ];
-      const breakRanges = combinedBreaks.map((b: any) => ({ start: b.start_time.slice(0,5), end: b.end_time.slice(0,5) }));
+      const breakRanges = combinedBreaks.map((breakItem) => ({
+        start: breakItem.start_time.slice(0, 5),
+        end: breakItem.end_time.slice(0, 5),
+      }));
       const fitsInHours = (slot: string) => {
         // Ensure each 30-min block within service duration exists within operating hours
         const blocks = Math.ceil(serviceDuration / 30);
@@ -675,7 +751,7 @@ const BarbeiroDashboard = () => {
         console.error('Error loading products:', error);
         toast.error('Erro ao carregar produtos');
       } else {
-        setAvailableProducts(data || []);
+        setAvailableProducts((data || []) as ProductOption[]);
       }
     } catch (error) {
       console.error('Error loading products:', error);
@@ -785,9 +861,10 @@ const BarbeiroDashboard = () => {
       
       // Forçar atualização do dashboard financeiro (se estiver aberto)
       // O dashboard financeiro já tem realtime subscription, então será atualizado automaticamente
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const productSaleError = error as Error;
       console.error('Error saving product sale:', error);
-      toast.error(error.message || 'Erro ao registrar venda');
+      toast.error(productSaleError.message || 'Erro ao registrar venda');
     } finally {
       setSavingProductSale(false);
     }
@@ -859,7 +936,7 @@ const BarbeiroDashboard = () => {
     return digits;
   };
 
-  const handleWhatsAppClick = (appointment: any) => {
+  const handleWhatsAppClick = (appointment: AppointmentWithRelations) => {
     const phone = appointment?.client?.phone || '';
     if (phone) {
       const n = formatWhatsappNumber(phone);
@@ -887,7 +964,7 @@ const BarbeiroDashboard = () => {
     }
     const n = formatWhatsappNumber(whatsappNumber);
     if (!n) return;
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from('profiles')
       .update({ phone: n })
       .eq('id', whatsappAppointment.client.id);
@@ -1083,8 +1160,8 @@ const BarbeiroDashboard = () => {
       console.log('Loaded clients:', clientsData);
       
       // Mapear clientes para appointments, garantindo telefone preenchido
-      const appointmentsWithClients = appointmentsData.map(appointment => {
-        const client = clientsData?.find(c => c.id === appointment.client_id) as any | undefined;
+      const appointmentsWithClients: AppointmentWithRelations[] = appointmentsData.map((appointment) => {
+        const client = clientsData?.find((item) => item.id === appointment.client_id);
         if (!client) {
           return {
             ...appointment,
@@ -1094,7 +1171,7 @@ const BarbeiroDashboard = () => {
         const phone = client.phone || client.whatsapp || '';
         return {
           ...appointment,
-          client: { ...client, phone },
+          client: { ...client, phone } as ClientWithPhone,
         };
       });
       
@@ -1120,13 +1197,13 @@ const BarbeiroDashboard = () => {
     setAdvances(data || []);
   };
 
-  const handleAppointmentClick = (appointment: any) => {
+  const handleAppointmentClick = (appointment: AppointmentWithRelations) => {
     setSelectedAppointmentForAction(appointment);
     setActionDialogOpen(true);
   };
 
   // Função para abrir o modal de edição
-  const handleEditClick = (appointment: any) => {
+  const handleEditClick = (appointment: AppointmentWithRelations) => {
     setAppointmentToEdit(appointment);
     setEditAppointment({
       date: appointment.appointment_date,
@@ -1153,7 +1230,7 @@ const BarbeiroDashboard = () => {
       const selectedService = services.find(s => s.id === appointmentToEdit.service_id);
       const serviceDuration = selectedService?.duration || 30;
 
-      const { data: existingAppointments } = await (supabase as any)
+      const { data: existingAppointments } = await supabase
         .from('appointments')
         .select('id, appointment_time, service:services(duration)')
         .eq('barber_id', appointmentToEdit.barber_id)
@@ -1162,11 +1239,11 @@ const BarbeiroDashboard = () => {
         .neq('id', appointmentToEdit.id); // Excluir o próprio agendamento
 
       // Check for time conflicts
-      const hasConflict = existingAppointments?.some((apt: any) => {
-        const aptDuration = apt.service?.duration || 30;
+      const hasConflict = (existingAppointments || []).some((appointment) => {
+        const aptDuration = appointment.service?.duration || 30;
         const newEndTime = addMinutesToTime(editAppointment.time, serviceDuration);
-        const aptEndTime = addMinutesToTime(apt.appointment_time, aptDuration);
-        return (editAppointment.time < aptEndTime && newEndTime > apt.appointment_time);
+        const aptEndTime = addMinutesToTime(appointment.appointment_time, aptDuration);
+        return (editAppointment.time < aptEndTime && newEndTime > appointment.appointment_time);
       });
 
       if (hasConflict) {
@@ -1176,7 +1253,7 @@ const BarbeiroDashboard = () => {
     }
 
     try {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from('appointments')
         .update({
           appointment_date: editAppointment.date,
@@ -1199,9 +1276,10 @@ const BarbeiroDashboard = () => {
         setEditAppointment({ date: '', time: '' });
         loadAppointments();
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const updateAppointmentError = error as Error;
       console.error('Error updating appointment:', error);
-      toast.error('Erro ao atualizar agendamento: ' + error.message);
+      toast.error('Erro ao atualizar agendamento: ' + updateAppointmentError.message);
     }
   };
 
@@ -1563,68 +1641,6 @@ const BarbeiroDashboard = () => {
 
  
 
-  const handleUpdateStatus = async (id: string, status: string) => {
-    // Se for para concluir, abre o dialog para adicionar foto
-    if (status === 'completed') {
-      const isFit = (() => {
-        try {
-          const apt = appointments.find(a => a.id === id);
-          const n = apt?.notes ? JSON.parse(apt.notes) : null;
-          return n && n.fit === true;
-        } catch { return false; }
-      })();
-
-      if (isFit) {
-        // Para encaixe, atualizar o end_time no notes antes de abrir o dialog de conclusão
-        try {
-          const now = new Date();
-          const hh = String(now.getHours()).padStart(2, '0');
-          const mm = String(now.getMinutes()).padStart(2, '0');
-          const apt = appointments.find(a => a.id === id);
-          let n: any = {};
-          try { n = apt.notes ? JSON.parse(apt.notes) : {}; } catch { n = {}; }
-          n.fit = true;
-          n.end_time = `${hh}:${mm}`;
-          
-          await (supabase as any)
-            .from('appointments')
-            .update({ notes: JSON.stringify(n) })
-            .eq('id', id);
-          
-          // Atualizar o estado local do agendamento para refletir o novo end_time
-          setAppointments(prev => prev.map(a => a.id === id ? { ...a, notes: JSON.stringify(n) } : a));
-        } catch (e) {
-          console.error('Erro ao atualizar end_time do encaixe:', e);
-        }
-      }
-
-      setAppointmentToComplete(id);
-      setCompleteDialogOpen(true);
-      return;
-    }
-
-    // Para outros status, atualiza normalmente
-    const { error } = await (supabase as any)
-      .from('appointments')
-      .update({ status })
-      .eq('id', id);
-
-    if (error) {
-      toast.error('Erro ao atualizar status');
-    } else {
-      toast.success('Status atualizado', {
-        duration: 2000, // 2 segundos
-      });
-      loadAppointments();
-    }
-  };
-
-  const handleCancelClick = (id: string) => {
-    setAppointmentToCancel(id);
-    setCancellationReason('');
-    setCancelDialogOpen(true);
-  };
-
   const handleCancelAppointment = async () => {
     if (!appointmentToCancel) return;
 
@@ -1931,87 +1947,6 @@ const BarbeiroDashboard = () => {
   };
 
 
-  const handleCompleteWithoutPhoto = async () => {
-    // Reutilizar a lógica, apenas sem foto
-    // Mas como handleCompleteWithPhoto já trata se photoFile é null, posso chamar ela mesma?
-    // A única diferença é que handleCompleteWithPhoto faz o upload SE photoFile existir.
-    // Então posso chamar handleCompleteWithPhoto diretamente se garantir que photoFile é null, 
-    // mas aqui photoFile pode estar setado mas o usuário clicou em "Sem foto".
-    // Então vou limpar o photoFile antes de chamar ou passar um flag.
-    // Melhor duplicar a lógica simplificada ou adaptar a anterior.
-    // Vou adaptar a anterior para aceitar um argumento ou simplesmente ignorar o file se chamar essa função.
-    
-    // Para simplificar e evitar duplicação de código complexo de pagamentos, 
-    // vou fazer o seguinte:
-    // Vou extrair a lógica de salvamento para uma função comum ou apenas setar photoFile = null e chamar a outra?
-    // Não posso mudar o state e chamar a função imediatamente pq o state é assíncrono.
-    
-    // Vou copiar a lógica de pagamentos e update.
-    
-    if (!appointmentToComplete) return;
-
-    const finalPayments = buildFinalPaymentsForAppointment(appointmentToComplete);
-    if (!finalPayments) return;
-
-    setUploadingPhoto(true);
-    try {
-      let mainMethod = finalPayments[0].method;
-      if (finalPayments.length > 1) {
-          const maxPayment = finalPayments.reduce((prev, current) => (prev.amount > current.amount) ? prev : current);
-          mainMethod = maxPayment.method;
-      }
-
-      const { error } = await (supabase as any)
-        .from('appointments')
-        .update({ 
-          status: 'completed',
-          payment_method: mainMethod
-        })
-        .eq('id', appointmentToComplete);
-
-      if (error) throw error;
-
-      const { error: deletePaymentsError } = await supabase
-        .from('appointment_payments')
-        .delete()
-        .eq('appointment_id', appointmentToComplete);
-
-      if (deletePaymentsError) {
-        console.error('Error deleting existing payments:', deletePaymentsError);
-      }
-
-      const paymentInserts = finalPayments.map(p => ({
-          appointment_id: appointmentToComplete,
-          payment_method: p.method,
-          amount: p.amount
-      }));
-
-      const { error: paymentsError } = await supabase
-          .from('appointment_payments')
-          .insert(paymentInserts);
-
-      if (paymentsError) {
-          console.error('Error inserting payments:', paymentsError);
-      }
-
-      toast.success('Agendamento concluído!', {
-        duration: 2000,
-      });
-      setCompleteDialogOpen(false);
-      setAppointmentToComplete(null);
-      setPhotoFile(null);
-      setPhotoPreview(null);
-      setCurrentPaymentMethod('pix');
-      setPayments([]);
-      setCurrentPaymentAmount('');
-      loadAppointments();
-      await sendBarberPendingWhatsApp(selectedAppointmentForAction?.barber_id || currentUserBarber?.id || selectedBarber);
-    } catch (error: any) {
-      console.error('Erro ao completar agendamento:', error);
-      toast.error('Erro ao processar: ' + error.message);
-    }
-  };
-
   const currentBarber = userRole === 'admin' ? barbers.find(b => b.id === selectedBarber) : currentUserBarber;
 
   // Agrupar agendamentos por barbeiro
@@ -2046,7 +1981,7 @@ const BarbeiroDashboard = () => {
           appointment_time: startTime,
           client_name: title,
           status: 'break',
-          service: { title },
+          service: { title, price: 0, duration: 30 },
           notes: brk.notes || title,
           isBreak: true,
           break_start_time: brk.start_time,
@@ -2098,18 +2033,21 @@ const BarbeiroDashboard = () => {
         switch (historyFilterPeriod) {
           case 'today':
             return aptDate.getTime() === today.getTime();
-          case 'week':
+          case 'week': {
             const weekAgo = new Date(today);
             weekAgo.setDate(weekAgo.getDate() - 7);
             return aptDate >= weekAgo;
-          case 'month':
+          }
+          case 'month': {
             const monthAgo = new Date(today);
             monthAgo.setMonth(monthAgo.getMonth() - 1);
             return aptDate >= monthAgo;
-          case 'year':
+          }
+          case 'year': {
             const yearAgo = new Date(today);
             yearAgo.setFullYear(yearAgo.getFullYear() - 1);
             return aptDate >= yearAgo;
+          }
           default:
             return true;
         }
@@ -2780,7 +2718,7 @@ const BarbeiroDashboard = () => {
                             <div key={barber.id} className="border border-border rounded-lg p-3 bg-secondary/30">
                               <div className="flex items-center gap-3 mb-3 pb-2 border-b border-border">
                                 <Avatar className="h-10 w-10 border-2 border-primary/20">
-                                  <AvatarImage src={barber.photo_url || ''} alt={barber.name} />
+                                  <AvatarImage src={barber.image_url || ''} alt={barber.name} />
                                   <AvatarFallback className="bg-primary/20 text-primary font-bold text-base">
                                     {barber.name.charAt(0).toUpperCase()}
                                   </AvatarFallback>
@@ -2822,7 +2760,6 @@ const BarbeiroDashboard = () => {
                                     const appointmentTime = appointment.appointment_time.slice(0, 5);
                                     const breakStart = (appointment.break_start_time || appointment.appointment_time || '').slice(0, 5);
                                     const breakEnd = (appointment.break_end_time || '').slice(0, 5);
-                                    const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
                                     const bookingTypeLabel = isFit ? 'Encaixe' : (appointment.booking_type === 'local' ? 'Local' : 
                                                            appointment.booking_type === 'manual' ? 'Manual' : 'Online');
                                     const bookingTypeColor = isFit ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
@@ -2936,7 +2873,7 @@ const BarbeiroDashboard = () => {
                             <div key={barber.id} className="border border-border rounded-lg p-3 bg-secondary/30">
                               <div className="flex items-center gap-3 mb-3 pb-2 border-b border-border">
                                 <Avatar className="h-10 w-10 border-2 border-primary/20">
-                                  <AvatarImage src={barber.photo_url || ''} alt={barber.name} />
+                                  <AvatarImage src={barber.image_url || ''} alt={barber.name} />
                                   <AvatarFallback className="bg-primary/20 text-primary font-bold text-base">
                                     {barber.name.charAt(0).toUpperCase()}
                                   </AvatarFallback>
