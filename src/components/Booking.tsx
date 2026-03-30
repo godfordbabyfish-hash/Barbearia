@@ -1,12 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import type { User as SupabaseUser, RealtimeChannel } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Calendar, Clock, Scissors, Wind, Sparkles, User, Star, MapPin, CheckCircle2 } from "lucide-react";
+import { Calendar, Clock, Scissors, Wind, Sparkles, Star, MapPin, CheckCircle2 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import type { Tables, TablesInsert } from "@/integrations/supabase/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import * as Icons from "lucide-react";
@@ -19,19 +22,69 @@ import barber1Img from "@/assets/barber-1.jpg";
 import barber2Img from "@/assets/barber-2.jpg";
 import barber3Img from "@/assets/barber-3.jpg";
 
-const defaultImages: Record<string, any> = {
+type ServiceRecord = Tables<"services">;
+type BarberRecord = Tables<"barbers">;
+type AppointmentRecord = Tables<"appointments">;
+type BarberBreakRecord = Tables<"barber_breaks">;
+type ProfileRecord = Tables<"profiles">;
+type SiteConfigRecord = Tables<"site_config">;
+type AppointmentInsert = TablesInsert<"appointments">;
+type BookingStep = "service" | "barber" | "time" | "form" | "success";
+type BookingFormData = {
+  name: string;
+  phone: string;
+  service: string;
+  serviceTitle: string;
+  servicePrice: string;
+  barber: string;
+  barberName: string;
+  date: string;
+  time: string;
+};
+type ConfirmedBooking = {
+  serviceTitle: string;
+  servicePrice: string;
+  barberName: string;
+  date: string;
+  time: string;
+};
+type BreakSlot = Pick<BarberBreakRecord, "start_time" | "end_time">;
+type AppointmentWithServiceDuration = Pick<AppointmentRecord, "appointment_time"> & {
+  service: Pick<ServiceRecord, "duration"> | null;
+};
+type FooterInfoConfig = {
+  address?: string;
+  maps_link?: string;
+};
+type DayScheduleConfig = {
+  closed?: boolean;
+  hasLunchBreak?: boolean;
+  lunchStart?: string;
+  lunchEnd?: string;
+};
+type ScheduleConfig = Record<string, DayScheduleConfig | undefined>;
+type UserMetadata = {
+  name?: string;
+  phone?: string;
+  whatsapp?: string;
+};
+type BookingError = {
+  message?: string;
+};
+
+const defaultImages: Record<string, string> = {
   'Corte de Cabelo': haircutImg,
   'Barba & Bigode': beardImg,
   'Finalização': stylingImg,
 };
 
-const defaultBarberImages: Record<number, any> = {
+const defaultBarberImages: Record<number, string> = {
   0: barber1Img,
   1: barber2Img,
   2: barber3Img,
 };
 
-const getServiceDuration = (serviceId: string, services: any[]) => {
+const getServiceDuration = (serviceId: string, services: ServiceRecord[]) => {
   const service = services.find(s => s.id === serviceId);
   return service?.duration || 30; // Default 30 minutos
 };
@@ -44,7 +97,12 @@ const addMinutesToTime = (time: string, minutes: number) => {
   return `${String(newHours).padStart(2, '0')}:${String(newMins).padStart(2, '0')}`;
 };
 
-const isTimeConflict = (newTime: string, duration: number, existingAppointments: any[], breaks: any[] = []) => {
+const isTimeConflict = (
+  newTime: string,
+  duration: number,
+  existingAppointments: AppointmentWithServiceDuration[],
+  breaks: BreakSlot[] = []
+) => {
   const newEndTime = addMinutesToTime(newTime, duration);
   
   // 1. Check for conflicts with existing appointments
@@ -67,21 +125,108 @@ const isTimeConflict = (newTime: string, duration: number, existingAppointments:
   return hasBreakConflict;
 };
 
+const normalizeText = (value: unknown) => {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return String(value);
+  return "";
+};
+
+const normalizePhone = (value: unknown) => normalizeText(value).replace(/\D/g, "");
+
+const getUserMetadata = (user: SupabaseUser | null | undefined): UserMetadata =>
+  (user?.user_metadata ?? {}) as UserMetadata;
+
+const getUserMetaPhone = (user: SupabaseUser | null | undefined) => {
+  const metadata = getUserMetadata(user);
+  return normalizePhone(metadata.whatsapp || metadata.phone || "");
+};
+
+const parseScheduleConfig = (value: unknown): ScheduleConfig | null => {
+  if (!value || typeof value !== "object") return null;
+  return value as ScheduleConfig;
+};
+
+const getDaySchedule = (value: unknown, date: Date) => {
+  const schedule = parseScheduleConfig(value);
+  if (!schedule) return null;
+  return schedule[getDayKey(date)] || null;
+};
+
+const getLunchBreakFromSchedule = (value: unknown, date: Date): BreakSlot | null => {
+  const daySchedule = getDaySchedule(value, date);
+  if (daySchedule?.hasLunchBreak && daySchedule.lunchStart && daySchedule.lunchEnd) {
+    return {
+      start_time: daySchedule.lunchStart,
+      end_time: daySchedule.lunchEnd,
+    };
+  }
+
+  return null;
+};
+
+const isBarberClosedOnDate = (barber: BarberRecord | undefined, date: Date) => {
+  const daySchedule = getDaySchedule(barber?.availability, date);
+  return Boolean(daySchedule?.closed);
+};
+
+const getFooterInfo = (value: SiteConfigRecord["config_value"]): FooterInfoConfig | null => {
+  if (!value || typeof value !== "object") return null;
+  return value as FooterInfoConfig;
+};
+
+const getServiceIcon = (iconName: unknown): LucideIcon => {
+  const normalizedIconName = normalizeText(iconName);
+  if (!normalizedIconName || !(normalizedIconName in Icons)) {
+    return Scissors;
+  }
+
+  const iconComponent = Icons[normalizedIconName as keyof typeof Icons];
+  return typeof iconComponent === "function" ? (iconComponent as LucideIcon) : Scissors;
+};
+
+const formatBookingDate = (
+  value: unknown,
+  options?: Intl.DateTimeFormatOptions
+) => {
+  const normalizedDate = normalizeText(value);
+  if (!normalizedDate) return "";
+
+  const parsedDate = new Date(`${normalizedDate}T00:00:00`);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return normalizedDate;
+  }
+
+  return parsedDate.toLocaleDateString("pt-BR", options);
+};
+
+const formatCurrency = (value: unknown) => {
+  const numericValue =
+    typeof value === "number"
+      ? value
+      : Number(String(value ?? "").replace(",", "."));
+
+  if (Number.isNaN(numericValue)) {
+    return "0,00";
+  }
+
+  return numericValue.toFixed(2).replace(".", ",");
+};
+
 const Booking = () => {
   const { user, blocked } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
-  const [step, setStep] = useState<"service" | "barber" | "time" | "form" | "success">("service");
-  const [services, setServices] = useState<any[]>([]);
-  const [barbers, setBarbers] = useState<any[]>([]);
+  const [step, setStep] = useState<BookingStep>("service");
+  const [services, setServices] = useState<ServiceRecord[]>([]);
+  const [barbers, setBarbers] = useState<BarberRecord[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [barbershopAddress, setBarbershopAddress] = useState<string>("");
   const [barbershopMapsLink, setBarbershopMapsLink] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [serviceSearch, setServiceSearch] = useState("");
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<BookingFormData>({
     name: "",
     phone: "",
     service: "",
@@ -92,17 +237,11 @@ const Booking = () => {
     date: "",
     time: "",
   });
-  const [confirmedBooking, setConfirmedBooking] = useState<{
-    serviceTitle: string;
-    servicePrice: string;
-    barberName: string;
-    date: string;
-    time: string;
-  } | null>(null);
+  const [confirmedBooking, setConfirmedBooking] = useState<ConfirmedBooking | null>(null);
 
   // Estados para o modal de confirmação de barbeiro indisponível
   const [unavailableBarberDialogOpen, setUnavailableBarberDialogOpen] = useState(false);
-  const [selectedUnavailableBarber, setSelectedUnavailableBarber] = useState<any>(null);
+  const [selectedUnavailableBarber, setSelectedUnavailableBarber] = useState<BarberRecord | null>(null);
   
   // Estado para nome de cliente personalizado (para agendar para outra pessoa)
   const [customClientName, setCustomClientName] = useState("");
@@ -114,7 +253,7 @@ const Booking = () => {
   useEffect(() => {
     (async () => {
       try {
-        const { error } = await (supabase as any)
+        const { error } = await supabase
           .from('appointments')
           .select('client_name')
           .limit(1);
@@ -130,7 +269,7 @@ const Booking = () => {
   useEffect(() => {
     (async () => {
       try {
-        const { error } = await (supabase as any)
+        const { error } = await supabase
           .from('barber_breaks')
           .select('start_time')
           .limit(1);
@@ -142,19 +281,6 @@ const Booking = () => {
       }
     })();
   }, []);
-
-  // Carregar dados iniciais apenas uma vez (não quando estiver no step success)
-  useEffect(() => {
-    if (step === "success") return;
-    
-    loadServices();
-    loadBarbers();
-    loadBarbershopAddress();
-    
-    if (user) {
-      loadUserProfile();
-    }
-  }, [user, step]);
 
   // Gerenciar serviço pré-selecionado (separado do carregamento de dados)
   useEffect(() => {
@@ -172,7 +298,7 @@ const Booking = () => {
           ...prev,
           service: service.id,
           serviceTitle: service.title,
-          servicePrice: service.price,
+          servicePrice: String(service.price),
         }));
         setStep("barber");
         
@@ -199,37 +325,34 @@ const Booking = () => {
     };
   }, [location, step, formData.barber]);
 
-  const loadUserProfile = async () => {
+  const loadUserProfile = useCallback(async () => {
     if (!user) return;
     
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from('profiles')
-      .select('name, phone')
+      .select('name, phone, whatsapp')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
-    // Tentar pegar telefone também do user_metadata (onde está salvo o WhatsApp no cadastro por CPF)
-    const metaPhone = (user as any)?.user_metadata?.whatsapp || (user as any)?.user_metadata?.phone || '';
+    const metaPhone = getUserMetaPhone(user);
+    const profileName = normalizeText(data?.name);
+    const profilePhone = normalizePhone(data?.phone || data?.whatsapp);
 
     if (data && !error) {
-      // Preservar dados do agendamento: só atualizar se os campos estiverem vazios
       setFormData(prev => {
-        // Se já tiver nome e telefone preenchidos, não sobrescrever (pode ser dados do agendamento)
-        // Isso preserva os dados quando estiver no step success
         return {
           ...prev,
-          name: prev.name || data.name || '',
-          phone: prev.phone || data.phone || metaPhone || prev.phone || '',
+          name: prev.name || profileName,
+          phone: prev.phone || profilePhone || metaPhone,
         };
       });
     } else if (metaPhone) {
-      // Se não achou profile mas tem telefone no metadata, ainda assim preenche
       setFormData(prev => ({
         ...prev,
         phone: prev.phone || metaPhone,
       }));
     }
-  };
+  }, [user]);
 
   const loadBarbershopAddress = async () => {
     const { data, error } = await supabase
@@ -239,7 +362,7 @@ const Booking = () => {
       .maybeSingle();
 
     if (!error && data) {
-      const footerInfo = data.config_value as any;
+      const footerInfo = getFooterInfo(data.config_value);
       if (footerInfo?.address) {
         setBarbershopAddress(footerInfo.address);
       }
@@ -270,7 +393,7 @@ const Booking = () => {
 
   const loadServices = async () => {
     // Load services
-    const { data: servicesData, error: servicesError } = await (supabase as any)
+    const { data: servicesData, error: servicesError } = await supabase
       .from('services')
       .select('*')
       .eq('visible', true);
@@ -286,7 +409,7 @@ const Booking = () => {
     }
 
     // Count appointments per service
-    const { data: appointmentsData, error: appointmentsError } = await (supabase as any)
+    const { data: appointmentsData, error: appointmentsError } = await supabase
       .from('appointments')
       .select('service_id')
       .neq('status', 'cancelled');
@@ -300,14 +423,14 @@ const Booking = () => {
 
     // Count occurrences of each service
     const serviceCounts = new Map<string, number>();
-    appointmentsData?.forEach((apt: any) => {
+    appointmentsData?.forEach((apt: Pick<AppointmentRecord, "service_id">) => {
       if (apt.service_id) {
         serviceCounts.set(apt.service_id, (serviceCounts.get(apt.service_id) || 0) + 1);
       }
     });
 
     // Sort services by usage count (most used first), then by order_index
-    const sortedServices = servicesData.sort((a: any, b: any) => {
+    const sortedServices = [...servicesData].sort((a, b) => {
       const countA = serviceCounts.get(a.id) || 0;
       const countB = serviceCounts.get(b.id) || 0;
       
@@ -324,7 +447,7 @@ const Booking = () => {
   };
 
   const loadBarbers = async () => {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from('barbers')
       .select('*')
       .eq('visible', true)
@@ -337,6 +460,19 @@ const Booking = () => {
     }
   };
 
+  // Carregar dados iniciais apenas uma vez (não quando estiver no step success)
+  useEffect(() => {
+    if (step === "success") return;
+    
+    loadServices();
+    loadBarbers();
+    loadBarbershopAddress();
+    
+    if (user) {
+      loadUserProfile();
+    }
+  }, [step, user, loadUserProfile]);
+
   useEffect(() => {
     const run = async () => {
       if (step !== "barber" || !formData.service || barbers.length === 0) return;
@@ -347,33 +483,27 @@ const Booking = () => {
       const timeSlots = getTimeSlotsForDate(today);
       const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
       const result: Record<string, boolean> = {};
-      for (const barber of getAvailableBarbers()) {
+      const availableBarbersForSelectedDate = !formData.date
+        ? barbers
+        : barbers.filter((barber) => !isBarberClosedOnDate(barber, new Date(formData.date + 'T00:00:00')));
+
+      for (const barber of availableBarbersForSelectedDate) {
         if (!isOpen) {
           result[barber.id] = false;
           continue;
         }
-        let barberAvailableToday = true;
-        if (barber.availability) {
-          try {
-            const availability = typeof barber.availability === 'string' ? JSON.parse(barber.availability) : barber.availability;
-            const dayKey = getDayKey(today);
-            const dayAvailability = availability?.[dayKey];
-            barberAvailableToday = !dayAvailability?.closed;
-          } catch {
-            barberAvailableToday = true;
-          }
-        }
+        const barberAvailableToday = !isBarberClosedOnDate(barber, today);
         if (!barberAvailableToday) {
           result[barber.id] = false;
           continue;
         }
-        const { data: appointments } = await (supabase as any)
+        const { data: appointments } = await supabase
           .from('appointments')
           .select('appointment_time, service:services(duration)')
           .eq('barber_id', barber.id)
           .eq('appointment_date', todayStr)
           .neq('status', 'cancelled');
-        const { data: breaks } = await (supabase as any)
+        const { data: breaks } = await supabase
           .from('barber_breaks')
           .select('start_time, end_time')
           .eq('barber_id', barber.id)
@@ -381,7 +511,12 @@ const Booking = () => {
         
         const availableTodaySlots = timeSlots.filter((slot) => {
           if (slot < currentTime) return false;
-          const hasConflict = isTimeConflict(slot, serviceDuration, appointments || [], breaks || []);
+          const hasConflict = isTimeConflict(
+            slot,
+            serviceDuration,
+            (appointments || []) as AppointmentWithServiceDuration[],
+            (breaks || []) as BreakSlot[]
+          );
           return !hasConflict;
         });
         result[barber.id] = availableTodaySlots.length > 0;
@@ -389,43 +524,31 @@ const Booking = () => {
       setBarberHasSlotsToday(result);
     };
     run();
-  }, [step, formData.service, barbers, services]);
+  }, [step, formData.date, formData.service, barbers, services, getTimeSlotsForDate, isDateOpen]);
 
   // Filter barbers based on selected date and their availability
-  const getAvailableBarbers = () => {
+  const getAvailableBarbers = useCallback(() => {
     if (!formData.date) return barbers;
     
     const selectedDate = new Date(formData.date + 'T00:00:00');
     return barbers.filter(barber => {
       if (!barber.availability) return true; // Backwards compatibility
       
-      try {
-        const availability = typeof barber.availability === 'string' 
-          ? JSON.parse(barber.availability) 
-          : barber.availability;
-        
-        const dayKey = getDayKey(selectedDate);
-        const dayAvailability = availability[dayKey];
-        
-        return !dayAvailability?.closed;
-      } catch (error) {
-        console.error('Error parsing barber availability:', error);
-        return true; // If error parsing, assume available
-      }
+      return !isBarberClosedOnDate(barber, selectedDate);
     });
-  };
+  }, [barbers, formData.date]);
 
-  const handleServiceSelect = (service: typeof services[0]) => {
+  const handleServiceSelect = (service: ServiceRecord) => {
     setFormData({
       ...formData,
       service: service.id,
       serviceTitle: service.title,
-      servicePrice: service.price,
+      servicePrice: String(service.price),
     });
     setStep("barber");
   };
 
-  const handleBarberSelect = async (barber: typeof barbers[0]) => {
+  const handleBarberSelect = async (barber: BarberRecord) => {
     // Verificar se o barbeiro tem horários disponíveis hoje
     const today = new Date();
     const todayStr = formatLocalDate(today);
@@ -434,20 +557,7 @@ const Booking = () => {
     const isTodayOpen = isDateOpen(today);
     
     // Verificar se o barbeiro está disponível hoje
-    let barberAvailableToday = true;
-    if (barber.availability) {
-      try {
-        const availability = typeof barber.availability === 'string' 
-          ? JSON.parse(barber.availability) 
-          : barber.availability;
-        
-        const dayKey = getDayKey(today);
-        const dayAvailability = availability[dayKey];
-        barberAvailableToday = !dayAvailability?.closed;
-      } catch (error) {
-        console.error('Error parsing barber availability:', error);
-      }
-    }
+    const barberAvailableToday = !isBarberClosedOnDate(barber, today);
 
     // Se a barbearia está fechada hoje, pular verificação (não há horários mesmo)
     if (!isTodayOpen) {
@@ -477,7 +587,7 @@ const Booking = () => {
       const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
 
       // Buscar agendamentos existentes para hoje
-      const { data: appointments } = await (supabase as any)
+      const { data: appointments } = await supabase
         .from('appointments')
         .select('appointment_time, service:services(duration)')
         .eq('barber_id', barber.id)
@@ -485,7 +595,7 @@ const Booking = () => {
         .neq('status', 'cancelled');
 
       // Buscar pausas do barbeiro para hoje
-      const { data: breaks } = await (supabase as any)
+      const { data: breaks } = await supabase
         .from('barber_breaks')
         .select('start_time, end_time')
         .eq('barber_id', barber.id)
@@ -506,7 +616,12 @@ const Booking = () => {
         }
 
         // Verificar conflitos com agendamentos existentes e pausas
-        const hasConflict = isTimeConflict(slot, serviceDuration, appointments || [], breaks || []);
+        const hasConflict = isTimeConflict(
+          slot,
+          serviceDuration,
+          (appointments || []) as AppointmentWithServiceDuration[],
+          (breaks || []) as BreakSlot[]
+        );
         return !hasConflict;
       });
 
@@ -608,18 +723,7 @@ const Booking = () => {
       // Check if barber is available on this date
       const selectedBarber = barbers.find(b => b.id === currentFormData.barber);
       let barberAvailable = true;
-      if (selectedBarber?.availability) {
-        try {
-          const availability = typeof selectedBarber.availability === 'string' 
-            ? JSON.parse(selectedBarber.availability) 
-            : selectedBarber.availability;
-          const dayKey = getDayKey(checkDate);
-          const dayAvailability = availability[dayKey];
-          barberAvailable = !dayAvailability?.closed;
-        } catch (error) {
-          console.error('Error parsing barber availability:', error);
-        }
-      }
+      barberAvailable = !isBarberClosedOnDate(selectedBarber, checkDate);
       
       // Skip closed days or days when barber is unavailable
       if (!dateIsOpen || !barberAvailable) {
@@ -628,7 +732,7 @@ const Booking = () => {
       
       const dayTimeSlots = getTimeSlotsForDate(checkDate);
       
-      const { data: appointments } = await (supabase as any)
+      const { data: appointments } = await supabase
         .from('appointments')
         .select('appointment_time, service:services(duration)')
         .eq('barber_id', currentFormData.barber)
@@ -636,7 +740,7 @@ const Booking = () => {
         .neq('status', 'cancelled');
 
       // Query barber breaks for this date
-      const { data: breaks, error: breaksError } = await (supabase as any)
+      const { data: breaks, error: breaksError } = await supabase
         .from('barber_breaks')
         .select('start_time, end_time')
         .eq('barber_id', currentFormData.barber)
@@ -646,19 +750,7 @@ const Booking = () => {
       let lunchBreak: { start_time: string; end_time: string } | null = null;
       try {
         const barber = barbers.find(b => b.id === currentFormData.barber);
-        if (barber?.availability) {
-          const availability = typeof barber.availability === 'string'
-            ? JSON.parse(barber.availability)
-            : barber.availability;
-          const dayKey = getDayKey(checkDate);
-          const dayAvailability = availability?.[dayKey];
-          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
-            lunchBreak = {
-              start_time: dayAvailability.lunchStart,
-              end_time: dayAvailability.lunchEnd,
-            };
-          }
-        }
+        lunchBreak = getLunchBreakFromSchedule(barber?.availability, checkDate);
       } catch (e) { console.warn('Falha ao validar almoço em findNextAvailableDateTime:', e); }
 
       const combinedBreaks = [
@@ -690,7 +782,12 @@ const Booking = () => {
           }
         }
 
-        const hasConflict = isTimeConflict(slot, serviceDuration, appointments || [], combinedBreaks);
+        const hasConflict = isTimeConflict(
+          slot,
+          serviceDuration,
+          (appointments || []) as AppointmentWithServiceDuration[],
+          combinedBreaks
+        );
         return !hasConflict;
       });
 
@@ -711,47 +808,115 @@ const Booking = () => {
     setAvailableSlots([]);
   };
 
-  useEffect(() => {
-    if (step !== "success" && formData.date && formData.barber && formData.service && !hoursLoading) {
-      loadAvailableSlots();
-    }
+  const getAvailableSlotsForDate = useCallback(async () => {
+    if (!formData.date || !formData.barber || !formData.service || hoursLoading) return [];
 
-    // Realtime subscription for appointments changes (apenas quando necessário)
-    let channel: any = null;
-    if (step !== "success" && formData.date && formData.barber && formData.service && !hoursLoading) {
-      channel = supabase
-        .channel('booking-appointments')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'appointments',
-            filter: `barber_id=eq.${formData.barber}`,
-          },
-          () => {
-            // Forçar reload completo ao invés de debounce para evitar inconsistências
-            console.log('Appointment change detected, forcing full reload...');
-            setTimeout(() => {
-              if (formData.date && formData.barber && formData.service) {
-                // Limpar cache local antes de recarregar
-                setAvailableSlots([]);
-                loadAvailableSlots();
-              }
-            }, 300);
+    try {
+      const selectedDate = new Date(formData.date + 'T00:00:00');
+      
+      // Respeitar disponibilidade diária do barbeiro (dias fechados e almoço)
+      const selectedBarber = barbers.find(b => b.id === formData.barber);
+      let lunchBreak: { start_time: string; end_time: string } | null = null;
+      
+      // 1. Verificar almoço na disponibilidade do barbeiro (prioridade)
+      if (selectedBarber?.availability) {
+        try {
+          if (isBarberClosedOnDate(selectedBarber, selectedDate)) {
+            return [];
           }
-        )
-        .subscribe();
-    }
-
-    return () => {
-      if (channel) {
-        supabase.removeChannel(channel);
+          lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, selectedDate);
+        } catch (err) {
+          console.error('Error parsing barber availability (getAvailableSlotsForDate):', err);
+        }
       }
-    };
-  }, [formData.date, formData.barber, formData.service, hoursLoading, step]);
+      
+      // 2. Se não tiver almoço configurado no barbeiro, usar almoço da barbearia (fallback)
+      if (!lunchBreak) {
+        try {
+          const { data: shopHours } = await supabase
+            .from('site_config')
+            .select('config_value')
+            .eq('config_key', 'operating_hours')
+            .maybeSingle();
+          
+          if (shopHours?.config_value) {
+            lunchBreak = getLunchBreakFromSchedule(shopHours.config_value, selectedDate);
+          }
+        } catch (err) {
+          console.error('Error loading shop operating hours for lunch break:', err);
+        }
+      }
+      
+      // 3. BLOQUEIO FORÇADO: Se for sábado e não tiver almoço configurado, aplicar almoço padrão (12:00-14:00)
+      const dayKey = getDayKey(selectedDate);
+      if (!lunchBreak && dayKey === 'saturday') {
+        lunchBreak = {
+          start_time: '12:00',
+          end_time: '14:00',
+        };
+      }
+      
+      // Check if barbershop is open on this day
+      if (!isDateOpen(selectedDate)) return [];
+      const { data: appointments, error: appointmentsError } = await supabase
+        .from('appointments')
+        .select('appointment_time, service:services(duration)')
+        .eq('barber_id', formData.barber)
+        .eq('appointment_date', formData.date)
+        .neq('status', 'cancelled');
 
-  const loadAvailableSlots = async () => {
+      if (appointmentsError) {
+        console.error('Error loading appointments:', appointmentsError);
+        return [];
+      }
+
+      // Query barber breaks for the selected date
+      const { data: breaks, error: breaksError } = await supabase
+        .from('barber_breaks')
+        .select('start_time, end_time')
+        .eq('barber_id', formData.barber)
+        .eq('date', formData.date);
+      
+      const combinedBreaks = [
+        ...(breaks || []),
+        ...(lunchBreak ? [lunchBreak] : []),
+      ];
+
+      // Atualizar estado para exibir faixa de pausas (incluindo almoço recorrente)
+      setSelectedDateBreaks(combinedBreaks);
+    
+      // Ignore 404/table not found errors (table might not exist)
+      if (breaksError && breaksError.code !== 'PGRST116' && breaksError.code !== 'PGRST205' && breaksError.code !== '42P01') {
+        console.warn('Error loading barber breaks:', breaksError);
+      }
+
+    // Base slots compartilhados com o agendamento local (sincronização)
+    const baseSlots = getAvailableSlotsForBarber(
+      selectedDate,
+      getTimeSlotsForDate,
+      ((appointments || []) as AppointmentWithServiceDuration[]).map((appointment) => ({
+        appointment_time: appointment.appointment_time,
+        duration: appointment.service?.duration,
+      })),
+      { filterPastSlots: true, breaks: combinedBreaks }
+    );
+    // Ajustar pelos conflitos do serviço selecionado (duração)
+    const serviceDuration = getServiceDuration(formData.service, services);
+    return baseSlots.filter(slot =>
+      !isTimeConflict(
+        slot,
+        serviceDuration,
+        (appointments || []) as AppointmentWithServiceDuration[],
+        combinedBreaks
+      )
+    );
+    } catch (error) {
+      console.error('Error in getAvailableSlotsForDate:', error);
+      return [];
+    }
+  }, [barbers, formData.barber, formData.date, formData.service, getTimeSlotsForDate, hoursLoading, isDateOpen, services]);
+
+  const loadAvailableSlots = useCallback(async () => {
     if (loadingSlots) return; // Prevenir múltiplas chamadas simultâneas
     setLoadingSlots(true);
     try {
@@ -787,129 +952,44 @@ const Booking = () => {
     } finally {
       setLoadingSlots(false);
     }
-  };
+  }, [formData.time, getAvailableSlotsForDate, loadingSlots, step]);
 
-  const getAvailableSlotsForDate = async () => {
-    if (!formData.date || !formData.barber || !formData.service || hoursLoading) return [];
-
-    try {
-      const selectedDate = new Date(formData.date + 'T00:00:00');
-      
-      // Respeitar disponibilidade diária do barbeiro (dias fechados e almoço)
-      const selectedBarber = barbers.find(b => b.id === formData.barber);
-      let lunchBreak: { start_time: string; end_time: string } | null = null;
-      
-      // 1. Verificar almoço na disponibilidade do barbeiro (prioridade)
-      if (selectedBarber?.availability) {
-        try {
-          const availability = typeof selectedBarber.availability === 'string'
-            ? JSON.parse(selectedBarber.availability)
-            : selectedBarber.availability;
-          const dayKey = getDayKey(selectedDate);
-          const dayAvailability = availability?.[dayKey];
-          if (dayAvailability?.closed) {
-            return [];
-          }
-          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
-            lunchBreak = {
-              start_time: dayAvailability.lunchStart,
-              end_time: dayAvailability.lunchEnd,
-            };
-          }
-        } catch (err) {
-          console.error('Error parsing barber availability (getAvailableSlotsForDate):', err);
-        }
-      }
-      
-      // 2. Se não tiver almoço configurado no barbeiro, usar almoço da barbearia (fallback)
-      if (!lunchBreak) {
-        try {
-          const { data: shopHours } = await supabase
-            .from('site_config')
-            .select('config_value')
-            .eq('config_key', 'operating_hours')
-            .maybeSingle();
-          
-          if (shopHours?.config_value) {
-            const operatingHours = shopHours.config_value as any;
-            const dayKey = getDayKey(selectedDate);
-            const dayHours = operatingHours?.[dayKey];
-            
-            if (dayHours?.hasLunchBreak && dayHours.lunchStart && dayHours.lunchEnd) {
-              lunchBreak = {
-                start_time: dayHours.lunchStart,
-                end_time: dayHours.lunchEnd,
-              };
-            }
-          }
-        } catch (err) {
-          console.error('Error loading shop operating hours for lunch break:', err);
-        }
-      }
-      
-      // 3. BLOQUEIO FORÇADO: Se for sábado e não tiver almoço configurado, aplicar almoço padrão (12:00-14:00)
-      const dayKey = getDayKey(selectedDate);
-      if (!lunchBreak && dayKey === 'saturday') {
-        lunchBreak = {
-          start_time: '12:00',
-          end_time: '14:00',
-        };
-      }
-      
-      // Check if barbershop is open on this day
-      if (!isDateOpen(selectedDate)) return [];
-      const { data: appointments, error: appointmentsError } = await (supabase as any)
-        .from('appointments')
-        .select('appointment_time, service:services(duration)')
-        .eq('barber_id', formData.barber)
-        .eq('appointment_date', formData.date)
-        .neq('status', 'cancelled');
-
-      if (appointmentsError) {
-        console.error('Error loading appointments:', appointmentsError);
-        return [];
-      }
-
-      // Query barber breaks for the selected date
-      const { data: breaks, error: breaksError } = await (supabase as any)
-        .from('barber_breaks')
-        .select('start_time, end_time')
-        .eq('barber_id', formData.barber)
-        .eq('date', formData.date);
-      
-      const combinedBreaks = [
-        ...(breaks || []),
-        ...(lunchBreak ? [lunchBreak] : []),
-      ];
-
-      // Atualizar estado para exibir faixa de pausas (incluindo almoço recorrente)
-      setSelectedDateBreaks(combinedBreaks);
-    
-      // Ignore 404/table not found errors (table might not exist)
-      if (breaksError && breaksError.code !== 'PGRST116' && breaksError.code !== 'PGRST205' && breaksError.code !== '42P01') {
-        console.warn('Error loading barber breaks:', breaksError);
-      }
-
-    // Base slots compartilhados com o agendamento local (sincronização)
-    const baseSlots = getAvailableSlotsForBarber(
-      selectedDate,
-      getTimeSlotsForDate,
-      (appointments || []).map((a: any) => ({
-        appointment_time: a.appointment_time,
-        duration: a.service?.duration,
-      })),
-      { filterPastSlots: true, breaks: combinedBreaks }
-    );
-    // Ajustar pelos conflitos do serviço selecionado (duração)
-    const serviceDuration = getServiceDuration(formData.service, services);
-    return baseSlots.filter(slot =>
-      !isTimeConflict(slot, serviceDuration, appointments || [], combinedBreaks)
-    );
-    } catch (error) {
-      console.error('Error in getAvailableSlotsForDate:', error);
-      return [];
+  useEffect(() => {
+    if (step !== "success" && formData.date && formData.barber && formData.service && !hoursLoading) {
+      loadAvailableSlots();
     }
-  };
+
+    let channel: RealtimeChannel | null = null;
+    if (step !== "success" && formData.date && formData.barber && formData.service && !hoursLoading) {
+      channel = supabase
+        .channel('booking-appointments')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'appointments',
+            filter: `barber_id=eq.${formData.barber}`,
+          },
+          () => {
+            console.log('Appointment change detected, forcing full reload...');
+            setTimeout(() => {
+              if (formData.date && formData.barber && formData.service) {
+                setAvailableSlots([]);
+                loadAvailableSlots();
+              }
+            }, 300);
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [formData.date, formData.barber, formData.service, hoursLoading, loadAvailableSlots, step]);
 
 
   const handleTimeSelect = (time: string) => {
@@ -942,7 +1022,7 @@ const Booking = () => {
     }
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !supabaseAnonKey) {
       toast.error("Configuração do Supabase ausente", {
         description: "Configure VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY para confirmar agendamentos.",
@@ -953,6 +1033,29 @@ const Booking = () => {
     setIsSubmitting(true);
 
     try {
+      const userPhone = getUserMetaPhone(user);
+      const resolvedClientName =
+        normalizeText(formData.name) ||
+        normalizeText(getUserMetadata(user).name) ||
+        "Cliente";
+      const resolvedClientPhone = normalizePhone(formData.phone || userPhone);
+      const resolvedAppointmentName =
+        normalizeText(customClientName) || resolvedClientName;
+
+      if (!formData.service || !formData.barber || !formData.date || !formData.time) {
+        toast.error("Dados do agendamento incompletos", {
+          description: "Selecione serviço, barbeiro, data e horário novamente.",
+        });
+        return;
+      }
+
+      if (!resolvedClientPhone) {
+        toast.error("Telefone do cliente não encontrado", {
+          description: "Faça login novamente para atualizar seus dados antes de agendar.",
+        });
+        return;
+      }
+
       // Verificar se o barbeiro está fechado neste dia
       const selectedDate = new Date(formData.date + 'T00:00:00');
       const selectedBarber = barbers.find(b => b.id === formData.barber);
@@ -960,32 +1063,22 @@ const Booking = () => {
 
       try {
         if (selectedBarber?.availability) {
-          const availability = typeof selectedBarber.availability === 'string'
-            ? JSON.parse(selectedBarber.availability)
-            : selectedBarber.availability;
-          const dayKey = getDayKey(selectedDate);
-          const dayAvailability = availability?.[dayKey];
+          const dayAvailability = getDaySchedule(selectedBarber.availability, selectedDate);
           if (dayAvailability?.closed) {
             toast.error("Barbeiro indisponível nesta data", {
               description: "Este barbeiro bloqueou a agenda para este dia.",
             });
             return;
           }
-          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
-            lunchBreak = {
-              start_time: dayAvailability.lunchStart,
-              end_time: dayAvailability.lunchEnd,
-            };
-          }
+          lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, selectedDate);
         }
       } catch (err) {
         console.warn('Falha ao validar disponibilidade diária do barbeiro:', err);
       }
       
       // 1. Verificações rápidas em paralelo
-      const [existingAppointmentResult, breaksResult, shopHoursResult] = await Promise.allSettled([
-        // Verificar se já existe agendamento no mesmo horário
-        (supabase as any)
+      const [existingAppointmentResult, breaksResult, shopHoursResult] = await Promise.all([
+        supabase
           .from('appointments')
           .select('id')
           .eq('barber_id', formData.barber)
@@ -996,12 +1089,12 @@ const Booking = () => {
         
         // Verificar pausas do barbeiro
         hasBarberBreaks
-          ? (supabase as any)
+          ? supabase
               .from('barber_breaks')
               .select('start_time, end_time')
               .eq('barber_id', formData.barber)
               .eq('date', formData.date)
-          : Promise.resolve({ data: [] }),
+          : Promise.resolve({ data: [] as BreakSlot[], error: null }),
 
         // Carregar almoço da loja se necessário
         !lunchBreak
@@ -1010,20 +1103,12 @@ const Booking = () => {
               .select('config_value')
               .eq('config_key', 'operating_hours')
               .maybeSingle()
-          : Promise.resolve({ data: null })
+          : Promise.resolve({ data: null, error: null })
       ]);
 
       // Processar almoço da loja se fallback for necessário
-      if (!lunchBreak && shopHoursResult.status === 'fulfilled' && shopHoursResult.value.data) {
-        const operatingHours = shopHoursResult.value.data.config_value as any;
-        const dayKey = getDayKey(selectedDate);
-        const dayHours = operatingHours?.[dayKey];
-        if (dayHours?.hasLunchBreak && dayHours.lunchStart && dayHours.lunchEnd) {
-          lunchBreak = {
-            start_time: dayHours.lunchStart,
-            end_time: dayHours.lunchEnd,
-          };
-        }
+      if (!lunchBreak && shopHoursResult.data) {
+        lunchBreak = getLunchBreakFromSchedule(shopHoursResult.data.config_value, selectedDate);
       }
 
       // BLOQUEIO FORÇADO: Sábado almoço padrão
@@ -1033,7 +1118,7 @@ const Booking = () => {
       }
 
       // Verificar conflito de horário
-      if (existingAppointmentResult.status === 'fulfilled' && existingAppointmentResult.value.data) {
+      if (existingAppointmentResult.data) {
         toast.error("Horário já está ocupado", {
           description: "Por favor, escolha outro horário disponível.",
         });
@@ -1042,7 +1127,7 @@ const Booking = () => {
 
       // Verificar pausas do barbeiro (incluindo almoço)
       const serviceDuration = getServiceDuration(formData.service, services);
-      const manualBreaks = breaksResult.status === 'fulfilled' ? (breaksResult.value.data || []) : [];
+      const manualBreaks = (breaksResult.data || []) as BreakSlot[];
       const combinedBreaks = [...manualBreaks, ...(lunchBreak ? [lunchBreak] : [])];
 
       const isInBreak = isTimeConflict(formData.time, serviceDuration, [], combinedBreaks);
@@ -1056,7 +1141,7 @@ const Booking = () => {
 
       // 2. Bloqueio por CPF (perfil)
       try {
-        const { data: profileBlock } = await (supabase as any)
+        const { data: profileBlock } = await supabase
           .from('profiles')
           .select('blocked, cpf')
           .eq('id', user.id)
@@ -1071,25 +1156,24 @@ const Booking = () => {
         // Ignorar erro de leitura de bloqueio
       }
 
-      // 3. Criar perfil se necessário
-      const { data: existingProfile } = await (supabase as any)
+      // 3. Sincronizar perfil do cliente antes de criar o agendamento
+      const { error: profileSyncError } = await supabase
         .from('profiles')
-        .select('id')
-        .eq('id', user.id)
-        .maybeSingle();
+        .upsert([{
+          id: user.id,
+          name: resolvedClientName,
+          phone: resolvedClientPhone,
+        }], { onConflict: 'id' });
 
-      if (!existingProfile) {
-        await (supabase as any)
-          .from('profiles')
-          .upsert([{
-            id: user.id,
-            name: formData.name || user.user_metadata?.name || '',
-            phone: formData.phone || user.user_metadata?.phone || '',
-          }], { onConflict: 'id' });
+      if (profileSyncError) {
+        toast.error("Erro ao atualizar cadastro do cliente", {
+          description: profileSyncError.message || "Não foi possível validar o perfil antes do agendamento.",
+        });
+        return;
       }
 
       // 4. Criar agendamento
-      const payload: any = {
+      const payload: AppointmentInsert = {
         client_id: user.id,
         service_id: formData.service,
         barber_id: formData.barber,
@@ -1099,10 +1183,10 @@ const Booking = () => {
         booking_type: 'online',
       };
       if (hasClientNameColumn) {
-        payload.client_name = customClientName || formData.name;
+        payload.client_name = resolvedAppointmentName;
       }
 
-      const { data: newAppointment, error } = await (supabase as any)
+      const { data: newAppointment, error } = await supabase
         .from('appointments')
         .insert([payload])
         .select('id')
@@ -1118,7 +1202,7 @@ const Booking = () => {
       // 5. Sucesso imediato
       setConfirmedBooking({
         serviceTitle: formData.serviceTitle,
-        servicePrice: formData.servicePrice,
+        servicePrice: formatCurrency(formData.servicePrice),
         barberName: formData.barberName,
         date: formData.date,
         time: formData.time,
@@ -1129,24 +1213,32 @@ const Booking = () => {
       // 6. Processar notificações em background
       processNotificationsAsync(newAppointment.id, formData, services, user);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const bookingError = error as BookingError;
       console.error('Error in handleSubmit:', error);
-      toast.error("Erro ao processar agendamento");
+      toast.error("Erro ao processar agendamento", {
+        description: bookingError.message || "Tente novamente em instantes.",
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const processNotificationsAsync = async (appointmentId: string, formData: any, services: any[], user: any) => {
+  const processNotificationsAsync = async (
+    appointmentId: string,
+    bookingData: BookingFormData,
+    availableServices: ServiceRecord[],
+    currentUser: SupabaseUser
+  ) => {
     try {
-      const selectedService = services.find(s => s.id === formData.service);
+      const selectedService = availableServices.find(service => service.id === bookingData.service);
       const duration = selectedService?.duration || 30;
       
       // Usar formato local sem conversão para UTC para evitar discrepâncias de fuso horário no webhook
-      const localStartTime = `${formData.date}T${formData.time}:00`;
+      const localStartTime = `${bookingData.date}T${bookingData.time}:00`;
       const startDateTime = new Date(localStartTime);
       const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
-      const localEndTime = `${formData.date}T${endDateTime.getHours().toString().padStart(2, '0')}:${endDateTime.getMinutes().toString().padStart(2, '0')}:00`;
+      const localEndTime = `${bookingData.date}T${endDateTime.getHours().toString().padStart(2, '0')}:${endDateTime.getMinutes().toString().padStart(2, '0')}:00`;
 
       // Processar webhook e WhatsApp em paralelo
       const [webhookResult] = await Promise.allSettled([
@@ -1155,12 +1247,12 @@ const Booking = () => {
             body: {
               action: 'notify-webhook',
               appointmentId,
-              clientName: customClientName || formData.name,
-              phone: formData.phone,
+              clientName: customClientName || bookingData.name,
+              phone: bookingData.phone,
               service: selectedService?.title || 'Serviço',
               startTime: localStartTime,
               endTime: localEndTime,
-              userId: user.id,
+              userId: currentUser.id,
               notes: null,
             }
           }),
@@ -1199,8 +1291,9 @@ const Booking = () => {
     else if (step === "form") setStep("time");
   };
 
+  const normalizedServiceSearch = normalizeText(serviceSearch).toLowerCase();
   const filteredServices = services.filter((service) =>
-    service.title.toLowerCase().includes(serviceSearch.toLowerCase())
+    normalizeText(service?.title).toLowerCase().includes(normalizedServiceSearch)
   );
   const successBooking = confirmedBooking || formData;
 
@@ -1251,14 +1344,14 @@ const Booking = () => {
                     <img src={service.image_url || defaultImages[service.title] || haircutImg} alt={service.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
                     <div className="absolute bottom-2 left-2">
                       {(() => {
-                        const IconComponent = (Icons as any)[service.icon] || Scissors;
+                        const IconComponent = getServiceIcon(service.icon);
                         return <IconComponent className="w-4 h-4 text-primary" />;
                       })()}
                     </div>
                   </div>
                   <CardContent className="p-2 md:p-4">
-                    <h3 className="text-xs md:text-base font-bold">{service.title}</h3>
-                    <span className="text-sm md:text-xl font-bold text-primary">R$ {service.price.toFixed(2)}</span>
+                    <h3 className="text-xs md:text-base font-bold">{normalizeText(service.title) || "Serviço"}</h3>
+                    <span className="text-sm md:text-xl font-bold text-primary">R$ {formatCurrency(service.price)}</span>
                   </CardContent>
                 </Card>
               ))}
@@ -1301,7 +1394,7 @@ const Booking = () => {
                     <div className="space-y-3">
                       <div className="p-6 bg-primary/10 border-2 border-primary/30 rounded-lg">
                         <p className="text-sm mb-2">Próxima data disponível:</p>
-                        <p className="text-xl font-bold text-primary">{new Date(formData.date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+                        <p className="text-xl font-bold text-primary">{formatBookingDate(formData.date, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
                         {formData.time && <p className="text-3xl font-bold text-primary mt-2">{formData.time}</p>}
                       </div>
                       {hoursLoading ? <p className="text-center">Carregando...</p> : 
@@ -1327,9 +1420,9 @@ const Booking = () => {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="bg-secondary/50 rounded-lg p-6 text-left">
-                  <p><strong>Serviço:</strong> {successBooking.serviceTitle} (R$ {successBooking.servicePrice})</p>
-                  <p><strong>Barbeiro:</strong> {successBooking.barberName}</p>
-                  <p><strong>Data:</strong> {new Date(successBooking.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {successBooking.time}</p>
+                  <p><strong>Serviço:</strong> {normalizeText(successBooking.serviceTitle) || "Serviço"} (R$ {formatCurrency(successBooking.servicePrice)})</p>
+                  <p><strong>Barbeiro:</strong> {normalizeText(successBooking.barberName) || "Barbeiro"}</p>
+                  <p><strong>Data:</strong> {formatBookingDate(successBooking.date)} às {successBooking.time}</p>
                 </div>
                 <Button onClick={() => { setFormData({ name: "", phone: "", service: "", serviceTitle: "", servicePrice: "", barber: "", barberName: "", date: "", time: "" }); setConfirmedBooking(null); setStep("service"); navigate('/cliente'); }} className="w-full">Ir para meu Painel</Button>
               </CardContent>
@@ -1341,9 +1434,9 @@ const Booking = () => {
               <CardHeader><CardTitle className="text-2xl">Confirmar Agendamento</CardTitle></CardHeader>
               <CardContent>
                 <div className="space-y-4 mb-6 pb-4 border-b">
-                  <p><strong>Serviço:</strong> {formData.serviceTitle}</p>
-                  <p><strong>Barbeiro:</strong> {formData.barberName}</p>
-                  <p><strong>Data:</strong> {new Date(formData.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {formData.time}</p>
+                  <p><strong>Serviço:</strong> {normalizeText(formData.serviceTitle) || "Serviço"}</p>
+                  <p><strong>Barbeiro:</strong> {normalizeText(formData.barberName) || "Barbeiro"}</p>
+                  <p><strong>Data:</strong> {formatBookingDate(formData.date)} às {formData.time}</p>
                 </div>
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <div className="space-y-2"><Label>Nome Completo</Label><Input value={formData.name} readOnly className="bg-secondary" /></div>

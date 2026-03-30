@@ -21,9 +21,12 @@ export type Database = {
           barber_id: string
           booking_type: string | null
           client_id: string
+          client_name: string | null
           created_at: string | null
           id: string
           notes: string | null
+          payment_method: string | null
+          photo_url: string | null
           service_id: string
           status: string | null
           updated_at: string | null
@@ -34,9 +37,12 @@ export type Database = {
           barber_id: string
           booking_type?: string | null
           client_id: string
+          client_name?: string | null
           created_at?: string | null
           id?: string
           notes?: string | null
+          payment_method?: string | null
+          photo_url?: string | null
           service_id: string
           status?: string | null
           updated_at?: string | null
@@ -47,9 +53,12 @@ export type Database = {
           barber_id?: string
           booking_type?: string | null
           client_id?: string
+          client_name?: string | null
           created_at?: string | null
           id?: string
           notes?: string | null
+          payment_method?: string | null
+          photo_url?: string | null
           service_id?: string
           status?: string | null
           updated_at?: string | null
@@ -71,8 +80,251 @@ export type Database = {
           },
         ]
       }
+      appointment_payments: {
+        Row: {
+          amount: number
+          appointment_id: string
+          created_at: string
+          id: string
+          payment_method: string
+        }
+        Insert: {
+          amount: number
+          appointment_id: string
+          created_at?: string
+          id?: string
+          payment_method: string
+        }
+        Update: {
+          amount?: number
+          appointment_id?: string
+          created_at?: string
+          id?: string
+          payment_method?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "appointment_payments_appointment_id_fkey"
+            columns: ["appointment_id"]
+            isOneToOne: false
+            referencedRelation: "appointments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barber_advances: {
+        Row: {
+          amount: number
+          approved_at: string | null
+          approved_by: string | null
+          barber_id: string
+          created_at: string
+          description: string | null
+          digital_signature: Json | null
+          effective_date: string
+          id: string
+          requested_by: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          approved_at?: string | null
+          approved_by?: string | null
+          barber_id: string
+          created_at?: string
+          description?: string | null
+          digital_signature?: Json | null
+          effective_date?: string
+          id?: string
+          requested_by: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          approved_at?: string | null
+          approved_by?: string | null
+          barber_id?: string
+          created_at?: string
+          description?: string | null
+          digital_signature?: Json | null
+          effective_date?: string
+          id?: string
+          requested_by?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barber_advances_barber_id_fkey"
+            columns: ["barber_id"]
+            isOneToOne: false
+            referencedRelation: "barbers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barber_breaks: {
+        Row: {
+          barber_id: string
+          created_at: string
+          date: string
+          end_time: string
+          id: string
+          notes: string | null
+          start_time: string
+        }
+        Insert: {
+          barber_id: string
+          created_at?: string
+          date: string
+          end_time: string
+          id?: string
+          notes?: string | null
+          start_time: string
+        }
+        Update: {
+          barber_id?: string
+          created_at?: string
+          date?: string
+          end_time?: string
+          id?: string
+          notes?: string | null
+          start_time?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barber_breaks_barber_id_fkey"
+            columns: ["barber_id"]
+            isOneToOne: false
+            referencedRelation: "barbers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barber_commissions: {
+        Row: {
+          barber_id: string
+          commission_percentage: number
+          created_at: string | null
+          id: string
+          service_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          barber_id: string
+          commission_percentage: number
+          created_at?: string | null
+          id?: string
+          service_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          barber_id?: string
+          commission_percentage?: number
+          created_at?: string | null
+          id?: string
+          service_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barber_commissions_barber_id_fkey"
+            columns: ["barber_id"]
+            isOneToOne: false
+            referencedRelation: "barbers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "barber_commissions_service_id_fkey"
+            columns: ["service_id"]
+            isOneToOne: false
+            referencedRelation: "services"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barber_fixed_commissions: {
+        Row: {
+          barber_id: string
+          created_at: string | null
+          id: string
+          product_commission_percentage: number
+          service_commission_percentage: number
+          updated_at: string | null
+        }
+        Insert: {
+          barber_id: string
+          created_at?: string | null
+          id?: string
+          product_commission_percentage?: number
+          service_commission_percentage?: number
+          updated_at?: string | null
+        }
+        Update: {
+          barber_id?: string
+          created_at?: string | null
+          id?: string
+          product_commission_percentage?: number
+          service_commission_percentage?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barber_fixed_commissions_barber_id_fkey"
+            columns: ["barber_id"]
+            isOneToOne: false
+            referencedRelation: "barbers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barber_product_commissions: {
+        Row: {
+          barber_id: string
+          commission_percentage: number
+          created_at: string | null
+          id: string
+          product_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          barber_id: string
+          commission_percentage: number
+          created_at?: string | null
+          id?: string
+          product_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          barber_id?: string
+          commission_percentage?: number
+          created_at?: string | null
+          id?: string
+          product_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barber_product_commissions_barber_id_fkey"
+            columns: ["barber_id"]
+            isOneToOne: false
+            referencedRelation: "barbers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "barber_product_commissions_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       barbers: {
         Row: {
+          availability: Json | null
           created_at: string | null
           experience: string
           id: string
@@ -84,8 +336,10 @@ export type Database = {
           updated_at: string | null
           user_id: string | null
           visible: boolean | null
+          whatsapp_phone: string | null
         }
         Insert: {
+          availability?: Json | null
           created_at?: string | null
           experience: string
           id?: string
@@ -97,8 +351,10 @@ export type Database = {
           updated_at?: string | null
           user_id?: string | null
           visible?: boolean | null
+          whatsapp_phone?: string | null
         }
         Update: {
+          availability?: Json | null
           created_at?: string | null
           experience?: string
           id?: string
@@ -110,6 +366,7 @@ export type Database = {
           updated_at?: string | null
           user_id?: string | null
           visible?: boolean | null
+          whatsapp_phone?: string | null
         }
         Relationships: []
       }
@@ -178,36 +435,127 @@ export type Database = {
       }
       profiles: {
         Row: {
+          birth_date: string | null
+          blocked: boolean | null
           created_at: string | null
+          cpf: string | null
           id: string
+          is_temp_user: boolean | null
           name: string
           phone: string | null
-          cpf: string | null
+          photo_url: string | null
+          updated_at: string | null
           whatsapp: string | null
-          birth_date: string | null
+        }
+        Insert: {
+          birth_date?: string | null
+          blocked?: boolean | null
+          created_at?: string | null
+          cpf?: string | null
+          id: string
+          is_temp_user?: boolean | null
+          name: string
+          phone?: string | null
+          photo_url?: string | null
+          updated_at?: string | null
+          whatsapp?: string | null
+        }
+        Update: {
+          birth_date?: string | null
+          blocked?: boolean | null
+          created_at?: string | null
+          cpf?: string | null
+          id?: string
+          is_temp_user?: boolean | null
+          name?: string
+          phone?: string | null
+          photo_url?: string | null
+          updated_at?: string | null
+          whatsapp?: string | null
+        }
+        Relationships: []
+      }
+      product_sales: {
+        Row: {
+          barber_id: string
+          client_id: string | null
+          commission_percentage: number
+          commission_value: number
+          created_at: string | null
+          id: string
+          notes: string | null
+          payment_method: string | null
+          photo_url: string | null
+          product_id: string
+          quantity: number
+          sale_date: string
+          sale_time: string
+          status: string
+          total_price: number
+          unit_price: number
           updated_at: string | null
         }
         Insert: {
+          barber_id: string
+          client_id?: string | null
+          commission_percentage?: number
+          commission_value?: number
           created_at?: string | null
-          id: string
-          name: string
-          phone?: string | null
-          cpf?: string | null
-          whatsapp?: string | null
-          birth_date?: string | null
+          id?: string
+          notes?: string | null
+          payment_method?: string | null
+          photo_url?: string | null
+          product_id: string
+          quantity?: number
+          sale_date?: string
+          sale_time?: string
+          status?: string
+          total_price: number
+          unit_price: number
           updated_at?: string | null
         }
         Update: {
+          barber_id?: string
+          client_id?: string | null
+          commission_percentage?: number
+          commission_value?: number
           created_at?: string | null
           id?: string
-          name?: string
-          phone?: string | null
-          cpf?: string | null
-          whatsapp?: string | null
-          birth_date?: string | null
+          notes?: string | null
+          payment_method?: string | null
+          photo_url?: string | null
+          product_id?: string
+          quantity?: number
+          sale_date?: string
+          sale_time?: string
+          status?: string
+          total_price?: number
+          unit_price?: number
           updated_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "product_sales_barber_id_fkey"
+            columns: ["barber_id"]
+            isOneToOne: false
+            referencedRelation: "barbers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_sales_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_sales_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       push_subscriptions: {
         Row: {

@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { User } from '@supabase/supabase-js';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import type { Tables } from '@/integrations/supabase/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -11,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { LogOut, Calendar, Clock, Scissors, Sparkles, Wind, Home, ShoppingBag, History, Settings, Filter } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu';
 import { format } from 'date-fns';
@@ -22,7 +25,52 @@ import FilaDaBarbearia from '@/pages/FilaDaBarbearia';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 
-const iconMap: Record<string, any> = {
+type HistoryFilterPeriod = 'all' | 'today' | 'week' | 'month' | 'year';
+type HistoryFilterStatus = 'all' | 'completed' | 'cancelled' | 'confirmed' | 'pending';
+type ServiceRecord = Tables<'services'>;
+type ProductRecord = Tables<'products'>;
+type BarberRecord = Tables<'barbers'>;
+type AppointmentRecord = Tables<'appointments'>;
+type AppointmentPaymentRecord = Tables<'appointment_payments'>;
+type ProductSaleRecord = Tables<'product_sales'>;
+type AppointmentDerivedStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled';
+type UserMetadata = {
+  name?: string;
+  avatar_url?: string;
+};
+type AppointmentWithRelations = AppointmentRecord & {
+  service: Pick<ServiceRecord, 'title' | 'price'> | null;
+  barber: Pick<BarberRecord, 'name'> | null;
+};
+type AppointmentStatRecord = Pick<
+  AppointmentRecord,
+  'id' | 'service_id' | 'appointment_date' | 'appointment_time' | 'status' | 'photo_url' | 'payment_method'
+> & {
+  service: Pick<ServiceRecord, 'title'> | null;
+};
+type AppointmentHistoryItem = AppointmentWithRelations & {
+  _derivedStatus: AppointmentDerivedStatus;
+};
+type ActiveAppointmentItem = AppointmentHistoryItem & {
+  _dateTime: Date;
+};
+type ProductSaleWithRelations = ProductSaleRecord & {
+  product: Pick<ProductRecord, 'name' | 'image_url'> | null;
+  barber: Pick<BarberRecord, 'name'> | null;
+};
+type ServiceStat = {
+  title: string;
+  count: number;
+};
+type AppointmentRealtimePayload = {
+  new?: { status?: AppointmentRecord['status'] | null } | null;
+  old?: { status?: AppointmentRecord['status'] | null } | null;
+};
+type QueueError = {
+  name?: string;
+};
+
+const iconMap: Record<string, LucideIcon> = {
   Scissors,
   Wind,
   Sparkles,
@@ -34,23 +82,204 @@ const defaultImages: Record<string, string> = {
   "Finalização": stylingImg,
 };
 
+const historyFilterPeriods: readonly HistoryFilterPeriod[] = ['all', 'today', 'week', 'month', 'year'];
+const historyFilterStatuses: readonly HistoryFilterStatus[] = ['all', 'completed', 'cancelled', 'confirmed', 'pending'];
+
+const getUserMetadata = (user: User | null | undefined): UserMetadata =>
+  (user?.user_metadata ?? {}) as UserMetadata;
+
+const isHistoryFilterPeriod = (value: string): value is HistoryFilterPeriod =>
+  (historyFilterPeriods as readonly string[]).includes(value);
+
+const isHistoryFilterStatus = (value: string): value is HistoryFilterStatus =>
+  (historyFilterStatuses as readonly string[]).includes(value);
+
+const getAppointmentDateTime = (
+  appointment: Pick<AppointmentRecord, 'appointment_date' | 'appointment_time'>
+) => {
+  const time = (appointment.appointment_time || '00:00').slice(0, 5);
+  return new Date(`${appointment.appointment_date}T${time}:00`);
+};
+
+const getDerivedAppointmentStatus = (
+  appointment: Pick<AppointmentRecord, 'status' | 'photo_url' | 'payment_method'>
+): AppointmentDerivedStatus => {
+  const hasImplicitCompletion = Boolean(appointment.photo_url) || Boolean(appointment.payment_method);
+
+  if (appointment.status === 'cancelled') {
+    return 'cancelled';
+  }
+
+  if (appointment.status === 'completed' || hasImplicitCompletion) {
+    return 'completed';
+  }
+
+  if (appointment.status === 'confirmed') {
+    return 'confirmed';
+  }
+
+  return 'pending';
+};
+
 const ClienteDashboard = () => {
   const { user, role, blocked, signOut } = useAuth();
   const navigate = useNavigate();
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
   const [displayName, setDisplayName] = useState<string>('');
-  const [appointments, setAppointments] = useState<any[]>([]);
-  const [productSales, setProductSales] = useState<any[]>([]);
-  const [serviceStats, setServiceStats] = useState<any[]>([]);
-  const [services, setServices] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState<AppointmentWithRelations[]>([]);
+  const [productSales, setProductSales] = useState<ProductSaleWithRelations[]>([]);
+  const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
+  const [services, setServices] = useState<ServiceRecord[]>([]);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
   const [cancellationReason, setCancellationReason] = useState('');
-  const [historyFilterPeriod, setHistoryFilterPeriod] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
-  const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'completed' | 'cancelled' | 'confirmed' | 'pending'>('all');
+  const [historyFilterPeriod, setHistoryFilterPeriod] = useState<HistoryFilterPeriod>('all');
+  const [historyFilterStatus, setHistoryFilterStatus] = useState<HistoryFilterStatus>('all');
   const [historyFilterService, setHistoryFilterService] = useState<string>('all');
   const [serviceSearch, setServiceSearch] = useState('');
+
+  const loadDisplayName = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('name, cpf')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      const userMetadata = getUserMetadata(user);
+      const nameFromProfile = data?.name?.trim() || '';
+      const cpfFromProfile = data?.cpf || '';
+      const nameFromMeta = userMetadata.name?.trim() || '';
+      const fallbackName = user.email?.split('@')[0] || 'Usuário';
+      const nameLooksLikeCpf =
+        nameFromProfile && nameFromProfile.replace(/\D/g, '') === cpfFromProfile;
+
+      setDisplayName(
+        nameLooksLikeCpf
+          ? (nameFromMeta || fallbackName)
+          : (nameFromProfile || nameFromMeta || fallbackName)
+      );
+    } catch (error) {
+      setDisplayName(user.email?.split('@')[0] || 'Usuário');
+    }
+  }, [user]);
+
+  const loadAppointments = useCallback(async () => {
+    if (!user) return;
+    const { data, error } = await supabase
+      .from('appointments')
+      .select(`
+        *,
+        service:services(title, price),
+        barber:barbers(name)
+      `)
+      .eq('client_id', user.id)
+      .order('appointment_date', { ascending: true })
+      .order('appointment_time', { ascending: true });
+
+    if (error) {
+      console.error('Error loading appointments:', error);
+      toast.error('Erro ao carregar agendamentos');
+    } else {
+      try {
+        const base = (data || []) as AppointmentWithRelations[];
+        const ids = base.map((appointment) => appointment.id);
+        if (ids.length > 0) {
+          const { data: pays } = await supabase
+            .from('appointment_payments')
+            .select('appointment_id')
+            .in('appointment_id', ids);
+          const paidIds = new Set((pays || []).map((payment: Pick<AppointmentPaymentRecord, 'appointment_id'>) => payment.appointment_id));
+          const reconciled = base.map((appointment) => {
+            const hasImplicitCompletion = Boolean(appointment.photo_url) || Boolean(appointment.payment_method);
+            if ((paidIds.has(appointment.id) || hasImplicitCompletion) && appointment.status !== 'completed') {
+              return { ...appointment, status: 'completed' as const };
+            }
+            return appointment;
+          });
+          setAppointments(reconciled);
+        } else {
+          setAppointments(base);
+        }
+      } catch {
+        setAppointments(data || []);
+      }
+    }
+  }, [user]);
+
+  const loadProductSales = useCallback(async () => {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from('product_sales')
+        .select(`
+          *,
+          product:products(name, image_url),
+          barber:barbers(name)
+        `)
+        .eq('client_id', user.id)
+        .order('sale_date', { ascending: false });
+
+      if (error) {
+        console.log('Error loading product sales (column might not exist yet):', error);
+      } else {
+        setProductSales((data || []) as ProductSaleWithRelations[]);
+      }
+    } catch (e) {
+      console.error('Exception loading product sales:', e);
+    }
+  }, [user]);
+
+  const loadServiceStats = useCallback(async () => {
+    if (!user) return;
+    const { data, error } = await supabase
+      .from('appointments')
+      .select(`
+        id,
+        service_id,
+        appointment_date,
+        appointment_time,
+        status,
+        photo_url,
+        payment_method,
+        service:services(title)
+      `)
+      .eq('client_id', user.id)
+      .neq('status', 'cancelled');
+
+    if (error) {
+      console.error('Error loading stats:', error);
+    } else {
+      const counts: Record<string, number> = {};
+      ((data || []) as AppointmentStatRecord[]).forEach((appointment) => {
+        const derivedCompleted = getDerivedAppointmentStatus(appointment) === 'completed';
+        if (!derivedCompleted) return;
+        const title = appointment.service?.title || 'Serviço';
+        counts[title] = (counts[title] || 0) + 1;
+      });
+      
+      const statsArray = Object.entries(counts).map(([title, count]) => ({ title, count }))
+        .sort((a, b) => b.count - a.count);
+      
+      setServiceStats(statsArray);
+    }
+  }, [user]);
+
+  const loadServices = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('services')
+      .select('*')
+      .eq('visible', true)
+      .order('order_index');
+
+    if (error) {
+      console.error('Error loading services:', error);
+    } else {
+      setServices((data || []) as ServiceRecord[]);
+    }
+  }, []);
 
   useEffect(() => {
     if (!user || role !== 'cliente') {
@@ -68,11 +297,11 @@ const ClienteDashboard = () => {
     loadProductSales();
     loadServiceStats();
     loadServices();
-  }, [user, role]);
+  }, [user, role, navigate, supabaseAnonKey, supabaseUrl, loadAppointments, loadDisplayName, loadProductSales, loadServiceStats, loadServices]);
 
   useEffect(() => {
     if (!user) return;
-    const channel = (supabase as any)
+    const channel = supabase
       .channel(`client-appointments-${user.id}`)
       .on(
         'postgres_changes',
@@ -82,8 +311,8 @@ const ClienteDashboard = () => {
           table: 'appointments',
           filter: `client_id=eq.${user.id}`
         },
-        (payload: any) => {
-          const status = payload?.new?.status || payload?.old?.status;
+        (payload: AppointmentRealtimePayload) => {
+          const status = payload.new?.status || payload.old?.status;
           if (status === 'completed') {
             toast.success('Atendimento concluído', {
               description: 'Seu agendamento foi atualizado para concluído.',
@@ -107,176 +336,17 @@ const ClienteDashboard = () => {
       });
     return () => {
       try {
-        (supabase as any).removeChannel(channel);
-      } catch {}
+        supabase.removeChannel(channel);
+      } catch (removeError) {
+        console.error('Error removing realtime channel:', removeError);
+      }
     };
-  }, [user?.id]);
-
-  const loadDisplayName = async () => {
-    if (!user) return;
-    try {
-      const { data } = await (supabase as any)
-        .from('profiles')
-        .select('name, cpf')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      const nameFromProfile = data?.name?.trim() || '';
-      const cpfFromProfile = data?.cpf || '';
-      const nameFromMeta = (user as any)?.user_metadata?.name?.trim() || '';
-      const fallbackName = user.email?.split('@')[0] || 'Usuário';
-      const nameLooksLikeCpf =
-        nameFromProfile && nameFromProfile.replace(/\D/g, '') === cpfFromProfile;
-
-      setDisplayName(
-        nameLooksLikeCpf
-          ? (nameFromMeta || fallbackName)
-          : (nameFromProfile || nameFromMeta || fallbackName)
-      );
-    } catch (error) {
-      setDisplayName(user.email?.split('@')[0] || 'Usuário');
-    }
-  };
-
-  const loadAppointments = async () => {
-    const { data, error } = await (supabase as any)
-      .from('appointments')
-      .select(`
-        *,
-        service:services(title, price),
-        barber:barbers(name)
-      `)
-      .eq('client_id', user?.id)
-      .order('appointment_date', { ascending: true })
-      .order('appointment_time', { ascending: true });
-
-    if (error) {
-      console.error('Error loading appointments:', error);
-      toast.error('Erro ao carregar agendamentos');
-    } else {
-      try {
-        const base = data || [];
-        const ids = base.map((a: any) => a.id);
-        if (ids.length > 0) {
-          const { data: pays } = await (supabase as any)
-            .from('appointment_payments')
-            .select('appointment_id')
-            .in('appointment_id', ids);
-          const paidIds = new Set((pays || []).map((p: any) => p.appointment_id));
-          const reconciled = base.map((a: any) => {
-            const hasImplicitCompletion = Boolean(a?.photo_url) || Boolean(a?.payment_method);
-            if ((paidIds.has(a.id) || hasImplicitCompletion) && a.status !== 'completed') {
-              return { ...a, status: 'completed' };
-            }
-            return a;
-          });
-          setAppointments(reconciled);
-        } else {
-          setAppointments(base);
-        }
-      } catch {
-        setAppointments(data || []);
-      }
-    }
-  };
-
-  const loadProductSales = async () => {
-    if (!user) return;
-    
-    // Check if client_id column exists by trying to select it
-    // If it doesn't exist, this might fail or return empty, so we handle gracefully
-    try {
-      const { data, error } = await supabase
-        .from('product_sales')
-        .select(`
-          *,
-          product:products(name, image_url),
-          barber:barbers(name)
-        `)
-        .eq('client_id', user.id)
-        .order('sale_date', { ascending: false });
-
-      if (error) {
-        console.log('Error loading product sales (column might not exist yet):', error);
-      } else {
-        setProductSales(data || []);
-      }
-    } catch (e) {
-      console.error('Exception loading product sales:', e);
-    }
-  };
-
-  const loadServiceStats = async () => {
-    const { data, error } = await (supabase as any)
-      .from('appointments')
-      .select(`
-        id,
-        service_id,
-        appointment_date,
-        appointment_time,
-        status,
-        photo_url,
-        payment_method,
-        service:services(title)
-      `)
-      .eq('client_id', user?.id)
-      .neq('status', 'cancelled');
-
-    if (error) {
-      console.error('Error loading stats:', error);
-    } else {
-      const now = new Date();
-      const toDateTime = (apt: any) => {
-        const time = (apt.appointment_time || '00:00').slice(0, 5);
-        return new Date(`${apt.appointment_date}T${time}:00`);
-      };
-      
-      const counts: Record<string, number> = {};
-      (data || []).forEach((apt: any) => {
-        const inPast = toDateTime(apt) < now;
-        const derivedCompleted = apt.status === 'completed' || Boolean(apt.photo_url) || Boolean(apt.payment_method) || inPast;
-        if (!derivedCompleted) return;
-        const title = apt.service?.title || 'Serviço';
-        counts[title] = (counts[title] || 0) + 1;
-      });
-      
-      const statsArray = Object.entries(counts).map(([title, count]) => ({ title, count }))
-        .sort((a: any, b: any) => b.count - a.count);
-      
-      setServiceStats(statsArray);
-    }
-  };
-
-  const loadServices = async () => {
-    const { data, error } = await supabase
-      .from('services')
-      .select('*')
-      .eq('visible', true)
-      .order('order_index');
-
-    if (error) {
-      console.error('Error loading services:', error);
-    } else {
-      setServices(data || []);
-    }
-  };
+  }, [user, loadAppointments, loadServiceStats]);
 
   // Função para filtrar agendamentos do histórico
   const getFilteredHistoryAppointments = () => {
-    const now = new Date();
-    const toDateTime = (apt: any) => {
-      const time = (apt.appointment_time || '00:00').slice(0, 5);
-      return new Date(`${apt.appointment_date}T${time}:00`);
-    };
-    const withDerived = appointments.map((apt: any) => {
-      const inPast = toDateTime(apt) < now;
-      const hasImplicitCompletion = Boolean(apt?.photo_url) || Boolean(apt?.payment_method);
-      const derivedStatus = apt.status === 'cancelled'
-        ? 'cancelled'
-        : (apt.status === 'completed' || hasImplicitCompletion || inPast)
-          ? 'completed'
-          : apt.status;
-      return { ...apt, _derivedStatus: derivedStatus };
+    const withDerived: AppointmentHistoryItem[] = appointments.map((appointment) => {
+      return { ...appointment, _derivedStatus: getDerivedAppointmentStatus(appointment) };
     });
     let filtered = [...withDerived];
 
@@ -285,25 +355,28 @@ const ClienteDashboard = () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      filtered = filtered.filter((apt: any) => {
-        const aptDate = new Date(apt.appointment_date + 'T00:00:00');
+      filtered = filtered.filter((appointment) => {
+        const aptDate = new Date(appointment.appointment_date + 'T00:00:00');
         aptDate.setHours(0, 0, 0, 0);
         
         switch (historyFilterPeriod) {
           case 'today':
             return aptDate.getTime() === today.getTime();
-          case 'week':
+          case 'week': {
             const weekAgo = new Date(today);
             weekAgo.setDate(weekAgo.getDate() - 7);
             return aptDate >= weekAgo;
-          case 'month':
+          }
+          case 'month': {
             const monthAgo = new Date(today);
             monthAgo.setMonth(monthAgo.getMonth() - 1);
             return aptDate >= monthAgo;
-          case 'year':
+          }
+          case 'year': {
             const yearAgo = new Date(today);
             yearAgo.setFullYear(yearAgo.getFullYear() - 1);
             return aptDate >= yearAgo;
+          }
           default:
             return true;
         }
@@ -312,12 +385,12 @@ const ClienteDashboard = () => {
 
     // Filtro por status
     if (historyFilterStatus !== 'all') {
-      filtered = filtered.filter((apt: any) => apt._derivedStatus === historyFilterStatus);
+      filtered = filtered.filter((appointment) => appointment._derivedStatus === historyFilterStatus);
     }
 
     // Filtro por serviço
     if (historyFilterService !== 'all') {
-      filtered = filtered.filter((apt: any) => apt.service_id === historyFilterService);
+      filtered = filtered.filter((appointment) => appointment.service_id === historyFilterService);
     }
 
     return filtered;
@@ -337,7 +410,7 @@ const ClienteDashboard = () => {
       return;
     }
 
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from('appointments')
       .update({ 
         status: 'cancelled',
@@ -386,9 +459,9 @@ const ClienteDashboard = () => {
             console.log('✅ WhatsApp queue processed after cancellation');
           }
         }
-      } catch (queueError: any) {
-        // Silenciosamente falhar - não impacta o usuário
-        if (queueError.name !== 'AbortError') {
+      } catch (queueError: unknown) {
+        const typedQueueError = queueError as QueueError;
+        if (typedQueueError.name !== 'AbortError') {
           console.error('Error triggering WhatsApp queue:', queueError);
         }
       }
@@ -408,7 +481,7 @@ const ClienteDashboard = () => {
           {user && (
             <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-secondary/30">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={(user as any)?.user_metadata?.avatar_url || ''} alt={displayName || 'Usuário'} />
+                <AvatarImage src={getUserMetadata(user).avatar_url || ''} alt={displayName || 'Usuário'} />
                 <AvatarFallback className="bg-primary/20 text-primary text-sm font-bold">
                   {(displayName || user.email || 'U').charAt(0).toUpperCase()}
                 </AvatarFallback>
@@ -442,7 +515,7 @@ const ClienteDashboard = () => {
           {user && (
             <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-secondary/30">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={(user as any)?.user_metadata?.avatar_url || ''} alt={displayName || 'Usuário'} />
+                <AvatarImage src={getUserMetadata(user).avatar_url || ''} alt={displayName || 'Usuário'} />
                 <AvatarFallback className="bg-primary/20 text-primary text-sm font-bold">
                   {(displayName || user.email || 'U').charAt(0).toUpperCase()}
                 </AvatarFallback>
@@ -517,7 +590,7 @@ const ClienteDashboard = () => {
                 <CardContent className="pt-2">
                   {serviceStats.length > 0 ? (
                     <div className="space-y-3">
-                      {serviceStats.map((stat: any) => (
+                      {serviceStats.map((stat) => (
                         <div key={stat.title} className="flex justify-between items-center p-3 bg-secondary rounded-lg">
                           <span className="font-medium">{stat.title}</span>
                           <span className="text-primary font-bold">{stat.count}x</span>
@@ -540,14 +613,19 @@ const ClienteDashboard = () => {
                 <CardContent className="pt-2">
                   {(() => {
                     const now = new Date();
-                    const toDateTime = (apt: any) => {
-                      const time = (apt.appointment_time || '00:00').slice(0, 5);
-                      return new Date(`${apt.appointment_date}T${time}:00`);
-                    };
-                    const upcoming = appointments
-                      .filter(a => (a.status === 'pending' || a.status === 'confirmed'))
-                      .filter(a => toDateTime(a) >= now)
-                      .sort((a, b) => toDateTime(a).getTime() - toDateTime(b).getTime())[0];
+                    const activeAppointments: ActiveAppointmentItem[] = appointments
+                      .map((appointment) => ({
+                        ...appointment,
+                        _derivedStatus: getDerivedAppointmentStatus(appointment),
+                        _dateTime: getAppointmentDateTime(appointment),
+                      }))
+                      .filter((appointment) => appointment._derivedStatus === 'pending' || appointment._derivedStatus === 'confirmed')
+                      .sort((a, b) => a._dateTime.getTime() - b._dateTime.getTime());
+
+                    const upcoming =
+                      activeAppointments.find((appointment) => appointment._dateTime >= now) ||
+                      activeAppointments[0];
+
                     return upcoming ? (
                     <div className="space-y-2">
                       <p className="font-bold text-lg">
@@ -559,6 +637,11 @@ const ClienteDashboard = () => {
                       <p className="text-sm text-muted-foreground">
                         Com {upcoming.barber.name}
                       </p>
+                      {upcoming._dateTime < now && (
+                        <p className="text-xs text-yellow-500 font-medium">
+                          Este agendamento passou do horário e continua ativo até ser concluído ou cancelado.
+                        </p>
+                      )}
                       {(upcoming.status === 'pending' || upcoming.status === 'confirmed') && (
                         <div className="pt-3 border-t border-border/50 flex justify-end">
                           <AlertDialog>
@@ -711,7 +794,11 @@ const ClienteDashboard = () => {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent>
                             <DropdownMenuLabel className="text-xs">Período</DropdownMenuLabel>
-                            <DropdownMenuRadioGroup value={historyFilterPeriod} onValueChange={(v) => setHistoryFilterPeriod(v as any)}>
+                            <DropdownMenuRadioGroup value={historyFilterPeriod} onValueChange={(value) => {
+                              if (isHistoryFilterPeriod(value)) {
+                                setHistoryFilterPeriod(value);
+                              }
+                            }}>
                               <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
                               <DropdownMenuRadioItem value="today">Hoje</DropdownMenuRadioItem>
                               <DropdownMenuRadioItem value="week">Última Semana</DropdownMenuRadioItem>
@@ -735,7 +822,11 @@ const ClienteDashboard = () => {
                           </DropdownMenuTrigger>
                           <DropdownMenuContent>
                             <DropdownMenuLabel className="text-xs">Status</DropdownMenuLabel>
-                            <DropdownMenuRadioGroup value={historyFilterStatus} onValueChange={(v) => setHistoryFilterStatus(v as any)}>
+                            <DropdownMenuRadioGroup value={historyFilterStatus} onValueChange={(value) => {
+                              if (isHistoryFilterStatus(value)) {
+                                setHistoryFilterStatus(value);
+                              }
+                            }}>
                               <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
                               <DropdownMenuRadioItem value="completed">Concluído</DropdownMenuRadioItem>
                               <DropdownMenuRadioItem value="confirmed">Confirmado</DropdownMenuRadioItem>
@@ -770,18 +861,7 @@ const ClienteDashboard = () => {
                         const filteredAppointments = getFilteredHistoryAppointments();
                         return filteredAppointments.length > 0 ? (
                           filteredAppointments.map((appointment) => {
-                            const now = new Date();
-                            const toDateTime = (apt: any) => {
-                              const time = (apt.appointment_time || '00:00').slice(0, 5);
-                              return new Date(`${apt.appointment_date}T${time}:00`);
-                            };
-                            const inPast = toDateTime(appointment) < now;
-                            const hasImplicitCompletion = Boolean(appointment?.photo_url) || Boolean(appointment?.payment_method);
-                            const derivedStatus = appointment.status === 'cancelled'
-                              ? 'cancelled'
-                              : (appointment.status === 'completed' || hasImplicitCompletion || inPast)
-                                ? 'completed'
-                                : appointment.status;
+                            const derivedStatus = getDerivedAppointmentStatus(appointment);
                             return (
                           <div key={appointment.id} className="p-4 bg-secondary rounded-lg">
                             <div className="flex justify-between items-start mb-2">
@@ -814,7 +894,7 @@ const ClienteDashboard = () => {
                               </div>
                             </div>
                             
-                            {(derivedStatus === 'pending' || derivedStatus === 'confirmed') && !inPast && (
+                            {(derivedStatus === 'pending' || derivedStatus === 'confirmed') && (
                               <div className="mt-3 pt-3 border-t border-border/50 flex justify-end">
                                 <Button 
                                   variant="outline" 
