@@ -18,7 +18,11 @@ export function getAvailableSlotsForBarber(
   date: Date,
   getTimeSlotsForDate: (date: Date) => string[],
   barberAppointmentsOnDate: AppointmentSlotInfo[],
-  options?: { filterPastSlots?: boolean; breaks?: BarberBreak[] }
+  options?: { 
+    filterPastSlots?: boolean; 
+    breaks?: BarberBreak[];
+    workingHours?: { open: string; close: string };
+  }
 ): string[] {
   const filterPast = options?.filterPastSlots !== false;
   const todayStr = format(date, "yyyy-MM-dd");
@@ -27,7 +31,13 @@ export function getAvailableSlotsForBarber(
   const currentHour = now.getHours();
   const currentMinute = now.getMinutes();
 
-  const allSlots = getTimeSlotsForDate(date);
+  let allSlots = getTimeSlotsForDate(date);
+
+  // Filter slots based on barber's working hours if provided
+  if (options?.workingHours) {
+    const { open, close } = options.workingHours;
+    allSlots = allSlots.filter(slot => slot >= open && slot <= close);
+  }
 
   const slots = filterPast && isToday
     ? allSlots.filter((slot) => {

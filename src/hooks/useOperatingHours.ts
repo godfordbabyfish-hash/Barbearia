@@ -111,7 +111,7 @@ export const useOperatingHours = () => {
     
     const closeTime = closeHour * 60 + closeMin;
     
-    while (currentHour * 60 + currentMin < closeTime) {
+    while (currentHour * 60 + currentMin <= closeTime) {
       const currentTime = currentHour * 60 + currentMin;
       const timeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
       

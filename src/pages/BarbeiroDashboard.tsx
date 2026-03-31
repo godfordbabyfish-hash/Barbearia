@@ -118,6 +118,20 @@ const getLunchBreakForDate = (
   return null;
 };
 
+const getWorkingHoursForDate = (
+  availability: unknown,
+  date: Date
+): { open: string; close: string } | null => {
+  const availabilityForDate = getAvailabilityForDate(availability, date);
+  if (availabilityForDate) {
+    return {
+      open: (availabilityForDate as any).open || '09:00',
+      close: (availabilityForDate as any).close || '20:00',
+    };
+  }
+  return null;
+};
+
 const BarbeiroDashboard = () => {
   const navigate = useNavigate();
   const { role: userRole, user, signOut } = useAuth();
@@ -667,9 +681,11 @@ const BarbeiroDashboard = () => {
       ]);
 
       let lunchBreak: { start_time: string; end_time: string } | null = null;
+      let workingHours: { open: string; close: string } | null = null;
       try {
         const barber = barbers.find(item => item.id === barberId);
         lunchBreak = getLunchBreakForDate(barber?.availability, dateObj);
+        workingHours = getWorkingHoursForDate(barber?.availability, dateObj);
       } catch (e) {
         console.warn('Falha ao validar horário de almoço do barbeiro (novo agendamento):', e);
       }
@@ -698,13 +714,16 @@ const BarbeiroDashboard = () => {
         end: breakItem.end_time.slice(0, 5),
       }));
       const fitsInHours = (slot: string) => {
-        // Ensure each 30-min block within service duration exists within operating hours
-        const blocks = Math.ceil(serviceDuration / 30);
-        let cursor = slot;
-        for (let i = 0; i < blocks; i++) {
-          if (!daySlots.includes(cursor)) return false;
-          cursor = addMinutesToTime(cursor, 30);
-        }
+        const closingTime = workingHours?.close || '20:00';
+        const openingTime = workingHours?.open || '09:00';
+
+        // O agendamento é permitido se o horário de início (slot) estiver dentro do expediente,
+        // mesmo que a duração do serviço ultrapasse o horário de fechamento.
+        if (slot < openingTime || slot > closingTime) return false;
+        
+        // Também garantimos que o slot base exista na programação da barbearia
+        if (!daySlots.includes(slot)) return false;
+
         return true;
       };
       const result = daySlots.filter((slot) => {

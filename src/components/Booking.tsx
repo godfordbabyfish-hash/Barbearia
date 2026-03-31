@@ -603,9 +603,19 @@ const Booking = () => {
 
       const serviceDuration = getServiceDuration(formData.service, services);
 
+      // Get barber's working hours for today
+      const daySchedule = getDaySchedule(barber.availability, today);
+      const barberOpen = daySchedule?.open || '09:00';
+      const barberClose = daySchedule?.close || '20:00';
+
       // Verificar se há horários disponíveis hoje
       const availableTodaySlots = todayTimeSlots.filter(slot => {
-        // Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
+        // 1. Check if slot is within barber's working hours
+        if (slot < barberOpen || slot > barberClose) {
+          return false;
+        }
+
+        // 2. Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
         // Isso deve ser consistente com src/utils/availability.ts
         const [hour, minute] = slot.split(':').map(Number);
         const [currentHour, currentMinute] = currentTime.split(':').map(Number);
@@ -765,12 +775,22 @@ const Booking = () => {
 
       const serviceDuration = getServiceDuration(currentFormData.service, services);
       
+      // Get barber's working hours for the day
+      const daySchedule = getDaySchedule(selectedBarber?.availability, checkDate);
+      const barberOpen = daySchedule?.open || '09:00';
+      const barberClose = daySchedule?.close || '20:00';
+
       // Filter out past times if it's today
       const isToday = checkDate.toDateString() === today.toDateString();
       const currentTimeLocal = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
       
       const availableSlots = dayTimeSlots.filter(slot => {
-        // Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
+        // 1. Check if slot is within barber's working hours
+        if (slot < barberOpen || slot > barberClose) {
+          return false;
+        }
+
+        // 2. Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
         // Isso deve ser consistente com src/utils/availability.ts
         if (isToday) {
           const [hour, minute] = slot.split(':').map(Number);
@@ -890,26 +910,32 @@ const Booking = () => {
         console.warn('Error loading barber breaks:', breaksError);
       }
 
-    // Base slots compartilhados com o agendamento local (sincronização)
-    const baseSlots = getAvailableSlotsForBarber(
-      selectedDate,
-      getTimeSlotsForDate,
-      ((appointments || []) as AppointmentWithServiceDuration[]).map((appointment) => ({
-        appointment_time: appointment.appointment_time,
-        duration: appointment.service?.duration,
-      })),
-      { filterPastSlots: true, breaks: combinedBreaks }
-    );
-    // Ajustar pelos conflitos do serviço selecionado (duração)
-    const serviceDuration = getServiceDuration(formData.service, services);
-    return baseSlots.filter(slot =>
-      !isTimeConflict(
-        slot,
-        serviceDuration,
-        (appointments || []) as AppointmentWithServiceDuration[],
-        combinedBreaks
-      )
-    );
+      const daySchedule = getDaySchedule(selectedBarber?.availability, selectedDate);
+      const workingHours = daySchedule ? {
+        open: daySchedule.open || '09:00',
+        close: daySchedule.close || '20:00'
+      } : undefined;
+
+      // Base slots compartilhados com o agendamento local (sincronização)
+      const baseSlots = getAvailableSlotsForBarber(
+        selectedDate,
+        getTimeSlotsForDate,
+        ((appointments || []) as AppointmentWithServiceDuration[]).map((appointment) => ({
+          appointment_time: appointment.appointment_time,
+          duration: appointment.service?.duration,
+        })),
+        { filterPastSlots: true, breaks: combinedBreaks, workingHours }
+      );
+      // Ajustar pelos conflitos do serviço selecionado (duração)
+      const serviceDuration = getServiceDuration(formData.service, services);
+      return baseSlots.filter(slot =>
+        !isTimeConflict(
+          slot,
+          serviceDuration,
+          (appointments || []) as AppointmentWithServiceDuration[],
+          combinedBreaks
+        )
+      );
     } catch (error) {
       console.error('Error in getAvailableSlotsForDate:', error);
       return [];
