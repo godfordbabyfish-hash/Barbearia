@@ -378,6 +378,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         }));
       // Se o barbeiro marcou o dia como fechado, não exibir slots
       let isClosed = false;
+      let workingHours: { open: string; close: string } | undefined = undefined;
       try {
         const availability = typeof barber.availability === "string"
           ? JSON.parse(barber.availability)
@@ -385,14 +386,21 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         if (availability) {
           const dayKeyMap = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const;
           const dayKey = dayKeyMap[todayDate.getDay()];
-          isClosed = Boolean(availability?.[dayKey]?.closed);
+          const dayAvailability = availability?.[dayKey];
+          isClosed = Boolean(dayAvailability?.closed);
+          if (!isClosed) {
+            workingHours = {
+              open: dayAvailability?.open || '09:00',
+              close: dayAvailability?.close || '20:00',
+            };
+          }
         }
       } catch {}
       next[barber.id] = isClosed ? [] : getAvailableSlotsForBarber(
         todayDate,
         getTimeSlotsForDate,
         barberAppointmentsToday,
-        { filterPastSlots: true, breaks: barberBreaksByBarber[barber.id] || [] }
+        { filterPastSlots: true, breaks: barberBreaksByBarber[barber.id] || [], workingHours }
       );
     });
     setAvailableSlotsByBarber(next);

@@ -181,23 +181,38 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         ...(lunchBreak ? [lunchBreak] : []),
       ];
       const breakRanges = combinedBreaks.map((b: any) => ({ start: b.start_time, end: b.end_time }));
+      
+      const barber = barbers.find(b => b.id === barberId) as any;
+      const availability = typeof barber?.availability === "string"
+        ? JSON.parse(barber.availability)
+        : barber?.availability;
+      const dayKey = getDayKey(dateObj) as any;
+      const dayAvailability = availability?.[dayKey];
+      const barberOpen = dayAvailability?.open || '09:00';
+      const barberClose = dayAvailability?.close || '20:00';
+
       const computeState = (slot: string): 'available'|'break'|'booked'|'past' => {
-        if (isToday) {
-          const [ch, cm] = [now.getHours(), now.getMinutes()];
-          const [sh, sm] = slot.split(':').map(Number);
-          const slotTotalMinutes = sh * 60 + sm;
-          const nowTotalMinutes = ch * 60 + cm;
-          // Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
-          if (slotTotalMinutes < (nowTotalMinutes - 10)) return 'past';
-        }
-        const slotEnd = addMin(slot, 30);
-        const overlaps = (s1: string, e1: string, s2: string, e2: string) => s1 < e2 && e1 > s2;
-        // Bloqueia também o slot imediatamente após a pausa (quando slot inicia exatamente no fim da pausa)
-        if (breakRanges.some(r => r.end === slot)) return 'break';
-        if (breakRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return 'break';
-        if (apptRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return 'booked';
-        return 'available';
-      };
+         // Check if slot is within barber's working hours
+         // Permite agendar se o slot de início for <= ao fechamento, ignorando a duração final
+         if (slot < barberOpen || slot > barberClose) return 'past';
+
+         if (isToday) {
+           const [ch, cm] = [now.getHours(), now.getMinutes()];
+           const [sh, sm] = slot.split(':').map(Number);
+           const slotTotalMinutes = sh * 60 + sm;
+           const nowTotalMinutes = ch * 60 + cm;
+           // Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
+           if (slotTotalMinutes < (nowTotalMinutes - 10)) return 'past';
+         }
+         const slotEnd = addMin(slot, 30);
+         const overlaps = (s1: string, e1: string, s2: string, e2: string) => s1 < e2 && e1 > s2;
+         
+         // Bloqueia também o slot imediatamente após a pausa (quando slot inicia exatamente no fim da pausa)
+         if (breakRanges.some(r => r.end === slot)) return 'break';
+         if (breakRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return 'break';
+         if (apptRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return 'booked';
+         return 'available';
+       };
       const states: Record<string,'available'|'break'|'booked'|'past'> = {};
       allSlots.forEach(s => { states[s] = computeState(s); });
       // Show only non-past slots
@@ -211,7 +226,10 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         const hasContinuousAvailability = (slot: string) => {
           let cursor = slot;
           for (let i = 0; i < steps; i++) {
-            if (!states[cursor] || states[cursor] !== 'available') return false;
+            // Bloqueia apenas se houver conflito com outro agendamento ou pausa.
+            // Ignoramos se o slot está marcado como 'past' (após o fechamento do barbeiro)
+            // ou se está fora do horário da barbearia (undefined), conforme solicitado.
+            if (states[cursor] === 'booked' || states[cursor] === 'break') return false;
             cursor = addMin(cursor, 30);
           }
           return true;
