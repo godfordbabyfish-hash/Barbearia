@@ -948,6 +948,19 @@ const BarbeiroDashboard = () => {
   const { isReady, showNotification } = useNotifications();
   const pendingNotifiedRef = useRef<Set<string>>(new Set());
 
+  // Lógica para detectar atualização do PWA
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        toast.info('Nova versão disponível!', {
+          description: 'O sistema foi atualizado automaticamente.',
+          duration: 5000,
+        });
+        setTimeout(() => window.location.reload(), 2000);
+      });
+    }
+  }, []);
+
   useEffect(() => {
     const barberId = selectedBarber || currentUserBarber?.id;
     if (!barberId) return;

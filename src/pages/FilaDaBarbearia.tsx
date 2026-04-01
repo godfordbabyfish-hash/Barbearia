@@ -23,6 +23,8 @@ interface Appointment {
   appointment_time: string;
   booking_type: string;
   status: string;
+  client_name?: string;
+  notes?: string;
   profiles: { name: string; phone: string };
   services: { title: string; duration: number };
   barbers: { name: string };
@@ -565,10 +567,10 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         .eq("id", barberId)
         .maybeSingle();
       if (error) throw error;
-      const base = data?.availability ? data.availability : {};
+      const base = (data?.availability as any) || {};
       const dayKeyMap = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"] as const;
       const dayKey = dayKeyMap[todayDate.getDay()];
-      const currentDay = base?.[dayKey] || defaultBarberAvailability[dayKey];
+      const currentDay = (base?.[dayKey] as any) || defaultBarberAvailability[dayKey];
       const newAvailability = { ...defaultBarberAvailability, ...base, [dayKey]: { ...currentDay, closed } };
       const { error: updError } = await supabase
         .from("barbers")
@@ -1082,10 +1084,10 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                         .eq("id", openDayBarberId)
                         .maybeSingle();
                       if (error) throw error;
-                      const base = data?.availability ? data.availability : {};
+                      const base = (data?.availability as any) || {};
                       const dayKeyMap = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"] as const;
                       const dayKey = dayKeyMap[todayDate.getDay()];
-                      const currentDay = base?.[dayKey] || defaultBarberAvailability[dayKey];
+                      const currentDay = (base?.[dayKey] as any) || defaultBarberAvailability[dayKey];
                       const newAvailability = { ...defaultBarberAvailability, ...base, [dayKey]: { ...currentDay, closed: false, open: openDayStart, close: openDayEnd } };
                       const { error: updError } = await supabase
                         .from("barbers")

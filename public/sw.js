@@ -1,30 +1,72 @@
-// Service Worker para notificações persistentes
-const CACHE_NAME = 'barbearia-v2';
+// Service Worker para notificações persistentes e gerenciamento de cache
+const CACHE_NAME = 'barbearia-v3';
 
 console.log('🔧 Service Worker: Loading...');
 
+// Lista de assets para cache (será preenchida pelo VitePWA em produção)
+const ASSETS_TO_CACHE = [
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/favicon.ico',
+  '/icon-192.png',
+  '/icon-512.png'
+];
+
 self.addEventListener('install', (event) => {
-  console.log('✅ Service Worker: Installed');
+  console.log('✅ Service Worker: Installing...');
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS_TO_CACHE);
+    })
+  );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  console.log('✅ Service Worker: Activated');
-  event.waitUntil(clients.claim());
+  console.log('✅ Service Worker: Activating...');
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          if (cacheName !== CACHE_NAME) {
+            console.log('🗑️ Service Worker: Deleting old cache', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
+    }).then(() => clients.claim())
+  );
 });
 
-// Manter o service worker ativo
+// Estratégia Stale-While-Revalidate para assets estáticos
 self.addEventListener('fetch', (event) => {
-  // Não interceptar requests, apenas manter o SW ativo
-  event.respondWith(fetch(event.request).catch(() => new Response('Offline')));
+  // Ignorar requisições de API (Supabase) para não causar problemas com dados em tempo real
+  if (event.request.url.includes('supabase.co')) {
+    return;
+  }
+
+  event.respondWith(
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) {
+        // Retorna o cache mas busca atualização em background
+        fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
+          }
+        }).catch(() => {});
+        return cachedResponse;
+      }
+      return fetch(event.request);
+    })
+  );
 });
 
-// Lidar com mensagens do cliente
+// Lidar com mensagens do cliente (Notificações)
 self.addEventListener('message', (event) => {
   console.log('📨 Service Worker: Message received', event.data);
   
   if (event.data.type === 'SHOW_NOTIFICATION') {
-    console.log('📢 Service Worker: Showing notification via message');
     const { title, options } = event.data;
     
     self.registration.showNotification(title, {
@@ -36,48 +78,28 @@ self.addEventListener('message', (event) => {
       vibrate: [200, 100, 200],
       tag: 'appointment-notification',
       renotify: true,
-    }).then(() => {
-      console.log('✅ Service Worker: Notification shown successfully');
-    }).catch((error) => {
-      console.error('❌ Service Worker: Error showing notification:', error);
     });
   }
   
-  if (event.data.type === 'KEEP_ALIVE') {
-    // Responder para manter a conexão viva
-    event.ports[0].postMessage({ status: 'alive' });
+  if (event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
   }
 });
 
 // Lidar com cliques em notificações
 self.addEventListener('notificationclick', (event) => {
-  console.log('👆 Notification clicked:', event.notification.tag);
   event.notification.close();
   
-  // Abrir ou focar na janela do app
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Se já houver uma janela aberta, focar nela
       for (const client of clientList) {
         if (client.url.includes('/barbeiro') && 'focus' in client) {
           return client.focus();
         }
       }
-      // Senão, abrir nova janela
       if (clients.openWindow) {
         return clients.openWindow('/barbeiro');
       }
     })
   );
 });
-
-// Manter o service worker ativo com periodic sync se disponível
-if ('periodicSync' in self.registration) {
-  self.addEventListener('periodicsync', (event) => {
-    if (event.tag === 'keep-alive') {
-      console.log('⏰ Periodic sync: keep-alive');
-    }
-  });
-}
-
-console.log('✅ Service Worker: Fully loaded and ready');
