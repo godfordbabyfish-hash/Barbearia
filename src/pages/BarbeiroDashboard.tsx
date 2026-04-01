@@ -895,58 +895,6 @@ const BarbeiroDashboard = () => {
     }
   }, [selectedBarber]);
 
-  useEffect(() => {
-    const barberId = selectedBarber || currentUserBarber?.id;
-    if (!barberId) return;
-
-    const channelName = `barber-breaks-${barberId}`;
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'barber_breaks',
-          filter: `barber_id=eq.${barberId}`,
-        },
-        () => {
-          loadTodayBreaks();
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [selectedBarber, currentUserBarber?.id]);
-
-  useEffect(() => {
-    const barberId = selectedBarber || currentUserBarber?.id;
-    if (!barberId) return;
-
-    const channelName = `barber-lunch-${barberId}`;
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'barbers',
-          filter: `id=eq.${barberId}`,
-        },
-        () => {
-          loadTodayBreaks();
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [selectedBarber, currentUserBarber?.id]);
-
   const formatWhatsappNumber = (raw: string) => {
     const digits = (raw || '').replace(/\D/g, '');
     if (!digits) return '';
@@ -995,9 +943,120 @@ const BarbeiroDashboard = () => {
     setWhatsappAppointment(null);
     setWhatsappNumber('');
   };
-  // Sistema de notificações com Service Worker
+
+  // Sistema de notificações e Realtime
   const { isReady, showNotification } = useNotifications();
   const pendingNotifiedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const barberId = selectedBarber || currentUserBarber?.id;
+    if (!barberId) return;
+
+    console.log('📡 Setting up consolidated Realtime subscriptions for barber:', barberId);
+
+    const breaksChannelName = `barber-breaks-${barberId}-${Date.now()}`;
+    const lunchChannelName = `barber-lunch-${barberId}-${Date.now()}`;
+    const appointmentsChannelName = `appointments-barber-${barberId}-${Date.now()}`;
+
+    const breaksChannel = supabase
+      .channel(breaksChannelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'barber_breaks',
+          filter: `barber_id=eq.${barberId}`,
+        },
+        () => {
+          console.log('🔄 Breaks updated via Realtime');
+          loadTodayBreaks();
+        },
+      )
+      .subscribe();
+
+    const lunchChannel = supabase
+      .channel(lunchChannelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'barbers',
+          filter: `id=eq.${barberId}`,
+        },
+        () => {
+          console.log('🔄 Barber profile (lunch) updated via Realtime');
+          loadTodayBreaks();
+        },
+      )
+      .subscribe();
+
+    const appointmentsChannel = supabase
+      .channel(appointmentsChannelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'appointments',
+          filter: `barber_id=eq.${barberId}`
+        },
+        (payload) => {
+          console.log('🎉 NEW APPOINTMENT RECEIVED!!!');
+          
+          const processNotification = async () => {
+            try {
+              const { data: service } = await supabase
+                .from('services')
+                .select('title')
+                .eq('id', payload.new.service_id)
+                .single();
+              
+              const { data: client } = await supabase
+                .from('profiles')
+                .select('name')
+                .eq('id', payload.new.client_id)
+                .single();
+              
+              const appointmentTime = payload.new.appointment_time?.substring(0, 5) || 'N/A';
+              const appointmentDate = payload.new.appointment_date 
+                ? new Date(payload.new.appointment_date).toLocaleDateString('pt-BR')
+                : 'N/A';
+              
+              const notificationMessage = `Cliente: ${payload.new.client_name || client?.name || 'Desconhecido'}\nServiço: ${service?.title || 'Desconhecido'}\nHorário: ${appointmentTime}\nData: ${appointmentDate}`;
+              
+              toast.success('📅 Novo Agendamento!', {
+                description: notificationMessage,
+                duration: 3000,
+              });
+              
+              if (isReady && showNotification) {
+                await showNotification('🔔 Novo Agendamento', {
+                  body: notificationMessage,
+                });
+              }
+              
+              loadAppointments();
+            } catch (error) {
+              console.error('❌ Error processing notification:', error);
+            }
+          };
+          
+          processNotification();
+        }
+      )
+      .subscribe((status) => {
+        console.log(`📡 Appointments subscription status: ${status}`);
+      });
+
+    return () => {
+      console.log('🔴 Cleaning up Realtime subscriptions');
+      supabase.removeChannel(breaksChannel);
+      supabase.removeChannel(lunchChannel);
+      supabase.removeChannel(appointmentsChannel);
+    };
+  }, [selectedBarber, currentUserBarber?.id, isReady, showNotification]);
 
   useEffect(() => {
     const now = new Date();
@@ -1021,129 +1080,7 @@ const BarbeiroDashboard = () => {
         body: msg,
       });
     }
-  }, [appointments, selectedBarber, currentUserBarber?.id, isReady]);
-
-  // Escutar novos agendamentos em tempo real
-  useEffect(() => {
-    if (!selectedBarber) {
-      console.log('⏸️ No barber selected, skipping realtime setup');
-      return;
-    }
-
-    console.log('=================================');
-    console.log('🔴 SETTING UP REALTIME SUBSCRIPTION');
-    console.log('Selected Barber ID:', selectedBarber);
-    console.log('Current time:', new Date().toISOString());
-    console.log('=================================');
-    
-    const channelName = `appointments-barber-${selectedBarber}`;
-    console.log('📡 Channel name:', channelName);
-    
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'appointments',
-          filter: `barber_id=eq.${selectedBarber}`
-        },
-        (payload) => {
-          console.log('=================================');
-          console.log('🎉 NEW APPOINTMENT RECEIVED!!!');
-          console.log('Payload:', JSON.stringify(payload, null, 2));
-          console.log('Time:', new Date().toISOString());
-          console.log('=================================');
-          
-          // Processar imediatamente - sem setTimeout
-          const processNotification = async () => {
-            try {
-              console.log('📥 Processing notification...');
-              
-              // Carregar dados do serviço e cliente
-              console.log('Fetching service:', payload.new.service_id);
-              const { data: service, error: serviceError } = await supabase
-                .from('services')
-                .select('title')
-                .eq('id', payload.new.service_id)
-                .single();
-              
-              console.log('Service result:', service, serviceError);
-              
-              console.log('Fetching client:', payload.new.client_id);
-              const { data: client, error: clientError } = await supabase
-                .from('profiles')
-                .select('name')
-                .eq('id', payload.new.client_id)
-                .single();
-              
-              console.log('Client result:', client, clientError);
-              
-              const appointmentTime = payload.new.appointment_time?.substring(0, 5) || 'N/A';
-              const appointmentDate = payload.new.appointment_date 
-                ? new Date(payload.new.appointment_date).toLocaleDateString('pt-BR')
-                : 'N/A';
-              
-              const notificationMessage = `Cliente: ${payload.new.client_name || client?.name || 'Desconhecido'}\nServiço: ${service?.title || 'Desconhecido'}\nHorário: ${appointmentTime}\nData: ${appointmentDate}`;
-              
-              // Toast na interface
-              toast.success('📅 Novo Agendamento!', {
-                description: notificationMessage,
-                duration: 3000, // Reduzido de 10000 para 3000ms (3 segundos)
-              });
-              
-              // Notificação via Service Worker (funciona com tela bloqueada)
-              console.log('📢 Tentando enviar notificação...');
-              console.log('isReady:', isReady);
-              console.log('showNotification exists:', !!showNotification);
-              
-              if (isReady && showNotification) {
-                console.log('✅ Enviando notificação...');
-                await showNotification('🔔 Novo Agendamento', {
-                  body: notificationMessage,
-                });
-                console.log('✅ Notificação enviada!');
-              } else {
-                console.warn('⚠️ Sistema de notificações não está pronto:', { isReady, hasShowNotification: !!showNotification });
-              }
-              
-              // Recarregar lista de agendamentos
-              console.log('🔄 Reloading appointments...');
-              loadAppointments();
-              console.log('✅ Appointments reloaded!');
-              
-            } catch (error) {
-              console.error('❌ Error processing notification:', error);
-            }
-          };
-          
-          processNotification();
-        }
-      )
-      .subscribe((status) => {
-        console.log('📡 Realtime subscription status:', status);
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Successfully subscribed to appointments channel!');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Error subscribing to channel!');
-          toast.error('Erro ao ativar notificações');
-        } else if (status === 'TIMED_OUT') {
-          console.error('⏱️ Subscription timed out!');
-          toast.error('Timeout ao ativar notificações');
-        } else if (status === 'CLOSED') {
-          console.log('🔴 Channel closed');
-        }
-      });
-
-    return () => {
-      console.log('=================================');
-      console.log('🔴 CLEANING UP REALTIME SUBSCRIPTION');
-      console.log('Channel:', channelName);
-      console.log('=================================');
-      supabase.removeChannel(channel);
-    };
-  }, [selectedBarber]);
+  }, [appointments, selectedBarber, currentUserBarber?.id, isReady, showNotification]);
 
   const loadAppointments = async () => {
     console.log('Loading appointments for barber:', selectedBarber);
@@ -1969,7 +1906,7 @@ const BarbeiroDashboard = () => {
   const currentBarber = userRole === 'admin' ? barbers.find(b => b.id === selectedBarber) : currentUserBarber;
 
   // Agrupar agendamentos por barbeiro
-  const getAppointmentsByBarber = () => {
+  const appointmentsByBarber = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
     
     const relevantAppointments = appointments
@@ -2015,7 +1952,7 @@ const BarbeiroDashboard = () => {
       });
     }
 
-    const appointmentsByBarber = barbers.map(barber => {
+    const result = barbers.map(barber => {
       const barberAppointments = appointmentsWithBreaks.filter(a => a.barber_id === barber.id);
       return {
         barber,
@@ -2026,17 +1963,15 @@ const BarbeiroDashboard = () => {
     });
 
     // Ordenar barbeiros: primeiro os que têm agendamentos hoje, depois por nome
-    return appointmentsByBarber.sort((a, b) => {
+    return result.sort((a, b) => {
       if (a.todayCount > 0 && b.todayCount === 0) return -1;
       if (a.todayCount === 0 && b.todayCount > 0) return 1;
       return a.barber.name.localeCompare(b.barber.name);
     });
-  };
-
-  const appointmentsByBarber = getAppointmentsByBarber();
+  }, [appointments, barbers, todayBreaks, selectedBarber, currentUserBarber?.id]);
 
   // Função para filtrar agendamentos do histórico
-  const getFilteredHistoryAppointments = () => {
+  const filteredHistoryAppointments = useMemo(() => {
     // Começar com todos os agendamentos (não apenas concluídos, para permitir filtrar por status)
     let filtered = [...appointments];
 
@@ -2095,39 +2030,47 @@ const BarbeiroDashboard = () => {
       }
       return b.appointment_time.localeCompare(a.appointment_time);
     });
-  };
+  }, [appointments, historyFilterPeriod, historyFilterStatus, historyFilterService, historyFilterPayment]);
 
-  const completedAppointments = appointments
-    .filter(a => a.status === 'completed')
-    .sort((a, b) => {
-      // Sort by date descending, then by time descending
-      if (a.appointment_date !== b.appointment_date) {
-        return b.appointment_date.localeCompare(a.appointment_date);
-      }
-      return b.appointment_time.localeCompare(a.appointment_time);
-    });
+  const completedAppointments = useMemo(() => {
+    return appointments
+      .filter(a => a.status === 'completed')
+      .sort((a, b) => {
+        // Sort by date descending, then by time descending
+        if (a.appointment_date !== b.appointment_date) {
+          return b.appointment_date.localeCompare(a.appointment_date);
+        }
+        return b.appointment_time.localeCompare(a.appointment_time);
+      });
+  }, [appointments]);
 
   // Calcular agendamentos concluídos para diferentes períodos (Apenas do mês atual)
-  const now = new Date();
-  const today = now.toISOString().split('T')[0];
-  
-  // Primeiro dia do mês atual
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  startOfMonth.setHours(0, 0, 0, 0);
+  const todayCompleted = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return completedAppointments.filter(a => a.appointment_date === todayStr);
+  }, [completedAppointments]);
 
-  // Início da semana (Segunda-feira), mas não antes do início do mês
-  const startOfWeek = new Date(now);
-  const day = now.getDay(); // 0 (Dom) a 6 (Sáb)
-  const diffToMonday = now.getDate() - day + (day === 0 ? -6 : 1);
-  startOfWeek.setDate(diffToMonday);
-  startOfWeek.setHours(0, 0, 0, 0);
-  
-  // Se o início da semana caiu no mês anterior, limita ao dia 1 deste mês conforme solicitado
-  const finalWeekStart = startOfWeek < startOfMonth ? startOfMonth : startOfWeek;
+  const weekCompleted = useMemo(() => {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    startOfMonth.setHours(0, 0, 0, 0);
 
-  const todayCompleted = completedAppointments.filter(a => a.appointment_date === today);
-  const weekCompleted = completedAppointments.filter(a => new Date(a.appointment_date + 'T00:00:00') >= finalWeekStart);
-  const monthCompleted = completedAppointments.filter(a => new Date(a.appointment_date + 'T00:00:00') >= startOfMonth);
+    const startOfWeek = new Date(now);
+    const day = now.getDay();
+    const diffToMonday = now.getDate() - day + (day === 0 ? -6 : 1);
+    startOfWeek.setDate(diffToMonday);
+    startOfWeek.setHours(0, 0, 0, 0);
+    
+    const finalWeekStart = startOfWeek < startOfMonth ? startOfMonth : startOfWeek;
+    return completedAppointments.filter(a => new Date(a.appointment_date + 'T00:00:00') >= finalWeekStart);
+  }, [completedAppointments]);
+
+  const monthCompleted = useMemo(() => {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    return completedAppointments.filter(a => new Date(a.appointment_date + 'T00:00:00') >= startOfMonth);
+  }, [completedAppointments]);
 
   return (
     <div className="min-h-screen bg-background py-6 px-4 overflow-x-hidden">
@@ -2218,7 +2161,7 @@ const BarbeiroDashboard = () => {
 
               <TabsContent value="agendamentos" className="space-y-6" forceMount>
               <div className="mb-8">
-                <Card className="bg-card border-border">
+                <Card className="bg-card border-border" translate="no">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-lg">
                       <Calendar className="h-5 w-5 text-primary" />
@@ -2713,7 +2656,7 @@ const BarbeiroDashboard = () => {
             </div>
             
 
-            <Card className="bg-card border-border">
+            <Card className="bg-card border-border" translate="no">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Users className="h-4 w-4" />
@@ -2739,11 +2682,11 @@ const BarbeiroDashboard = () => {
                                 <Avatar className="h-10 w-10 border-2 border-primary/20">
                                   <AvatarImage src={barber.image_url || ''} alt={barber.name} />
                                   <AvatarFallback className="bg-primary/20 text-primary font-bold text-base">
-                                    {barber.name.charAt(0).toUpperCase()}
+                                    <span>{barber.name.charAt(0).toUpperCase()}</span>
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1">
-                                  <h3 className="font-bold text-base">{barber.name}</h3>
+                                  <h3 className="font-bold text-base"><span>{barber.name}</span></h3>
                                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                     <span className="flex items-center gap-1">
                                       <Calendar className="h-3 w-3" />
@@ -2898,7 +2841,7 @@ const BarbeiroDashboard = () => {
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1">
-                                  <h3 className="font-bold text-base">{barber.name}</h3>
+                                  <h3 className="font-bold text-base"><span>{barber.name}</span></h3>
                                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                     <span className="flex items-center gap-1">
                                       <Calendar className="h-3 w-3" />
@@ -3364,7 +3307,7 @@ const BarbeiroDashboard = () => {
                     </div>
 
                     {(() => {
-                      const filteredAppointments = getFilteredHistoryAppointments();
+                      const filteredAppointments = filteredHistoryAppointments;
                       return filteredAppointments.length > 0 ? (
                         <div className="space-y-3">
                           {filteredAppointments.map((appointment) => (
