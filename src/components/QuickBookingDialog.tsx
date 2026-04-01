@@ -801,6 +801,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
     >
       <div 
         className="relative w-full max-w-4xl mx-4 p-6 rounded-lg max-h-[95vh] overflow-y-auto"
+        translate="no"
         style={{ 
           background: "linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)",
           border: "2px solid #FFD700",
@@ -820,7 +821,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
             className="text-3xl font-bold mb-2"
             style={{ color: "#FFD700" }}
           >
-            Agendamento Rápido
+            <span>Agendamento Rápido</span>
           </h2>
           <p className="text-gray-400 mb-2">
             Selecione o barbeiro e o serviço para agendar seu horário.

@@ -649,11 +649,11 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                       <Avatar className="h-16 w-16 border-2 border-primary/20">
                         <AvatarImage src={barber.photo_url || barber.image_url || ''} alt={barber.name} />
                         <AvatarFallback className="bg-primary/20 text-primary font-bold text-xl">
-                          {barber.name.charAt(0).toUpperCase()}
+                          <span>{barber.name.charAt(0).toUpperCase()}</span>
                         </AvatarFallback>
                       </Avatar>
-                      <div className="text-center">
-                        <h3 className="font-bold text-lg text-primary">{barber.name}</h3>
+                      <div className="text-center" translate="no">
+                        <h3 className="font-bold text-lg text-primary"><span>{barber.name}</span></h3>
                         {closedToday && (
                           <div className="mt-1">
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-destructive/20 text-destructive border border-destructive/30">
