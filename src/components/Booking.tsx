@@ -619,7 +619,7 @@ const Booking = () => {
       // Verificar se há horários disponíveis hoje
       const availableTodaySlots = todayTimeSlots.filter(slot => {
         // 1. Check if slot is within barber's working hours
-        if (slot < barberOpen || slot > barberClose) {
+        if (slot < barberOpen || slot >= barberClose) {
           return false;
         }
 
@@ -797,7 +797,7 @@ const Booking = () => {
       
       const availableSlots = dayTimeSlots.filter(slot => {
         // 1. Check if slot is within barber's working hours
-        if (slot < barberOpen || slot > barberClose) {
+        if (slot < barberOpen || slot >= barberClose) {
           return false;
         }
 
