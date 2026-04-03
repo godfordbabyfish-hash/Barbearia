@@ -619,7 +619,15 @@ const Booking = () => {
       // Verificar se há horários disponíveis hoje
       const availableTodaySlots = todayTimeSlots.filter(slot => {
         // 1. Check if slot is within barber's working hours
-        if (slot < barberOpen || slot >= barberClose) {
+        // O horário de início deve ser estritamente menor que o horário de fechamento
+        if (slot >= barberClose) {
+          return false;
+        }
+
+        const slotEndTime = addMinutesToTime(slot, serviceDuration);
+        
+        // O horário de término não pode ultrapassar o fechamento
+        if (slotEndTime > barberClose) {
           return false;
         }
 
@@ -797,7 +805,16 @@ const Booking = () => {
       
       const availableSlots = dayTimeSlots.filter(slot => {
         // 1. Check if slot is within barber's working hours
-        if (slot < barberOpen || slot >= barberClose) {
+        // O horário de início deve ser estritamente menor que o horário de fechamento
+        if (slot >= barberClose) {
+          return false;
+        }
+
+        const serviceDuration = getServiceDuration(currentFormData.service, services);
+        const slotEndTime = addMinutesToTime(slot, serviceDuration);
+        
+        // O horário de término não pode ultrapassar o fechamento
+        if (slotEndTime > barberClose) {
           return false;
         }
 

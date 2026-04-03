@@ -111,6 +111,8 @@ export const useOperatingHours = () => {
     
     const closeTime = closeHour * 60 + closeMin;
     
+    // O loop deve ser estritamente MENOR que o horário de fechamento.
+    // Se fecha às 20:00, o último slot de início deve ser 19:30 (ou anterior dependendo do intervalo).
     while (currentHour * 60 + currentMin < closeTime) {
       const currentTime = currentHour * 60 + currentMin;
       const timeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
