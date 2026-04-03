@@ -68,7 +68,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const navigate = useNavigate();
-  const { getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
+  const { operatingHours, getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
   const { role } = useAuth();
   const isClient = role === "cliente";
   const isReadOnly = readOnly || isClient;
@@ -391,9 +391,12 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
           const dayAvailability = availability?.[dayKey];
           isClosed = Boolean(dayAvailability?.closed);
           if (!isClosed) {
+            const dayKeyMap = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const;
+            const dayKey = dayKeyMap[todayDate.getDay()];
+            const shopHours = operatingHours[dayKey];
             workingHours = {
-              open: dayAvailability?.open || '09:00',
-              close: dayAvailability?.close || '20:00',
+              open: dayAvailability?.open || shopHours.open,
+              close: dayAvailability?.close || shopHours.close,
             };
           }
         }

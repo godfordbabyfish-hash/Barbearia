@@ -47,7 +47,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
   const [clientName, setClientName] = useState("");
   const [barberSlots, setBarberSlots] = useState<string[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
-  const { getTimeSlotsForDate, isDateOpen } = useOperatingHours();
+  const { operatingHours, getTimeSlotsForDate, isDateOpen } = useOperatingHours();
   const { user, role } = useAuth();
   const [currentUserBarberId, setCurrentUserBarberId] = useState<string>("");
   const [showCloseOption, setShowCloseOption] = useState(false);
@@ -186,15 +186,15 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       const availability = typeof barber?.availability === "string"
         ? JSON.parse(barber.availability)
         : barber?.availability;
-      const dayKey = getDayKey(dateObj) as any;
+      const dayKey = getDayKey(dateObj);
+      const shopHours = operatingHours[dayKey];
       const dayAvailability = availability?.[dayKey];
-      const barberOpen = dayAvailability?.open || '09:00';
-      const barberClose = dayAvailability?.close || '20:00';
+      const barberOpen = dayAvailability?.open || shopHours.open;
+      const barberClose = dayAvailability?.close || shopHours.close;
 
       const computeState = (slot: string): 'available'|'break'|'booked'|'past' => {
          // Check if slot is within barber's working hours
-         // Permite agendar se o slot de início for <= ao fechamento, ignorando a duração final
-         if (slot < barberOpen || slot > barberClose) return 'past';
+         if (slot < barberOpen || slot >= barberClose) return 'past';
 
          if (isToday) {
            const [ch, cm] = [now.getHours(), now.getMinutes()];
@@ -207,6 +207,9 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
          const slotEnd = addMin(slot, 30);
          const overlaps = (s1: string, e1: string, s2: string, e2: string) => s1 < e2 && e1 > s2;
          
+         // Ensure slot doesn't end after barber's closing time
+         if (slotEnd > barberClose) return 'past';
+
          // Bloqueia também o slot imediatamente após a pausa (quando slot inicia exatamente no fim da pausa)
          if (breakRanges.some(r => r.end === slot)) return 'break';
          if (breakRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return 'break';
