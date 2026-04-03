@@ -229,10 +229,13 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         const hasContinuousAvailability = (slot: string) => {
           let cursor = slot;
           for (let i = 0; i < steps; i++) {
-            // Bloqueia apenas se houver conflito com outro agendamento ou pausa.
-            // Ignoramos se o slot está marcado como 'past' (após o fechamento do barbeiro)
-            // ou se está fora do horário da barbearia (undefined), conforme solicitado.
-            if (states[cursor] === 'booked' || states[cursor] === 'break') return false;
+            // Bloqueia se o slot não existir, se já estiver ocupado, se for pausa 
+            // ou se estiver marcado como 'past' (fora do horário do barbeiro)
+            if (!states[cursor] || states[cursor] !== 'available') {
+              // Exceção: permite o primeiro slot se for 'available' (mesmo que os próximos sejam 'past')
+              // Mas aqui queremos ser rígidos: todos os blocos do serviço devem ser 'available'
+              return false;
+            }
             cursor = addMin(cursor, 30);
           }
           return true;
