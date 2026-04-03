@@ -36,7 +36,7 @@ export function getAvailableSlotsForBarber(
   // Filter slots based on barber's working hours if provided
   if (options?.workingHours) {
     const { open, close } = options.workingHours;
-    allSlots = allSlots.filter(slot => slot >= open && slot <= close);
+    allSlots = allSlots.filter(slot => slot >= open && slot < close);
   }
 
   const slots = filterPast && isToday

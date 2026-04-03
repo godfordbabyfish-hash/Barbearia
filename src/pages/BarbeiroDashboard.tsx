@@ -215,7 +215,7 @@ const BarbeiroDashboard = () => {
   const [creatingAppointment, setCreatingAppointment] = useState(false);
   const [hasBarberBreaks, setHasBarberBreaks] = useState(true);
   const [todayBreaks, setTodayBreaks] = useState<TodayBreakItem[]>([]);
-  const { getTimeSlotsForDate, isDateOpen } = useOperatingHours();
+  const { operatingHours, getTimeSlotsForDate, isDateOpen } = useOperatingHours();
   const [availableNewSlots, setAvailableNewSlots] = useState<string[]>([]);
   const [loadingNewSlots, setLoadingNewSlots] = useState(false);
   const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
@@ -685,7 +685,13 @@ const BarbeiroDashboard = () => {
       try {
         const barber = barbers.find(item => item.id === barberId);
         lunchBreak = getLunchBreakForDate(barber?.availability, dateObj);
-        workingHours = getWorkingHoursForDate(barber?.availability, dateObj);
+        const dayKey = getDayKey(dateObj);
+        const shopHours = operatingHours[dayKey];
+        const barberAvailability = getAvailabilityForDate(barber?.availability, dateObj);
+        workingHours = {
+          open: (barberAvailability as any)?.open || shopHours.open,
+          close: (barberAvailability as any)?.close || shopHours.close,
+        };
       } catch (e) {
         console.warn('Falha ao validar horário de almoço do barbeiro (novo agendamento):', e);
       }
@@ -717,12 +723,15 @@ const BarbeiroDashboard = () => {
         const closingTime = workingHours?.close || '20:00';
         const openingTime = workingHours?.open || '09:00';
 
-        // O agendamento é permitido se o horário de início (slot) estiver dentro do expediente,
-        // mesmo que a duração do serviço ultrapasse o horário de fechamento.
-        if (slot < openingTime || slot > closingTime) return false;
+        // O agendamento deve começar dentro do expediente
+        if (slot < openingTime || slot >= closingTime) return false;
         
         // Também garantimos que o slot base exista na programação da barbearia
         if (!daySlots.includes(slot)) return false;
+
+        // E o horário de término não pode ultrapassar o fechamento
+        const finalEndTime = addMinutesToTime(slot, serviceDuration);
+        if (finalEndTime > closingTime) return false;
 
         return true;
       };

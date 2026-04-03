@@ -101,9 +101,15 @@ const isTimeConflict = (
   newTime: string,
   duration: number,
   existingAppointments: AppointmentWithServiceDuration[],
-  breaks: BreakSlot[] = []
+  breaks: BreakSlot[] = [],
+  closingTime?: string
 ) => {
   const newEndTime = addMinutesToTime(newTime, duration);
+
+  // 0. Check if it exceeds closing time
+  if (closingTime && newEndTime > closingTime) {
+    return true;
+  }
   
   // 1. Check for conflicts with existing appointments
   const hasAppointmentConflict = existingAppointments.some(apt => {
@@ -216,7 +222,7 @@ const Booking = () => {
   const { user, blocked } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
+  const { operatingHours, getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
   const [step, setStep] = useState<BookingStep>("service");
   const [services, setServices] = useState<ServiceRecord[]>([]);
   const [barbers, setBarbers] = useState<BarberRecord[]>([]);
@@ -604,9 +610,11 @@ const Booking = () => {
       const serviceDuration = getServiceDuration(formData.service, services);
 
       // Get barber's working hours for today
+      const dayKey = getDayKey(today);
+      const shopHours = operatingHours[dayKey];
       const daySchedule = getDaySchedule(barber.availability, today);
-      const barberOpen = daySchedule?.open || '09:00';
-      const barberClose = daySchedule?.close || '20:00';
+      const barberOpen = daySchedule?.open || shopHours.open;
+      const barberClose = daySchedule?.close || shopHours.close;
 
       // Verificar se há horários disponíveis hoje
       const availableTodaySlots = todayTimeSlots.filter(slot => {
@@ -630,7 +638,8 @@ const Booking = () => {
           slot,
           serviceDuration,
           (appointments || []) as AppointmentWithServiceDuration[],
-          (breaks || []) as BreakSlot[]
+          (breaks || []) as BreakSlot[],
+          barberClose
         );
         return !hasConflict;
       });
@@ -776,9 +785,11 @@ const Booking = () => {
       const serviceDuration = getServiceDuration(currentFormData.service, services);
       
       // Get barber's working hours for the day
+      const dayKey = getDayKey(checkDate);
+      const shopHours = operatingHours[dayKey];
       const daySchedule = getDaySchedule(selectedBarber?.availability, checkDate);
-      const barberOpen = daySchedule?.open || '09:00';
-      const barberClose = daySchedule?.close || '20:00';
+      const barberOpen = daySchedule?.open || shopHours.open;
+      const barberClose = daySchedule?.close || shopHours.close;
 
       // Filter out past times if it's today
       const isToday = checkDate.toDateString() === today.toDateString();
@@ -806,7 +817,8 @@ const Booking = () => {
           slot,
           serviceDuration,
           (appointments || []) as AppointmentWithServiceDuration[],
-          combinedBreaks
+          combinedBreaks,
+          barberClose
         );
         return !hasConflict;
       });
@@ -910,11 +922,13 @@ const Booking = () => {
         console.warn('Error loading barber breaks:', breaksError);
       }
 
+      const dayKey = getDayKey(selectedDate);
+      const shopHours = operatingHours[dayKey];
       const daySchedule = getDaySchedule(selectedBarber?.availability, selectedDate);
-      const workingHours = daySchedule ? {
-        open: daySchedule.open || '09:00',
-        close: daySchedule.close || '20:00'
-      } : undefined;
+      const workingHours = {
+        open: daySchedule?.open || shopHours.open,
+        close: daySchedule?.close || shopHours.close
+      };
 
       // Base slots compartilhados com o agendamento local (sincronização)
       const baseSlots = getAvailableSlotsForBarber(
@@ -933,7 +947,8 @@ const Booking = () => {
           slot,
           serviceDuration,
           (appointments || []) as AppointmentWithServiceDuration[],
-          combinedBreaks
+          combinedBreaks,
+          workingHours?.close
         )
       );
     } catch (error) {
