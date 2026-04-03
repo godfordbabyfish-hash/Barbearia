@@ -939,8 +939,8 @@ const Booking = () => {
         console.warn('Error loading barber breaks:', breaksError);
       }
 
-      const dayKey = getDayKey(selectedDate);
-      const shopHours = operatingHours[dayKey];
+      const currentDayKey = getDayKey(selectedDate);
+      const shopHours = operatingHours[currentDayKey];
       const daySchedule = getDaySchedule(selectedBarber?.availability, selectedDate);
       const workingHours = {
         open: daySchedule?.open || shopHours.open,
@@ -959,15 +959,21 @@ const Booking = () => {
       );
       // Ajustar pelos conflitos do serviço selecionado (duração)
       const serviceDuration = getServiceDuration(formData.service, services);
-      return baseSlots.filter(slot =>
-        !isTimeConflict(
+      return baseSlots.filter(slot => {
+        // 1. Garantir que o slot de início seja estritamente menor que o fechamento do barbeiro
+        if (slot >= workingHours.close) {
+          return false;
+        }
+
+        // 2. Garantir que o horário de término não ultrapasse o fechamento
+        return !isTimeConflict(
           slot,
           serviceDuration,
           (appointments || []) as AppointmentWithServiceDuration[],
           combinedBreaks,
-          workingHours?.close
-        )
-      );
+          workingHours.close
+        );
+      });
     } catch (error) {
       console.error('Error in getAvailableSlotsForDate:', error);
       return [];
