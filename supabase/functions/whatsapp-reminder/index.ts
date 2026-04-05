@@ -71,22 +71,50 @@ const formatPhoneNumber = (phone: string): string => {
   return cleaned;
 };
 
-const generateReminderMessage = (appointment: any, mapsLink: string | null): string => {
-  const formattedDate = appointment.appointment_date 
+const DEFAULT_REMINDER_TEMPLATE =
+  'Fala, {{clientName}}! Tudo certo? Aqui é da barbearia.\n\n' +
+  'Seu horário pra {{serviceName}} tá marcado pra começar daqui a 10 minutos, às {{appointmentTime}} do dia {{appointmentDate}}.\n\n' +
+  'Se der algum aperreio ou atraso, responde aqui avisando pra gente ajustar a agenda, beleza?\nTe esperamos!';
+
+const loadReminderTemplate = async (supabase: any): Promise<string> => {
+  try {
+    const { data, error } = await supabase
+      .from('site_config')
+      .select('config_value')
+      .eq('config_key', 'whatsapp_msg_reminder')
+      .maybeSingle();
+    if (!error && data?.config_value) {
+      const text = (data.config_value as any)?.text;
+      if (text) return text;
+    }
+  } catch {
+    // fallback
+  }
+  return DEFAULT_REMINDER_TEMPLATE;
+};
+
+const interpolate = (template: string, vars: Record<string, string>): string =>
+  template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? '');
+
+const generateReminderMessage = (appointment: any, mapsLink: string | null, template: string): string => {
+  const formattedDate = appointment.appointment_date
     ? new Date(appointment.appointment_date + 'T12:00:00').toLocaleDateString('pt-BR')
     : '';
-  
-  const serviceText = appointment.service_name ? appointment.service_name : 'seu atendimento';
-  
-  let message = `Fala, ${appointment.client_name}! Tudo certo? Aqui é da barbearia.\n\n` +
-         `Seu horário pra ${serviceText} tá marcado pra começar daqui a 10 minutos, às ${appointment.appointment_time} do dia ${formattedDate}.\n\n` +
-         `Se der algum aperreio ou atraso, responde aqui avisando pra gente ajustar a agenda, beleza?\n` +
-         `Te esperamos!`;
-  
+
+  const vars: Record<string, string> = {
+    clientName: appointment.client_name || 'Cliente',
+    serviceName: appointment.service_name || 'seu atendimento',
+    barberName: appointment.barber_name || '',
+    appointmentDate: formattedDate,
+    appointmentTime: appointment.appointment_time || '',
+  };
+
+  let message = interpolate(template, vars);
+
   if (mapsLink) {
     message += `\n\n📍 *Localização:*\n${mapsLink}`;
   }
-  
+
   return message;
 };
 
@@ -132,6 +160,7 @@ const processReminders = async (supabase: any) => {
   }
 
   const mapsLink = await getBarbershopMapsLink(supabase);
+  const reminderTemplate = await loadReminderTemplate(supabase);
 
   const timeZone = 'America/Sao_Paulo';
 
@@ -294,7 +323,7 @@ const processReminders = async (supabase: any) => {
         appointment_time: appointment.appointment_time,
         service_name: appointment.services?.title,
         barber_name: appointment.barbers?.name,
-      }, mapsLink);
+      }, mapsLink, reminderTemplate);
 
       const success = await sendReminder(clientWhatsApp, message, activeInstanceName);
 

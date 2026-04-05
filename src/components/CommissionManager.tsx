@@ -41,41 +41,42 @@ export const CommissionManager = () => {
   // Realtime subscriptions for barbers and commissions
   useEffect(() => {
     // Subscribe to barbers changes
+    let barbersRemoved = false;
     const barbersChannel = supabase
       .channel('commission-manager-barbers')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'barbers',
-        },
-        () => {
-          loadData();
-          toast.info('Novo barbeiro detectado! Atualizando configurações de comissão...');
-        }
+        { event: '*', schema: 'public', table: 'barbers' },
+        () => { loadData(); toast.info('Novo barbeiro detectado! Atualizando configurações de comissão...'); }
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !barbersRemoved) {
+          barbersRemoved = true;
+          setTimeout(() => { try { supabase.removeChannel(barbersChannel); } catch { /* ignore */ } }, 0);
+        }
+      });
 
     // Subscribe to fixed commissions changes
+    let commissionsRemoved = false;
     const commissionsChannel = supabase
       .channel('commission-manager-fixed-commissions')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'barber_fixed_commissions',
-        },
-        () => {
-          loadAllCommissions();
-        }
+        { event: '*', schema: 'public', table: 'barber_fixed_commissions' },
+        () => { loadAllCommissions(); }
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !commissionsRemoved) {
+          commissionsRemoved = true;
+          setTimeout(() => { try { supabase.removeChannel(commissionsChannel); } catch { /* ignore */ } }, 0);
+        }
+      });
 
     return () => {
-      supabase.removeChannel(barbersChannel);
-      supabase.removeChannel(commissionsChannel);
+      barbersRemoved = true;
+      commissionsRemoved = true;
+      try { supabase.removeChannel(barbersChannel); } catch { /* ignore */ }
+      try { supabase.removeChannel(commissionsChannel); } catch { /* ignore */ }
     };
   }, []);
 

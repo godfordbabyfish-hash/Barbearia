@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { 
   MessageSquare, 
@@ -13,7 +14,8 @@ import {
   Power,
   PowerOff,
   HelpCircle,
-  Copy
+  Copy,
+  Mail
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { 
@@ -22,6 +24,7 @@ import {
   ConnectionStatus 
 } from '@/services/whatsappConnectionService';
 import { supabase } from '@/integrations/supabase/client';
+import WhatsAppMessages from '@/components/admin/WhatsAppMessages';
 
 // Componente refatorado para controle manual - sem polling automático
 export const WhatsAppManager = () => {
@@ -201,6 +204,23 @@ export const WhatsAppManager = () => {
 
   return (
     <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+      <Tabs defaultValue="connection" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="connection" className="gap-2">
+            <MessageSquare className="h-4 w-4" />
+            Conexão
+          </TabsTrigger>
+          <TabsTrigger value="messages" className="gap-2">
+            <Mail className="h-4 w-4" />
+            Mensagens
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="messages">
+          <WhatsAppMessages />
+        </TabsContent>
+
+        <TabsContent value="connection">
       <Card className="shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
         <CardHeader className="p-3 sm:p-4 md:p-6">
           <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
@@ -565,6 +585,8 @@ export const WhatsAppManager = () => {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

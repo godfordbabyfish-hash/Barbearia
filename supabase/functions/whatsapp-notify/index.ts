@@ -11,7 +11,7 @@ interface WhatsAppMessage {
   appointmentId: string;
   clientName: string;
   phone: string;
-  action: 'created' | 'updated' | 'cancelled';
+  action: 'created' | 'updated' | 'cancelled' | 'completed' | 'reminder' | 'barber_new_appointment';
   appointmentDate?: string;
   appointmentTime?: string;
   serviceName?: string;
@@ -115,75 +115,92 @@ const getBarbershopMapsLink = async (supabase: any): Promise<string | null> => {
   return null;
 };
 
-// Generate message based on action and target type
-const generateMessage = (data: WhatsAppMessage, mapsLink?: string | null): string => {
+// Default hardcoded templates (fallback if not configured in site_config)
+const DEFAULT_TEMPLATES: Record<string, string> = {
+  whatsapp_msg_created:
+    '*Olá {{clientName}}!* 👋\n\nSeu agendamento foi *confirmado* com sucesso! ✅\n\n📅 *Data:* {{appointmentDate}}\n🕐 *Horário:* {{appointmentTime}}\n💇 *Serviço:* {{serviceName}}\n👨‍💼 *Barbeiro:* {{barberName}}\n\nEstamos te esperando! 🎉',
+  whatsapp_msg_updated:
+    '*Olá {{clientName}}!* 👋\n\nSeu agendamento foi *remarcado*. 📝\n\n📅 *Nova Data:* {{appointmentDate}}\n🕐 *Novo Horário:* {{appointmentTime}}\n💇 *Serviço:* {{serviceName}}\n👨‍💼 *Barbeiro:* {{barberName}}\n\nPor favor, confirme sua presença. ✅',
+  whatsapp_msg_cancelled:
+    '*Olá {{clientName}}!* 👋\n\nInfelizmente seu agendamento foi *cancelado*. ❌\n\n📅 *Data:* {{appointmentDate}}\n🕐 *Horário:* {{appointmentTime}}\n\nEntre em contato conosco para reagendar. 📞',
+  whatsapp_msg_completed:
+    '🎉 *Atendimento Concluído!*\n\nObrigado pela visita, *{{clientName}}*! Foi um prazer atendê-lo.\n\n✂️ Serviço: {{serviceName}}\n� Barbeiro: {{barberName}}\n\nEsperamos vê-lo em breve! Não esqueça de nos avaliar. ⭐',
+  whatsapp_msg_reminder:
+    '⏰ *Lembrete de Agendamento!*\n\nOlá, *{{clientName}}*! Lembramos que você tem um agendamento amanhã.\n\n� *Detalhes:*\n• Serviço: {{serviceName}}\n• Barbeiro: {{barberName}}\n• Data: {{appointmentDate}}\n• Horário: {{appointmentTime}}\n\nTe esperamos! 💈',
+  whatsapp_msg_barber_new_appointment:
+    '📅 *Novo Agendamento!*\n\nVocê tem um novo agendamento, *{{barberName}}*!\n\n👤 Cliente: {{clientName}}\n� Serviço: {{serviceName}}\n📆 Data: {{appointmentDate}}\n🕐 Horário: {{appointmentTime}}',
+};
+
+// Interpolate template variables
+const interpolate = (template: string, vars: Record<string, string>): string => {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? '');
+};
+
+// Load all message templates from site_config
+const loadTemplates = async (supabase: any): Promise<Record<string, string>> => {
+  try {
+    const keys = Object.keys(DEFAULT_TEMPLATES);
+    const { data, error } = await supabase
+      .from('site_config')
+      .select('config_key, config_value')
+      .in('config_key', keys);
+    if (error || !data) return DEFAULT_TEMPLATES;
+    const result = { ...DEFAULT_TEMPLATES };
+    for (const row of data) {
+      const text = (row.config_value as any)?.text;
+      if (text) result[row.config_key] = text;
+    }
+    return result;
+  } catch {
+    return DEFAULT_TEMPLATES;
+  }
+};
+
+// Generate message based on action and target type using admin-configured templates
+const generateMessage = async (data: WhatsAppMessage, supabase: any, mapsLink?: string | null): Promise<string> => {
   const { action, clientName, appointmentDate, appointmentTime, serviceName, barberName, targetType = 'client' } = data;
-  
-  const formattedDate = appointmentDate 
+
+  const formattedDate = appointmentDate
     ? new Date(appointmentDate + 'T12:00:00').toLocaleDateString('pt-BR')
     : '';
   const formattedTime = appointmentTime || '';
-  
-  // Mensagens para cliente (padrão atual)
-  if (targetType === 'client') {
-    switch (action) {
-      case 'created':
-        let createdMessage = `*Olá ${clientName}!* 👋\n\n` +
-               `Seu agendamento foi *confirmado* com sucesso! ✅\n\n` +
-               `📅 *Data:* ${formattedDate}\n` +
-               `🕐 *Horário:* ${formattedTime}\n` +
-               `${serviceName ? `💇 *Serviço:* ${serviceName}\n` : ''}` +
-               `${barberName ? `👨‍💼 *Barbeiro:* ${barberName}\n` : ''}\n` +
-               `Estamos te esperando! 🎉`;
-        
-        // Adicionar link do Google Maps se disponível
-        if (mapsLink) {
-          createdMessage += `\n\n📍 *Localização:*\n${mapsLink}`;
-        }
-        
-        return createdMessage;
-               
-      case 'updated':
-        let updatedMessage = `*Olá ${clientName}!* 👋\n\n` +
-               `Seu agendamento foi *remarcado*. 📝\n\n` +
-               `📅 *Nova Data:* ${formattedDate}\n` +
-               `🕐 *Novo Horário:* ${formattedTime}\n` +
-               `${serviceName ? `💇 *Serviço:* ${serviceName}\n` : ''}` +
-               `${barberName ? `👨‍💼 *Barbeiro:* ${barberName}\n` : ''}\n` +
-               `Por favor, confirme sua presença. ✅`;
-        
-        // Adicionar link do Google Maps se disponível
-        if (mapsLink) {
-          updatedMessage += `\n\n📍 *Localização:*\n${mapsLink}`;
-        }
-        
-        return updatedMessage;
-               
-      case 'cancelled':
-        return `*Olá ${clientName}!* 👋\n\n` +
-               `Infelizmente seu agendamento foi *cancelado*. ❌\n\n` +
-               `📅 *Data:* ${formattedDate}\n` +
-               `🕐 *Horário:* ${formattedTime}\n\n` +
-               `Entre em contato conosco para reagendar. 📞`;
-               
-      default:
-        return `*Olá ${clientName}!*\n\nHá uma atualização no seu agendamento.`;
-    }
+
+  const templates = await loadTemplates(supabase);
+
+  const vars: Record<string, string> = {
+    clientName: clientName || '',
+    serviceName: serviceName || '',
+    barberName: barberName || '',
+    appointmentDate: formattedDate,
+    appointmentTime: formattedTime,
+  };
+
+  let templateKey: string;
+  if (targetType === 'barber' || action === 'barber_new_appointment') {
+    templateKey = 'whatsapp_msg_barber_new_appointment';
+  } else if (action === 'completed') {
+    templateKey = 'whatsapp_msg_completed';
+  } else if (action === 'reminder') {
+    templateKey = 'whatsapp_msg_reminder';
+  } else if (action === 'created') {
+    templateKey = 'whatsapp_msg_created';
+  } else if (action === 'updated') {
+    templateKey = 'whatsapp_msg_updated';
+  } else if (action === 'cancelled') {
+    templateKey = 'whatsapp_msg_cancelled';
+  } else {
+    templateKey = 'whatsapp_msg_created';
   }
 
-  // Mensagens para barbeiro
-  const statusText =
-    action === 'created' ? 'novo agendamento' :
-    action === 'updated' ? 'agendamento *remarcado*' :
-    action === 'cancelled' ? 'agendamento *cancelado*' :
-    'atualização no agendamento';
+  const template = templates[templateKey] || DEFAULT_TEMPLATES[templateKey] || '*Olá {{clientName}}!*\n\nHá uma atualização no seu agendamento.';
+  let message = interpolate(template, vars);
 
-  return `*Você recebeu um ${statusText}*\n\n` +
-         `👤 *Cliente:* ${clientName}\n` +
-         `${serviceName ? `💇 *Serviço:* ${serviceName}\n` : ''}` +
-         `${formattedDate ? `📅 *Data:* ${formattedDate}\n` : ''}` +
-         `${formattedTime ? `🕐 *Horário:* ${formattedTime}\n` : ''}` +
-         `${barberName ? `👨‍💼 *Barbeiro:* ${barberName}\n` : ''}`;
+  // Append Maps link for client created/updated messages if available
+  if (mapsLink && targetType === 'client' && (action === 'created' || action === 'updated')) {
+    message += `\n\n� *Localização:*\n${mapsLink}`;
+  }
+
+  return message;
 };
 
 // Send message via Evolution API with retry logic
@@ -352,7 +369,7 @@ const processQueue = async (supabase: any) => {
       console.log(`[Queue] Payload:`, JSON.stringify(payload, null, 2));
 
       // Passar o mapsLink apenas para mensagens de cliente
-      const message = generateMessage(payload, targetType === 'client' ? mapsLink : null);
+      const message = await generateMessage(payload, supabase, targetType === 'client' ? mapsLink : null);
       console.log(`[Queue] Mensagem gerada (${message.length} caracteres):`, message.substring(0, 100) + '...');
       const result = await sendWhatsAppMessage(targetPhone, message, activeInstanceName);
       console.log(`[Queue] Resultado do envio:`, result);
@@ -478,7 +495,7 @@ serve(async (req) => {
     const mapsLink = targetType === 'client' ? await getBarbershopMapsLink(supabase) : null;
 
     // Generate message
-    const message = generateMessage(payload, mapsLink);
+    const message = await generateMessage(payload, supabase, mapsLink);
 
     // Send via Evolution API (using active instance)
     const result = await sendWhatsAppMessage(payload.phone, message, activeInstanceName);

@@ -138,6 +138,7 @@ const FinancialDashboard = () => {
     loadProductSales();
 
     // Realtime subscription
+    let apptRemoved = false;
     const appointmentsChannel = supabase
       .channel('financial-appointments')
       .on(
@@ -147,12 +148,16 @@ const FinancialDashboard = () => {
           schema: 'public',
           table: 'appointments',
         },
-        () => {
-          loadAppointments();
-        }
+        () => { loadAppointments(); }
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !apptRemoved) {
+          apptRemoved = true;
+          setTimeout(() => { try { supabase.removeChannel(appointmentsChannel); } catch { /* ignore */ } }, 0);
+        }
+      });
 
+    let salesRemoved = false;
     const productSalesChannel = supabase
       .channel('financial-product-sales')
       .on(
@@ -162,26 +167,20 @@ const FinancialDashboard = () => {
           schema: 'public',
           table: 'product_sales',
         },
-        () => {
-          loadProductSales();
-        }
+        () => { loadProductSales(); }
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !salesRemoved) {
+          salesRemoved = true;
+          setTimeout(() => { try { supabase.removeChannel(productSalesChannel); } catch { /* ignore */ } }, 0);
+        }
+      });
 
     return () => {
-      try {
-        // Tenta encerrar inscrição antes de remover o canal para evitar erros de WebSocket
-        (appointmentsChannel as any)?.unsubscribe?.();
-      } catch {}
-      try {
-        (productSalesChannel as any)?.unsubscribe?.();
-      } catch {}
-      try {
-        (supabase as any).removeChannel?.(appointmentsChannel);
-      } catch {}
-      try {
-        (supabase as any).removeChannel?.(productSalesChannel);
-      } catch {}
+      apptRemoved = true;
+      salesRemoved = true;
+      try { supabase.removeChannel(appointmentsChannel); } catch { /* ignore */ }
+      try { supabase.removeChannel(productSalesChannel); } catch { /* ignore */ }
     };
   }, [period, dateFrom, dateTo, filterType, filterBarber, filterService, filterProduct, filterStatus]);
 

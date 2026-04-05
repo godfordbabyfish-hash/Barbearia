@@ -61,49 +61,42 @@ export const IndividualCommissionManager = () => {
 
   // Realtime subscriptions
   useEffect(() => {
-    const barbersChannel = supabase
-      .channel('individual-commission-manager-barbers')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'barbers' }, () => {
-        loadData();
-      })
-      .subscribe();
+    const makeGuard = (ch: ReturnType<typeof supabase.channel>) => {
+      let removed = false;
+      ch.subscribe((status: string) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !removed) {
+          removed = true;
+          setTimeout(() => { try { supabase.removeChannel(ch); } catch { /* ignore */ } }, 0);
+        }
+      });
+      return { ch, setRemoved: () => { removed = true; } };
+    };
 
-    const servicesChannel = supabase
-      .channel('individual-commission-manager-services')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => {
-        loadData();
-      })
-      .subscribe();
-
-    const productsChannel = supabase
-      .channel('individual-commission-manager-products')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
-        loadData();
-      })
-      .subscribe();
-
-    // Only subscribe to barber_commissions if the table exists
-    // Note: This subscription will fail silently if the table doesn't exist
-    const serviceCommissionsChannel = supabase
-      .channel('individual-commission-manager-service-commissions')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'barber_commissions' }, () => {
-        loadAllServiceCommissions();
-      })
-      .subscribe();
-
-    const productCommissionsChannel = supabase
-      .channel('individual-commission-manager-product-commissions')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'barber_product_commissions' }, () => {
-        loadAllProductCommissions();
-      })
-      .subscribe();
+    const { ch: barbersChannel, setRemoved: r1 } = makeGuard(
+      supabase.channel('individual-commission-manager-barbers')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'barbers' }, () => { loadData(); })
+    );
+    const { ch: servicesChannel, setRemoved: r2 } = makeGuard(
+      supabase.channel('individual-commission-manager-services')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'services' }, () => { loadData(); })
+    );
+    const { ch: productsChannel, setRemoved: r3 } = makeGuard(
+      supabase.channel('individual-commission-manager-products')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => { loadData(); })
+    );
+    const { ch: serviceCommissionsChannel, setRemoved: r4 } = makeGuard(
+      supabase.channel('individual-commission-manager-service-commissions')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'barber_commissions' }, () => { loadAllServiceCommissions(); })
+    );
+    const { ch: productCommissionsChannel, setRemoved: r5 } = makeGuard(
+      supabase.channel('individual-commission-manager-product-commissions')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'barber_product_commissions' }, () => { loadAllProductCommissions(); })
+    );
 
     return () => {
-      supabase.removeChannel(barbersChannel);
-      supabase.removeChannel(servicesChannel);
-      supabase.removeChannel(productsChannel);
-      supabase.removeChannel(serviceCommissionsChannel);
-      supabase.removeChannel(productCommissionsChannel);
+      [r1, r2, r3, r4, r5].forEach(r => r());
+      [barbersChannel, servicesChannel, productsChannel, serviceCommissionsChannel, productCommissionsChannel]
+        .forEach(ch => { try { supabase.removeChannel(ch); } catch { /* ignore */ } });
     };
   }, []);
 

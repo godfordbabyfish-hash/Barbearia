@@ -114,6 +114,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     }
 
     // Subscribe to realtime updates
+    let removed = false;
     const channel = supabase
       .channel("appointments-changes")
       .on(
@@ -128,10 +129,16 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
           calculateAvailableSlots();
         }
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !removed) {
+          removed = true;
+          setTimeout(() => { try { supabase.removeChannel(channel); } catch { /* ignore */ } }, 0);
+        }
+      });
 
     return () => {
-      supabase.removeChannel(channel);
+      removed = true;
+      try { supabase.removeChannel(channel); } catch { /* ignore */ }
     };
   }, [hoursLoading]);
 
