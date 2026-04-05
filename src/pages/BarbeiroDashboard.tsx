@@ -185,6 +185,7 @@ const BarbeiroDashboard = () => {
   const [activeTab, setActiveTab] = useState<'agendamentos' | 'horarios' | 'financeiro' | 'historico'>('agendamentos');
   const [showHistoryFilters, setShowHistoryFilters] = useState(false);
   const [historySectionTab, setHistorySectionTab] = useState<'servicos' | 'produtos'>('servicos');
+  const [viewMode, setViewMode] = useState<'monthly'>('monthly');
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
   const [photoModalUrl, setPhotoModalUrl] = useState<string | null>(null);
   const [productHistory, setProductHistory] = useState<ProductHistoryItem[]>([]);
@@ -208,6 +209,40 @@ const BarbeiroDashboard = () => {
   const [fitClientName, setFitClientName] = useState<string>('');
   const [fitServiceId, setFitServiceId] = useState<string>('');
   const [savingFit, setSavingFit] = useState(false);
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [editingDay, setEditingDay] = useState<Date | null>(null);
+  const [daySchedule, setDaySchedule] = useState<{
+    open: string;
+    close: string;
+    closed: boolean;
+    observation: string;
+    lunch_start: string;
+    lunch_end: string;
+    has_lunch: boolean;
+    pause_start: string;
+    pause_end: string;
+    has_pause: boolean;
+  }>({
+    open: '09:00',
+    close: '20:00',
+    closed: false,
+    observation: '',
+    lunch_start: '12:00',
+    lunch_end: '13:00',
+    has_lunch: true,
+    pause_start: '15:00',
+    pause_end: '15:30',
+    has_pause: false
+  });
+  const [barberSchedules, setBarberSchedules] = useState<Record<string, any>>({});
+  const [loadingSchedules, setLoadingSchedules] = useState(false);
+  const [bulkLunchDialogOpen, setBulkLunchDialogOpen] = useState(false);
+  const [bulkLunch, setBulkLunch] = useState({ start: '12:00', end: '13:00' });
+  const [applyingBulkLunch, setApplyingBulkLunch] = useState(false);
+  const [editingDayBreaks, setEditingDayBreaks] = useState<any[]>([]);
+  const [loadingDayBreaks, setLoadingDayBreaks] = useState(false);
+  const [showNewBreakForm, setShowNewBreakForm] = useState(false);
+  const [newBreak, setNewBreak] = useState({ start: '', end: '' });
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   
@@ -666,7 +701,9 @@ const BarbeiroDashboard = () => {
         return;
       }
       setLoadingNewSlots(true);
-      const [{ data: appts }, { data: breaks }] = await Promise.all([
+
+      // Carregar dados em paralelo
+      const [{ data: appts }, { data: breaks }, { data: mSchedule }] = await Promise.all([
         supabase
           .from('appointments')
           .select('appointment_time, service:services(duration), status')
@@ -678,65 +715,98 @@ const BarbeiroDashboard = () => {
           .select('start_time, end_time')
           .eq('barber_id', barberId)
           .eq('date', newAppointment.date),
+        (supabase as any)
+          .from('barber_schedules')
+          .select('*')
+          .eq('barber_id', barberId)
+          .eq('date', newAppointment.date)
+          .maybeSingle()
       ]);
 
+      const monthlySchedule: any = mSchedule;
       let lunchBreak: { start_time: string; end_time: string } | null = null;
       let workingHours: { open: string; close: string } | null = null;
-      try {
+      const extraBreaks: any[] = [];
+
+      if (monthlySchedule) {
+          if (monthlySchedule.closed) {
+            setAvailableNewSlots([]);
+            setLoadingNewSlots(false);
+            return;
+          }
+          workingHours = {
+            open: monthlySchedule.open,
+            close: monthlySchedule.close,
+          };
+          
+          if (monthlySchedule.has_lunch && monthlySchedule.lunch_start && monthlySchedule.lunch_end) {
+            lunchBreak = {
+              start_time: monthlySchedule.lunch_start,
+              end_time: monthlySchedule.lunch_end,
+            };
+          }
+
+          // Se o dia na escala mensal tiver pausa definida, guardamos para adicionar aos breaks
+          if (monthlySchedule.has_pause && monthlySchedule.pause_start && monthlySchedule.pause_end) {
+            extraBreaks.push({
+              start_time: monthlySchedule.pause_start,
+              end_time: monthlySchedule.pause_end,
+            });
+          }
+        } else {
         const barber = barbers.find(item => item.id === barberId);
-        lunchBreak = getLunchBreakForDate(barber?.availability, dateObj);
         const dayKey = getDayKey(dateObj);
         const shopHours = operatingHours[dayKey];
         const barberAvailability = getAvailabilityForDate(barber?.availability, dateObj);
+        
         workingHours = {
           open: (barberAvailability as any)?.open || shopHours.open,
           close: (barberAvailability as any)?.close || shopHours.close,
         };
-      } catch (e) {
-        console.warn('Falha ao validar horário de almoço do barbeiro (novo agendamento):', e);
       }
+
+      if (!lunchBreak) {
+        const barber = barbers.find(item => item.id === barberId);
+        lunchBreak = getLunchBreakForDate(barber?.availability, dateObj);
+      }
+
       const daySlots = getTimeSlotsForDate(dateObj);
       const now = new Date();
       const todayStr = now.toISOString().split('T')[0];
       const isToday = newAppointment.date === todayStr;
       const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
       const overlaps = (s1: string, e1: string, s2: string, e2: string) => s1 < e2 && e1 > s2;
-      const aptRanges = ((appts || []) as Array<{
-        appointment_time: string;
-        service: Pick<ServiceRecord, 'duration'> | null;
-      }>).map((appointment) => {
+
+      const aptRanges = ((appts || []) as any[]).map((appointment) => {
         const duration = appointment.service?.duration || 30;
         return {
           start: appointment.appointment_time.slice(0, 5),
           end: addMinutesToTime(appointment.appointment_time.slice(0, 5), duration),
         };
       });
+
       const combinedBreaks = [
-        ...((breaks || []) as Array<Pick<BarberBreakRecord, 'start_time' | 'end_time'>>),
+        ...((breaks || []) as any[]),
         ...(lunchBreak ? [lunchBreak] : []),
+        ...extraBreaks,
       ];
+
       const breakRanges = combinedBreaks.map((breakItem) => ({
         start: breakItem.start_time.slice(0, 5),
         end: breakItem.end_time.slice(0, 5),
       }));
+
       const fitsInHours = (slot: string) => {
         const closingTime = workingHours?.close || '20:00';
         const openingTime = workingHours?.open || '09:00';
-
-        // O agendamento deve começar dentro do expediente
         if (slot < openingTime || slot >= closingTime) return false;
-        
-        // Também garantimos que o slot base exista na programação da barbearia
         if (!daySlots.includes(slot)) return false;
-
-        // E o horário de término não pode ultrapassar o fechamento
         const finalEndTime = addMinutesToTime(slot, serviceDuration);
         if (finalEndTime > closingTime) return false;
-
         return true;
       };
+
       const result = daySlots.filter((slot) => {
-        // Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
         if (!newAppointment.isRetroactive && isToday) {
           const [sh, sm] = slot.split(':').map(Number);
           const [ch, cm] = currentHHMM.split(':').map(Number);
@@ -980,6 +1050,7 @@ const BarbeiroDashboard = () => {
     const lunchChannelName = `barber-lunch-${barberId}-${Date.now()}`;
     const appointmentsChannelName = `appointments-barber-${barberId}-${Date.now()}`;
 
+    let breaksRemoved = false;
     const breaksChannel = supabase
       .channel(breaksChannelName)
       .on(
@@ -995,8 +1066,14 @@ const BarbeiroDashboard = () => {
           loadTodayBreaks();
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !breaksRemoved) {
+          breaksRemoved = true;
+          setTimeout(() => { try { supabase.removeChannel(breaksChannel); } catch { /* ignore */ } }, 0);
+        }
+      });
 
+    let lunchRemoved = false;
     const lunchChannel = supabase
       .channel(lunchChannelName)
       .on(
@@ -1012,7 +1089,12 @@ const BarbeiroDashboard = () => {
           loadTodayBreaks();
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !lunchRemoved) {
+          lunchRemoved = true;
+          setTimeout(() => { try { supabase.removeChannel(lunchChannel); } catch { /* ignore */ } }, 0);
+        }
+      });
 
     const appointmentsChannel = supabase
       .channel(appointmentsChannelName)
@@ -1074,9 +1156,11 @@ const BarbeiroDashboard = () => {
 
     return () => {
       console.log('🔴 Cleaning up Realtime subscriptions');
-      supabase.removeChannel(breaksChannel);
-      supabase.removeChannel(lunchChannel);
-      supabase.removeChannel(appointmentsChannel);
+      breaksRemoved = true;
+      lunchRemoved = true;
+      try { supabase.removeChannel(breaksChannel); } catch { /* ignore */ }
+      try { supabase.removeChannel(lunchChannel); } catch { /* ignore */ }
+      try { supabase.removeChannel(appointmentsChannel); } catch { /* ignore */ }
     };
   }, [selectedBarber, currentUserBarber?.id, isReady, showNotification]);
 
@@ -1373,40 +1457,57 @@ const BarbeiroDashboard = () => {
         }
 
         let lunchBreak: { start_time: string; end_time: string } | null = null;
+        let monthlySchedule: any = null;
         try {
-          const barber = barbers.find(b => b.id === barberId) as any;
-          const selectedDate = new Date(newAppointment.date + 'T00:00:00');
-          if (barber?.availability) {
-            const availability = typeof barber.availability === 'string'
-              ? JSON.parse(barber.availability)
-              : barber.availability;
-            const dayKey = getDayKey(selectedDate);
-            const dayAvailability = availability?.[dayKey];
-            if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
-              lunchBreak = {
-                start_time: dayAvailability.lunchStart,
-                end_time: dayAvailability.lunchEnd,
-              };
-            }
-          }
+          const selectedDateStr = newAppointment.date;
+          const { data: mSchedule } = await supabase
+            .from('barber_schedules' as any)
+            .select('*')
+            .eq('barber_id', barberId)
+            .eq('date', selectedDateStr)
+            .maybeSingle();
+          monthlySchedule = mSchedule;
 
-          // Fallback para horário de almoço da loja se o barbeiro não tiver configurado
-          if (!lunchBreak) {
-            const { data: shopHours } = await supabase
-              .from('site_config')
-              .select('config_value')
-              .eq('config_key', 'operating_hours')
-              .maybeSingle();
-            
-            if (shopHours?.config_value) {
-              const operatingHours = shopHours.config_value as any;
+          if (monthlySchedule && monthlySchedule.has_lunch && monthlySchedule.lunch_start && monthlySchedule.lunch_end) {
+            lunchBreak = {
+              start_time: monthlySchedule.lunch_start,
+              end_time: monthlySchedule.lunch_end,
+            };
+          } else {
+            const barber = barbers.find(b => b.id === barberId) as any;
+            const selectedDate = new Date(newAppointment.date + 'T00:00:00');
+            if (barber?.availability) {
+              const availability = typeof barber.availability === 'string'
+                ? JSON.parse(barber.availability)
+                : barber.availability;
               const dayKey = getDayKey(selectedDate);
-              const dayHours = operatingHours?.[dayKey];
-              if (dayHours?.hasLunchBreak && dayHours.lunchStart && dayHours.lunchEnd) {
+              const dayAvailability = availability?.[dayKey];
+              if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
                 lunchBreak = {
-                  start_time: dayHours.lunchStart,
-                  end_time: dayHours.lunchEnd,
+                  start_time: dayAvailability.lunchStart,
+                  end_time: dayAvailability.lunchEnd,
                 };
+              }
+            }
+
+            // Fallback para horário de almoço da loja se o barbeiro não tiver configurado
+            if (!lunchBreak) {
+              const { data: shopHours } = await supabase
+                .from('site_config')
+                .select('config_value')
+                .eq('config_key', 'operating_hours')
+                .maybeSingle();
+              
+              if (shopHours?.config_value) {
+                const operatingHours = shopHours.config_value as any;
+                const dayKey = getDayKey(selectedDate);
+                const dayHours = operatingHours?.[dayKey];
+                if (dayHours?.hasLunchBreak && dayHours.lunchStart && dayHours.lunchEnd) {
+                  lunchBreak = {
+                    start_time: dayHours.lunchStart,
+                    end_time: dayHours.lunchEnd,
+                  };
+                }
               }
             }
           }
@@ -1418,6 +1519,17 @@ const BarbeiroDashboard = () => {
           ...dbBreaks,
           ...(lunchBreak ? [lunchBreak] : []),
         ];
+
+        // Adicionar pausa da observação da escala mensal
+        if (monthlySchedule && monthlySchedule.observation) {
+          const timeMatch = monthlySchedule.observation.match(/(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})/);
+          if (timeMatch) {
+            combinedBreaks.push({
+              start_time: timeMatch[1],
+              end_time: timeMatch[2]
+            });
+          }
+        }
 
         if (combinedBreaks.length > 0) {
           const serviceDuration = selectedService.duration || 30;
@@ -1905,7 +2017,30 @@ const BarbeiroDashboard = () => {
       toast.success(photoUrl ? 'Agendamento concluído com foto!' : 'Agendamento concluído!', {
         duration: 2000,
       });
-      
+
+      // Enviar mensagem WhatsApp de atendimento concluído ao cliente
+      try {
+        const completedApt = appointments.find(a => a.id === appointmentToComplete);
+        const clientPhone = completedApt?.client?.phone || '';
+        if (clientPhone) {
+          await supabase.functions.invoke('whatsapp-notify', {
+            body: {
+              appointmentId: appointmentToComplete,
+              clientName: completedApt?.client?.name || 'Cliente',
+              phone: clientPhone,
+              action: 'completed',
+              appointmentDate: completedApt?.appointment_date,
+              appointmentTime: completedApt?.appointment_time,
+              serviceName: completedApt?.service?.title,
+              barberName: completedApt?.barber?.name || currentUserBarber?.name,
+              targetType: 'client',
+            },
+          });
+        }
+      } catch (waErr) {
+        console.error('Erro ao enviar WhatsApp de conclusão:', waErr);
+      }
+
       setCompleteDialogOpen(false);
       setAppointmentToComplete(null);
       setPhotoFile(null);
@@ -1924,6 +2059,135 @@ const BarbeiroDashboard = () => {
     }
   };
 
+
+  const loadBarberSchedules = async () => {
+    try {
+      const barberId = selectedBarber || currentUserBarber?.id;
+      if (!barberId) return;
+      
+      setLoadingSchedules(true);
+      const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+      const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0);
+      
+      const { data, error } = await (supabase as any)
+        .from('barber_schedules')
+        .select('*')
+        .eq('barber_id', barberId)
+        .gte('date', startOfMonth.toISOString().split('T')[0])
+        .lte('date', endOfMonth.toISOString().split('T')[0]);
+        
+      if (error) {
+        // Se a tabela não existir ainda, vamos lidar graciosamente
+        if (error.code === '42P01') {
+          console.warn('Tabela barber_schedules ainda não existe.');
+          return;
+        }
+        throw error;
+      }
+      
+      const scheduleMap: Record<string, any> = {};
+      (data as any[])?.forEach(item => {
+        scheduleMap[item.date] = item;
+      });
+      setBarberSchedules(scheduleMap);
+    } catch (e) {
+      console.error('Erro ao carregar escala mensal:', e);
+    } finally {
+      setLoadingSchedules(false);
+    }
+  };
+
+  useEffect(() => {
+    if (viewMode === 'monthly') {
+      loadBarberSchedules();
+    }
+  }, [viewMode, currentMonth, selectedBarber, currentUserBarber?.id]);
+
+  const saveDaySchedule = async () => {
+    try {
+      const barberId = selectedBarber || currentUserBarber?.id;
+      if (!barberId || !editingDay) return;
+      
+      const dateStr = editingDay.toISOString().split('T')[0];
+      
+      const { error } = await (supabase as any)
+        .from('barber_schedules')
+        .upsert({
+          barber_id: barberId,
+          date: dateStr,
+          open: daySchedule.open,
+          close: daySchedule.close,
+          closed: daySchedule.closed,
+          observation: daySchedule.observation,
+          lunch_start: daySchedule.lunch_start,
+          lunch_end: daySchedule.lunch_end,
+          has_lunch: daySchedule.has_lunch,
+          pause_start: daySchedule.pause_start,
+          pause_end: daySchedule.pause_end,
+          has_pause: daySchedule.has_pause
+        }, { onConflict: 'barber_id,date' });
+        
+      if (error) throw error;
+      
+      toast.success('Programação do dia atualizada!');
+      setEditingDay(null);
+      loadBarberSchedules();
+    } catch (e: any) {
+      console.error('Erro ao salvar escala:', e);
+      toast.error('Erro ao salvar: ' + e.message);
+    }
+  };
+
+  const applyLunchToMonth = async () => {
+    try {
+      const barberId = selectedBarber || currentUserBarber?.id;
+      if (!barberId) return;
+
+      setApplyingBulkLunch(true);
+
+      const year = currentMonth.getFullYear();
+      const month = currentMonth.getMonth();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const date = new Date(year, month, d);
+        const dateStr = date.toISOString().split('T')[0];
+        const existing = barberSchedules[dateStr];
+
+        const dayKey = getDayKey(date);
+        const shopHours = operatingHours[dayKey];
+        const isOpen = existing ? !existing.closed : (shopHours ? !shopHours.closed : true);
+
+        if (!isOpen) continue;
+
+        await (supabase as any)
+          .from('barber_schedules')
+          .upsert({
+            barber_id: barberId,
+            date: dateStr,
+            open: existing?.open || shopHours?.open || '09:00',
+            close: existing?.close || shopHours?.close || '20:00',
+            closed: existing?.closed ?? false,
+            observation: existing?.observation || '',
+            lunch_start: bulkLunch.start,
+            lunch_end: bulkLunch.end,
+            has_lunch: true,
+            pause_start: existing?.pause_start || '15:00',
+            pause_end: existing?.pause_end || '15:30',
+            has_pause: existing?.has_pause ?? false,
+          }, { onConflict: 'barber_id,date' });
+      }
+
+      toast.success('Horário de almoço aplicado a todos os dias do mês!');
+      setBulkLunchDialogOpen(false);
+      loadBarberSchedules();
+    } catch (e: any) {
+      console.error('Erro ao aplicar almoço em massa:', e);
+      toast.error('Erro: ' + e.message);
+    } finally {
+      setApplyingBulkLunch(false);
+    }
+  };
 
   const currentBarber = userRole === 'admin' ? barbers.find(b => b.id === selectedBarber) : currentUserBarber;
 
@@ -3010,7 +3274,361 @@ const BarbeiroDashboard = () => {
           
 
           <TabsContent value="horarios" className="space-y-6" forceMount>
-            <BarberBreakManager barberId={currentUserBarber?.id || selectedBarber} />
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">Programação de Atendimento</h2>
+            </div>
+
+            <Card className="bg-card border-border">
+                <CardHeader className="pb-3 px-3 sm:px-6 sm:pb-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                      <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-primary shrink-0" />
+                      <span>Escala Mensal - {format(currentMonth, 'MMMM yyyy', { locale: ptBR })}</span>
+                    </CardTitle>
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-orange-500 border-orange-500/40 hover:bg-orange-500/10 gap-1.5 h-8 px-2 sm:px-3"
+                        onClick={() => setBulkLunchDialogOpen(true)}
+                      >
+                        <span className="text-xs">🍴</span>
+                        <span className="hidden sm:inline text-xs">Horário de Almoço</span>
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="icon"
+                        className="h-8 w-8 sm:h-9 sm:w-9"
+                        onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))}
+                      >
+                        <X className="h-3.5 w-3.5 rotate-45" />
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="icon"
+                        className="h-8 w-8 sm:h-9 sm:w-9"
+                        onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))}
+                      >
+                        <Plus className="h-3.5 w-3.5 rotate-45" />
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="px-2 sm:px-6 pb-4">
+                  {loadingSchedules ? (
+                    <div className="flex items-center justify-center py-20">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-7 gap-0.5 sm:gap-2">
+                      {[['D','Dom'], ['S','Seg'], ['T','Ter'], ['Q','Qua'], ['Q','Qui'], ['S','Sex'], ['S','Sáb']].map(([short, full], i) => (
+                        <div key={i} className="text-center text-[10px] sm:text-xs font-bold text-muted-foreground py-1.5 sm:py-2 uppercase">
+                          <span className="sm:hidden">{short}</span>
+                          <span className="hidden sm:inline">{full}</span>
+                        </div>
+                      ))}
+                      
+                      {(() => {
+                        const start = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1);
+                        const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
+                        const firstDayOfWeek = start.getDay();
+                        
+                        const cells = [];
+                        
+                        // Empty cells before start of month
+                        for (let i = 0; i < firstDayOfWeek; i++) {
+                          cells.push(<div key={`empty-${i}`} className="h-12 sm:h-24 bg-secondary/10 rounded-lg opacity-30" />);
+                        }
+                        
+                        // Day cells
+                        for (let d = 1; d <= daysInMonth; d++) {
+                          const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d);
+                          const dateStr = date.toISOString().split('T')[0];
+                          const schedule = barberSchedules[dateStr];
+                          const isToday = dateStr === new Date().toISOString().split('T')[0];
+                          
+                          // Lógica de fallback para exibir no calendário
+                          const dayKey = getDayKey(date);
+                          const shopHours = operatingHours[dayKey];
+                          const isOpen = schedule ? !schedule.closed : (shopHours ? !shopHours.closed : true);
+                          const openTime = schedule?.open || shopHours?.open || '09:00';
+                          const closeTime = schedule?.close || shopHours?.close || '20:00';
+                          
+                          cells.push(
+                            <button
+                              key={d}
+                              onClick={() => {
+                                setEditingDay(date);
+                                setDaySchedule({
+                                  open: openTime,
+                                  close: closeTime,
+                                  closed: !isOpen,
+                                  observation: schedule?.observation || '',
+                                  lunch_start: schedule?.lunch_start || '12:00',
+                                  lunch_end: schedule?.lunch_end || '13:00',
+                                  has_lunch: schedule ? schedule.has_lunch : true,
+                                  pause_start: schedule?.pause_start || '15:00',
+                                  pause_end: schedule?.pause_end || '15:30',
+                                  has_pause: schedule?.has_pause || false
+                                });
+                              }}
+                              className={`h-20 sm:h-24 p-1 sm:p-2 rounded-lg border text-left transition-all hover:border-primary/50 relative overflow-hidden ${
+                                isToday ? 'border-primary bg-primary/5' : 'border-border bg-secondary/20'
+                              } ${!isOpen ? 'opacity-60 bg-red-500/5' : ''}`}
+                            >
+                              <span className={`text-[10px] sm:text-xs font-bold block leading-tight ${
+                                isToday ? 'text-primary' : 'text-muted-foreground'
+                              }`}>
+                                {d}
+                              </span>
+
+                              <div className="mt-0.5 space-y-0.5">
+                                {!isOpen ? (
+                                  <span className="text-[9px] sm:text-[10px] text-red-500 font-medium block">Fechado</span>
+                                ) : (
+                                  <>
+                                    <span className="text-[9px] sm:text-[10px] text-foreground font-medium block leading-tight">
+                                      {openTime} - {closeTime}
+                                    </span>
+                                    {schedule?.has_lunch && (
+                                      <span className="text-[8px] sm:text-[9px] text-orange-500 font-medium block leading-tight">
+                                        🍴 {schedule.lunch_start} - {schedule.lunch_end}
+                                      </span>
+                                    )}
+                                    {schedule?.has_pause && (
+                                      <span className="text-[8px] sm:text-[9px] text-blue-500 font-medium block leading-tight">
+                                        ☕ {schedule.pause_start} - {schedule.pause_end}
+                                      </span>
+                                    )}
+                                    {schedule?.observation && (
+                                      <div className="flex items-center gap-0.5">
+                                        <div className="w-1 h-1 rounded-full bg-primary animate-pulse shrink-0" />
+                                        <span className="text-[8px] sm:text-[9px] text-primary truncate italic">
+                                          {schedule.observation}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+
+                              {schedule && (
+                                <div className="absolute top-0.5 right-0.5 sm:top-1 sm:right-1">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                                </div>
+                              )}
+                            </button>
+                          );
+                        }
+                        
+                        return cells;
+                      })()}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+            <Dialog open={editingDay !== null} onOpenChange={(open) => !open && setEditingDay(null)}>
+              <DialogContent className="sm:max-w-md max-h-[90dvh] flex flex-col p-0">
+                <DialogHeader className="px-4 pt-4 pb-2 shrink-0">
+                  <DialogTitle className="text-base">
+                    Programação: {editingDay && format(editingDay, "dd 'de' MMMM", { locale: ptBR })}
+                  </DialogTitle>
+                  <DialogDescription className="text-xs">
+                    Ajuste o horário específico para este dia ou marque como fechado.
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <div className="space-y-3 px-4 py-2 overflow-y-auto flex-1">
+                  <div className="flex items-center justify-between p-2.5 border border-border rounded-lg bg-secondary/30">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">Status do Dia</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {daySchedule.closed ? 'Fechado para agendamentos' : 'Aberto para agendamentos'}
+                      </p>
+                    </div>
+                    <Switch 
+                      checked={!daySchedule.closed} 
+                      onCheckedChange={(checked) => setDaySchedule({...daySchedule, closed: !checked})}
+                    />
+                  </div>
+
+                  {!daySchedule.closed && (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Abertura</Label>
+                          <Input 
+                            type="time" 
+                            className="h-9 text-sm"
+                            value={daySchedule.open} 
+                            onChange={(e) => setDaySchedule({...daySchedule, open: e.target.value})}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Fechamento</Label>
+                          <Input 
+                            type="time" 
+                            className="h-9 text-sm"
+                            value={daySchedule.close} 
+                            onChange={(e) => setDaySchedule({...daySchedule, close: e.target.value})}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="border border-border rounded-lg bg-secondary/30 overflow-hidden">
+                        <div className="flex items-center justify-between p-2.5">
+                          <div className="space-y-0.5">
+                            <Label className="text-sm font-medium">🍴 Horário de Almoço</Label>
+                            <p className="text-xs text-muted-foreground">Habilitar intervalo de almoço</p>
+                          </div>
+                          <Switch 
+                            checked={daySchedule.has_lunch} 
+                            onCheckedChange={(checked) => setDaySchedule({...daySchedule, has_lunch: checked})}
+                          />
+                        </div>
+                        {daySchedule.has_lunch && (
+                          <div className="grid grid-cols-2 gap-3 px-2.5 pb-2.5 pt-0">
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Início</Label>
+                              <Input 
+                                type="time" 
+                                className="h-9 text-sm"
+                                value={daySchedule.lunch_start} 
+                                onChange={(e) => setDaySchedule({...daySchedule, lunch_start: e.target.value})}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Fim</Label>
+                              <Input 
+                                type="time" 
+                                className="h-9 text-sm"
+                                value={daySchedule.lunch_end} 
+                                onChange={(e) => setDaySchedule({...daySchedule, lunch_end: e.target.value})}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="border border-border rounded-lg bg-secondary/30 overflow-hidden">
+                        <div className="flex items-center justify-between p-2.5">
+                          <div className="space-y-0.5">
+                            <Label className="text-sm font-medium">☕ Horário de Pausa</Label>
+                            <p className="text-xs text-muted-foreground">Habilitar intervalo de pausa</p>
+                          </div>
+                          <Switch 
+                            checked={daySchedule.has_pause} 
+                            onCheckedChange={(checked) => setDaySchedule({...daySchedule, has_pause: checked})}
+                          />
+                        </div>
+                        {daySchedule.has_pause && (
+                          <div className="grid grid-cols-2 gap-3 px-2.5 pb-2.5 pt-0">
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Início</Label>
+                              <Input 
+                                type="time" 
+                                className="h-9 text-sm"
+                                value={daySchedule.pause_start} 
+                                onChange={(e) => setDaySchedule({...daySchedule, pause_start: e.target.value})}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Fim</Label>
+                              <Input 
+                                type="time" 
+                                className="h-9 text-sm"
+                                value={daySchedule.pause_end} 
+                                onChange={(e) => setDaySchedule({...daySchedule, pause_end: e.target.value})}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Observação Interna</Label>
+                        <Input 
+                          type="text" 
+                          placeholder="Ex: Feriado local, evento..."
+                          value={daySchedule.observation}
+                          onChange={(e) => setDaySchedule({...daySchedule, observation: e.target.value})}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex gap-2 px-4 py-3 border-t border-border shrink-0">
+                  <Button className="flex-1 h-9" onClick={saveDaySchedule}>
+                    Salvar Programação
+                  </Button>
+                  <Button variant="outline" className="h-9" onClick={() => setEditingDay(null)}>
+                    Cancelar
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={bulkLunchDialogOpen} onOpenChange={(open) => !open && setBulkLunchDialogOpen(false)}>
+              <DialogContent className="sm:max-w-sm">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <span>🍴</span>
+                    Inserir Horário de Almoço
+                  </DialogTitle>
+                  <DialogDescription>
+                    Define o horário de almoço para todos os dias abertos de{' '}
+                    <strong>{format(currentMonth, 'MMMM yyyy', { locale: ptBR })}</strong>.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4 py-2">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Início do Almoço</Label>
+                      <Input
+                        type="time"
+                        value={bulkLunch.start}
+                        onChange={(e) => setBulkLunch({ ...bulkLunch, start: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Fim do Almoço</Label>
+                      <Input
+                        type="time"
+                        value={bulkLunch.end}
+                        onChange={(e) => setBulkLunch({ ...bulkLunch, end: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    O horário será aplicado a todos os dias abertos do mês selecionado. Dias marcados como fechados serão ignorados.
+                  </p>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1"
+                    onClick={applyLunchToMonth}
+                    disabled={applyingBulkLunch}
+                  >
+                    {applyingBulkLunch ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Aplicando...
+                      </>
+                    ) : (
+                      'Aplicar ao Mês'
+                    )}
+                  </Button>
+                  <Button variant="outline" onClick={() => setBulkLunchDialogOpen(false)} disabled={applyingBulkLunch}>
+                    Cancelar
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           {/* Duplicate Financeiro Tab Removed */}
@@ -3465,8 +4083,8 @@ const BarbeiroDashboard = () => {
                     );
                     })()}
                   </CardContent>
-                </Card>
-                  </TabsContent>
+              </Card>
+            </TabsContent>
                   <TabsContent value="produtos" className="space-y-6" forceMount>
                 <Card className="bg-card border-border">
                   <CardHeader className="pb-2">

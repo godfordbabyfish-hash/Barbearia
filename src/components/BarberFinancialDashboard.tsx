@@ -148,6 +148,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
   useEffect(() => {
     if (!barberId) return;
 
+    let chRemoved = false;
     const channel = supabase
       .channel(`financial-barber-${barberId}-${Date.now()}`)
       .on(
@@ -158,12 +159,16 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
           table: 'appointments',
           filter: `barber_id=eq.${barberId}`
         },
-        (payload) => {
-          reloadData();
-        }
+        () => { reloadData(); }
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !chRemoved) {
+          chRemoved = true;
+          setTimeout(() => { try { supabase.removeChannel(channel); } catch { /* ignore */ } }, 0);
+        }
+      });
 
+    let salesRemoved = false;
     const salesChannel = supabase
       .channel(`product-sales-barber-${barberId}-${Date.now()}`)
       .on(
@@ -174,25 +179,20 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
           table: 'product_sales',
           filter: `barber_id=eq.${barberId}`
         },
-        () => {
-          reloadData();
-        }
+        () => { reloadData(); }
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !salesRemoved) {
+          salesRemoved = true;
+          setTimeout(() => { try { supabase.removeChannel(salesChannel); } catch { /* ignore */ } }, 0);
+        }
+      });
 
     return () => {
-      try {
-        (channel as any)?.unsubscribe?.();
-      } catch {}
-      try {
-        (salesChannel as any)?.unsubscribe?.();
-      } catch {}
-      try {
-        (supabase as any).removeChannel?.(channel);
-      } catch {}
-      try {
-        (supabase as any).removeChannel?.(salesChannel);
-      } catch {}
+      chRemoved = true;
+      salesRemoved = true;
+      try { supabase.removeChannel(channel); } catch { /* ignore */ }
+      try { supabase.removeChannel(salesChannel); } catch { /* ignore */ }
     };
   }, [barberId]);
 

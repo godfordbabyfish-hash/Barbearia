@@ -4,7 +4,7 @@ export interface WhatsAppNotificationPayload {
   appointmentId: string;
   clientName: string;
   phone: string;
-  action: 'created' | 'updated' | 'cancelled';
+  action: 'created' | 'updated' | 'cancelled' | 'completed' | 'reminder' | 'barber_new_appointment';
   appointmentDate?: string;
   appointmentTime?: string;
   serviceName?: string;

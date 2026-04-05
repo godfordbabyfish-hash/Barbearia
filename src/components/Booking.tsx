@@ -14,6 +14,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import * as Icons from "lucide-react";
 import { useOperatingHours, getDayKey } from "@/hooks/useOperatingHours";
+import type { OperatingHours } from "@/hooks/useOperatingHours";
 import { getAvailableSlotsForBarber } from "@/utils/availability";
 import haircutImg from "@/assets/service-haircut.jpg";
 import beardImg from "@/assets/service-beard.jpg";
@@ -57,6 +58,8 @@ type FooterInfoConfig = {
   maps_link?: string;
 };
 type DayScheduleConfig = {
+  open?: string;
+  close?: string;
   closed?: boolean;
   hasLunchBreak?: boolean;
   lunchStart?: string;
@@ -170,9 +173,100 @@ const getLunchBreakFromSchedule = (value: unknown, date: Date): BreakSlot | null
   return null;
 };
 
-const isBarberClosedOnDate = (barber: BarberRecord | undefined, date: Date) => {
+const getBarberWorkingHours = async (barberId: string, date: Date, operatingHours: OperatingHours) => {
+  if (!barberId) return null;
+  
+  const dateStr = formatLocalDate(date);
+  const dayKey = getDayKey(date);
+  
+  // 1. Check monthly schedule first
+  const { data: monthly } = await supabase
+    .from('barber_schedules' as any)
+    .select('*')
+    .eq('barber_id', barberId)
+    .eq('date', dateStr)
+    .maybeSingle();
+    
+  if (monthly) {
+    const m = monthly as any;
+    return {
+      open: m.open,
+      close: m.close,
+      closed: Boolean(m.closed),
+      lunchBreak: (m.has_lunch && m.lunch_start && m.lunch_end)
+        ? { start_time: m.lunch_start as string, end_time: m.lunch_end as string }
+        : null
+    };
+  }
+  
+  // 2. Fallback to weekly availability
+  const { data: barber } = await supabase
+    .from('barbers')
+    .select('availability')
+    .eq('id', barberId)
+    .maybeSingle();
+    
+  const daySchedule = getDaySchedule(barber?.availability, date);
+  if (daySchedule) {
+    return {
+      open: daySchedule.open || '09:00',
+      close: daySchedule.close || '20:00',
+      closed: Boolean(daySchedule.closed),
+      lunchBreak: null
+    };
+  }
+  
+  // 3. Fallback to shop operating hours
+  const shopHours = operatingHours[dayKey];
+  return {
+    open: shopHours.open,
+    close: shopHours.close,
+    closed: Boolean(shopHours.closed),
+    lunchBreak: (shopHours.hasLunchBreak && shopHours.lunchStart && shopHours.lunchEnd)
+      ? { start_time: shopHours.lunchStart, end_time: shopHours.lunchEnd }
+      : null
+  };
+};
+
+const isBarberClosedOnDate = async (barberId: string | undefined, date: Date, operatingHours?: OperatingHours) => {
+  if (!barberId) return false;
+  
+  if (operatingHours) {
+    const hours = await getBarberWorkingHours(barberId, date, operatingHours);
+    return Boolean(hours?.closed);
+  }
+
+  const dateStr = formatLocalDate(date);
+  
+  // 1. Check monthly schedule first
+  const { data: monthlySchedule } = await supabase
+    .from('barber_schedules' as any)
+    .select('closed')
+    .eq('barber_id', barberId)
+    .eq('date', dateStr)
+    .maybeSingle();
+    
+  if (monthlySchedule) {
+    return Boolean((monthlySchedule as any).closed);
+  }
+  
+  // 2. Fallback to weekly availability
+  const { data: barber } = await supabase
+    .from('barbers')
+    .select('availability')
+    .eq('id', barberId)
+    .maybeSingle();
+    
   const daySchedule = getDaySchedule(barber?.availability, date);
   return Boolean(daySchedule?.closed);
+};
+
+// Helper function to format date in local timezone (not UTC)
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 const getFooterInfo = (value: SiteConfigRecord["config_value"]): FooterInfoConfig | null => {
@@ -489,16 +583,23 @@ const Booking = () => {
       const timeSlots = getTimeSlotsForDate(today);
       const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
       const result: Record<string, boolean> = {};
-      const availableBarbersForSelectedDate = !formData.date
-        ? barbers
-        : barbers.filter((barber) => !isBarberClosedOnDate(barber, new Date(formData.date + 'T00:00:00')));
+      const availableBarbersForSelectedDate = [];
+      if (!formData.date) {
+        availableBarbersForSelectedDate.push(...barbers);
+      } else {
+        for (const barber of barbers) {
+          const isClosed = await isBarberClosedOnDate(barber.id, new Date(formData.date + 'T00:00:00'));
+          if (!isClosed) availableBarbersForSelectedDate.push(barber);
+        }
+      }
 
       for (const barber of availableBarbersForSelectedDate) {
         if (!isOpen) {
           result[barber.id] = false;
           continue;
         }
-        const barberAvailableToday = !isBarberClosedOnDate(barber, today);
+        const barberHours = await getBarberWorkingHours(barber.id, today, operatingHours);
+        const barberAvailableToday = !barberHours?.closed;
         if (!barberAvailableToday) {
           result[barber.id] = false;
           continue;
@@ -515,13 +616,34 @@ const Booking = () => {
           .eq('barber_id', barber.id)
           .eq('date', todayStr);
         
-        const availableTodaySlots = timeSlots.filter((slot) => {
+        // Generate slots based on the barber's own open/close, not the shop-wide slots
+        const barberOpen = barberHours?.open || '09:00';
+        const barberClose = barberHours?.close || '20:00';
+        const [openH, openM] = barberOpen.split(':').map(Number);
+        const [closeH, closeM] = barberClose.split(':').map(Number);
+        const closeMinutes = closeH * 60 + closeM;
+        const barberSlots: string[] = [];
+        let curH = openH, curM = openM;
+        while (curH * 60 + curM < closeMinutes) {
+          barberSlots.push(`${String(curH).padStart(2, '0')}:${String(curM).padStart(2, '0')}`);
+          curM += 30;
+          if (curM >= 60) { curM = 0; curH += 1; }
+        }
+
+        // Merge barber_breaks with lunch break from monthly schedule
+        const allBreaks: BreakSlot[] = [
+          ...((breaks || []) as BreakSlot[]),
+          ...(barberHours?.lunchBreak ? [barberHours.lunchBreak] : [])
+        ];
+
+        const availableTodaySlots = barberSlots.filter((slot) => {
           if (slot < currentTime) return false;
           const hasConflict = isTimeConflict(
             slot,
             serviceDuration,
             (appointments || []) as AppointmentWithServiceDuration[],
-            (breaks || []) as BreakSlot[]
+            allBreaks,
+            barberHours?.close
           );
           return !hasConflict;
         });
@@ -532,16 +654,25 @@ const Booking = () => {
     run();
   }, [step, formData.date, formData.service, barbers, services, getTimeSlotsForDate, isDateOpen]);
 
-  // Filter barbers based on selected date and their availability
-  const getAvailableBarbers = useCallback(() => {
-    if (!formData.date) return barbers;
-    
-    const selectedDate = new Date(formData.date + 'T00:00:00');
-    return barbers.filter(barber => {
-      if (!barber.availability) return true; // Backwards compatibility
+  const [availableBarbers, setAvailableBarbers] = useState<BarberRecord[]>([]);
+
+  useEffect(() => {
+    const filterBarbers = async () => {
+      if (!formData.date) {
+        setAvailableBarbers(barbers);
+        return;
+      }
       
-      return !isBarberClosedOnDate(barber, selectedDate);
-    });
+      const selectedDate = new Date(formData.date + 'T00:00:00');
+      const filtered = [];
+      for (const barber of barbers) {
+        const isClosed = await isBarberClosedOnDate(barber.id, selectedDate);
+        if (!isClosed) filtered.push(barber);
+      }
+      setAvailableBarbers(filtered);
+    };
+    
+    filterBarbers();
   }, [barbers, formData.date]);
 
   const handleServiceSelect = (service: ServiceRecord) => {
@@ -562,8 +693,9 @@ const Booking = () => {
     // Verificar se hoje está dentro do horário de funcionamento
     const isTodayOpen = isDateOpen(today);
     
-    // Verificar se o barbeiro está disponível hoje
-    const barberAvailableToday = !isBarberClosedOnDate(barber, today);
+    // Get barber's working hours for today
+    const barberHours = await getBarberWorkingHours(barber.id, today, operatingHours);
+    const barberAvailableToday = !barberHours?.closed;
 
     // Se a barbearia está fechada hoje, pular verificação (não há horários mesmo)
     if (!isTodayOpen) {
@@ -589,7 +721,6 @@ const Booking = () => {
 
     // Verificar se há horários disponíveis hoje
     try {
-      const todayTimeSlots = getTimeSlotsForDate(today);
       const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
 
       // Buscar agendamentos existentes para hoje
@@ -609,44 +740,37 @@ const Booking = () => {
 
       const serviceDuration = getServiceDuration(formData.service, services);
 
-      // Get barber's working hours for today
-      const dayKey = getDayKey(today);
-      const shopHours = operatingHours[dayKey];
-      const daySchedule = getDaySchedule(barber.availability, today);
-      const barberOpen = daySchedule?.open || shopHours.open;
-      const barberClose = daySchedule?.close || shopHours.close;
+      const barberOpen = barberHours?.open || '09:00';
+      const barberClose = barberHours?.close || '20:00';
+
+      // Gerar slots baseados nos horários do próprio barbeiro (não da loja)
+      const [openH, openM] = barberOpen.split(':').map(Number);
+      const [closeH, closeM] = barberClose.split(':').map(Number);
+      const closeMinutes = closeH * 60 + closeM;
+      const barberSlots: string[] = [];
+      let curH = openH, curM = openM;
+      while (curH * 60 + curM < closeMinutes) {
+        barberSlots.push(`${String(curH).padStart(2, '0')}:${String(curM).padStart(2, '0')}`);
+        curM += 30;
+        if (curM >= 60) { curM = 0; curH += 1; }
+      }
+
+      // Incluir horário de almoço do agendamento mensal como break
+      const allBreaks: BreakSlot[] = [
+        ...((breaks || []) as BreakSlot[]),
+        ...(barberHours?.lunchBreak ? [barberHours.lunchBreak] : [])
+      ];
 
       // Verificar se há horários disponíveis hoje
-      const availableTodaySlots = todayTimeSlots.filter(slot => {
-        // 1. Check if slot is within barber's working hours
-        // O horário de início deve ser estritamente menor que o horário de fechamento
-        if (slot >= barberClose) {
-          return false;
-        }
+      const availableTodaySlots = barberSlots.filter(slot => {
+        if (slot < currentTime) return false;
 
-        const slotEndTime = addMinutesToTime(slot, serviceDuration);
-        
-        // O horário de término não pode ultrapassar o fechamento
-        if (slotEndTime > barberClose) {
-          return false;
-        }
-
-        // 2. Permitir agendar o slot atual se ainda estivermos nos primeiros 10 minutos dele
-        // Isso deve ser consistente com src/utils/availability.ts
-        const [hour, minute] = slot.split(':').map(Number);
-        const [currentHour, currentMinute] = currentTime.split(':').map(Number);
-        const slotTotalMinutes = hour * 60 + minute;
-        const nowTotalMinutes = currentHour * 60 + currentMinute;
-        if (slotTotalMinutes < (nowTotalMinutes - 10)) {
-          return false;
-        }
-
-        // Verificar conflitos com agendamentos existentes e pausas
+        // Verificar conflitos com agendamentos existentes e pausas (incluindo almoço)
         const hasConflict = isTimeConflict(
           slot,
           serviceDuration,
           (appointments || []) as AppointmentWithServiceDuration[],
-          (breaks || []) as BreakSlot[],
+          allBreaks,
           barberClose
         );
         return !hasConflict;
@@ -749,11 +873,12 @@ const Booking = () => {
       
       // Check if barber is available on this date
       const selectedBarber = barbers.find(b => b.id === currentFormData.barber);
-      let barberAvailable = true;
-      barberAvailable = !isBarberClosedOnDate(selectedBarber, checkDate);
+      if (!selectedBarber) continue;
+      
+      const barberHours = await getBarberWorkingHours(selectedBarber.id, checkDate, operatingHours);
       
       // Skip closed days or days when barber is unavailable
-      if (!dateIsOpen || !barberAvailable) {
+      if (!dateIsOpen || barberHours?.closed) {
         continue;
       }
       
@@ -776,8 +901,7 @@ const Booking = () => {
       // Adicionar verificação de almoço
       let lunchBreak: { start_time: string; end_time: string } | null = null;
       try {
-        const barber = barbers.find(b => b.id === currentFormData.barber);
-        lunchBreak = getLunchBreakFromSchedule(barber?.availability, checkDate);
+        lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, checkDate);
       } catch (e) { console.warn('Falha ao validar almoço em findNextAvailableDateTime:', e); }
 
       const combinedBreaks = [
@@ -792,12 +916,8 @@ const Booking = () => {
 
       const serviceDuration = getServiceDuration(currentFormData.service, services);
       
-      // Get barber's working hours for the day
-      const dayKey = getDayKey(checkDate);
-      const shopHours = operatingHours[dayKey];
-      const daySchedule = getDaySchedule(selectedBarber?.availability, checkDate);
-      const barberOpen = daySchedule?.open || shopHours.open;
-      const barberClose = daySchedule?.close || shopHours.close;
+      const barberOpen = barberHours?.open || '09:00';
+      const barberClose = barberHours?.close || '20:00';
 
       // Filter out past times if it's today
       const isToday = checkDate.toDateString() === today.toDateString();
@@ -865,14 +985,16 @@ const Booking = () => {
       
       // Respeitar disponibilidade diária do barbeiro (dias fechados e almoço)
       const selectedBarber = barbers.find(b => b.id === formData.barber);
+      if (!selectedBarber) return [];
+
+      const barberHours = await getBarberWorkingHours(selectedBarber.id, selectedDate, operatingHours);
+      if (barberHours?.closed) return [];
+
       let lunchBreak: { start_time: string; end_time: string } | null = null;
       
       // 1. Verificar almoço na disponibilidade do barbeiro (prioridade)
       if (selectedBarber?.availability) {
         try {
-          if (isBarberClosedOnDate(selectedBarber, selectedDate)) {
-            return [];
-          }
           lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, selectedDate);
         } catch (err) {
           console.error('Error parsing barber availability (getAvailableSlotsForDate):', err);
@@ -939,12 +1061,9 @@ const Booking = () => {
         console.warn('Error loading barber breaks:', breaksError);
       }
 
-      const currentDayKey = getDayKey(selectedDate);
-      const shopHours = operatingHours[currentDayKey];
-      const daySchedule = getDaySchedule(selectedBarber?.availability, selectedDate);
       const workingHours = {
-        open: daySchedule?.open || shopHours.open,
-        close: daySchedule?.close || shopHours.close
+        open: barberHours?.open || '09:00',
+        close: barberHours?.close || '20:00'
       };
 
       // Base slots compartilhados com o agendamento local (sincronização)
@@ -1123,17 +1242,20 @@ const Booking = () => {
       // Verificar se o barbeiro está fechado neste dia
       const selectedDate = new Date(formData.date + 'T00:00:00');
       const selectedBarber = barbers.find(b => b.id === formData.barber);
+      if (!selectedBarber) return;
+
+      const barberHours = await getBarberWorkingHours(selectedBarber.id, selectedDate, operatingHours);
+      if (barberHours?.closed) {
+        toast.error("Barbeiro indisponível nesta data", {
+          description: "Este barbeiro bloqueou a agenda para este dia.",
+        });
+        return;
+      }
+
       let lunchBreak: { start_time: string; end_time: string } | null = null;
 
       try {
         if (selectedBarber?.availability) {
-          const dayAvailability = getDaySchedule(selectedBarber.availability, selectedDate);
-          if (dayAvailability?.closed) {
-            toast.error("Barbeiro indisponível nesta data", {
-              description: "Este barbeiro bloqueou a agenda para este dia.",
-            });
-            return;
-          }
           lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, selectedDate);
         }
       } catch (err) {
@@ -1351,7 +1473,10 @@ const Booking = () => {
 
   const handleBack = () => {
     if (step === "barber") setStep("service");
-    else if (step === "time") setStep("barber");
+    else if (step === "time") {
+      setFormData({ ...formData, barber: "", barberName: "", date: "", time: "" });
+      setStep("barber");
+    }
     else if (step === "form") setStep("time");
   };
 
@@ -1424,7 +1549,7 @@ const Booking = () => {
         ) : step === "barber" ? (
           <div className="max-w-7xl mx-auto">
             <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6">
-              {getAvailableBarbers().map((barber, index) => (
+              {availableBarbers.map((barber, index) => (
                 <Card key={index} className="cursor-pointer overflow-hidden" onClick={() => handleBarberSelect(barber)}>
                   <div className="relative h-48 md:h-56 overflow-hidden">
                     <img src={barber.image_url || defaultBarberImages[index] || barber1Img} alt={barber.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />

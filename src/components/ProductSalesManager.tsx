@@ -64,6 +64,7 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
     loadSales();
     
     // Subscribe to realtime changes
+    let removed = false;
     const channel = supabase
       .channel('product_sales_changes')
       .on(
@@ -74,14 +75,18 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
           table: 'product_sales',
           filter: `barber_id=eq.${barberId}`,
         },
-        () => {
-          loadSales();
-        }
+        () => { loadSales(); }
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !removed) {
+          removed = true;
+          setTimeout(() => { try { supabase.removeChannel(channel); } catch { /* ignore */ } }, 0);
+        }
+      });
 
     return () => {
-      supabase.removeChannel(channel);
+      removed = true;
+      try { supabase.removeChannel(channel); } catch { /* ignore */ }
     };
   }, [barberId]);
 

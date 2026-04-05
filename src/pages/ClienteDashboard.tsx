@@ -301,6 +301,7 @@ const ClienteDashboard = () => {
 
   useEffect(() => {
     if (!user) return;
+    let removed = false;
     const channel = supabase
       .channel(`client-appointments-${user.id}`)
       .on(
@@ -330,15 +331,17 @@ const ClienteDashboard = () => {
         }
       )
       .subscribe((status: string) => {
-        if (status !== 'SUBSCRIBED') {
-          console.warn('Realtime channel status:', status);
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !removed) {
+          removed = true;
+          setTimeout(() => { try { supabase.removeChannel(channel); } catch { /* ignore */ } }, 0);
         }
       });
     return () => {
+      removed = true;
       try {
         supabase.removeChannel(channel);
-      } catch (removeError) {
-        console.error('Error removing realtime channel:', removeError);
+      } catch {
+        // ignore
       }
     };
   }, [user, loadAppointments, loadServiceStats]);
