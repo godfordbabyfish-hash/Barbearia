@@ -898,11 +898,13 @@ const Booking = () => {
         .eq('barber_id', currentFormData.barber)
         .eq('date', dateStr);
       
-      // Adicionar verificação de almoço
-      let lunchBreak: { start_time: string; end_time: string } | null = null;
-      try {
-        lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, checkDate);
-      } catch (e) { console.warn('Falha ao validar almoço em findNextAvailableDateTime:', e); }
+      // Adicionar verificação de almoço — prioridade: escala mensal, fallback: semanal
+      let lunchBreak: { start_time: string; end_time: string } | null = barberHours?.lunchBreak ?? null;
+      if (!lunchBreak) {
+        try {
+          lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, checkDate);
+        } catch (e) { console.warn('Falha ao validar almoço em findNextAvailableDateTime:', e); }
+      }
 
       const combinedBreaks = [
         ...(breaks || []),
@@ -991,9 +993,14 @@ const Booking = () => {
       if (barberHours?.closed) return [];
 
       let lunchBreak: { start_time: string; end_time: string } | null = null;
-      
-      // 1. Verificar almoço na disponibilidade do barbeiro (prioridade)
-      if (selectedBarber?.availability) {
+
+      // 1. Prioridade máxima: almoço da escala mensal (barber_schedules)
+      if (barberHours?.lunchBreak) {
+        lunchBreak = barberHours.lunchBreak;
+      }
+
+      // 2. Fallback: almoço da disponibilidade semanal do barbeiro
+      if (!lunchBreak && selectedBarber?.availability) {
         try {
           lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, selectedDate);
         } catch (err) {
@@ -1001,7 +1008,7 @@ const Booking = () => {
         }
       }
       
-      // 2. Se não tiver almoço configurado no barbeiro, usar almoço da barbearia (fallback)
+      // 3. Fallback: almoço da barbearia
       if (!lunchBreak) {
         try {
           const { data: shopHours } = await supabase
@@ -1018,7 +1025,7 @@ const Booking = () => {
         }
       }
       
-      // 3. BLOQUEIO FORÇADO: Se for sábado e não tiver almoço configurado, aplicar almoço padrão (12:00-14:00)
+      // 4. BLOQUEIO FORÇADO: Se for sábado e não tiver almoço configurado, aplicar almoço padrão (12:00-14:00)
       const dayKey = getDayKey(selectedDate);
       if (!lunchBreak && dayKey === 'saturday') {
         lunchBreak = {
@@ -1252,14 +1259,17 @@ const Booking = () => {
         return;
       }
 
-      let lunchBreak: { start_time: string; end_time: string } | null = null;
+      // Prioridade: almoço da escala mensal (barber_schedules)
+      let lunchBreak: { start_time: string; end_time: string } | null = barberHours?.lunchBreak ?? null;
 
-      try {
-        if (selectedBarber?.availability) {
-          lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, selectedDate);
+      if (!lunchBreak) {
+        try {
+          if (selectedBarber?.availability) {
+            lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, selectedDate);
+          }
+        } catch (err) {
+          console.warn('Falha ao validar disponibilidade diária do barbeiro:', err);
         }
-      } catch (err) {
-        console.warn('Falha ao validar disponibilidade diária do barbeiro:', err);
       }
       
       // 1. Verificações rápidas em paralelo
