@@ -195,6 +195,9 @@ const getBarberWorkingHours = async (barberId: string, date: Date, operatingHour
       closed: Boolean(m.closed),
       lunchBreak: (m.has_lunch && m.lunch_start && m.lunch_end)
         ? { start_time: m.lunch_start as string, end_time: m.lunch_end as string }
+        : null,
+      pauseBreak: (m.has_pause && m.pause_start && m.pause_end)
+        ? { start_time: m.pause_start as string, end_time: m.pause_end as string }
         : null
     };
   }
@@ -630,10 +633,11 @@ const Booking = () => {
           if (curM >= 60) { curM = 0; curH += 1; }
         }
 
-        // Merge barber_breaks with lunch break from monthly schedule
+        // Merge barber_breaks with lunch break and pause from monthly schedule
         const allBreaks: BreakSlot[] = [
           ...((breaks || []) as BreakSlot[]),
-          ...(barberHours?.lunchBreak ? [barberHours.lunchBreak] : [])
+          ...(barberHours?.lunchBreak ? [barberHours.lunchBreak] : []),
+          ...(barberHours?.pauseBreak ? [barberHours.pauseBreak] : [])
         ];
 
         const availableTodaySlots = barberSlots.filter((slot) => {
@@ -755,10 +759,11 @@ const Booking = () => {
         if (curM >= 60) { curM = 0; curH += 1; }
       }
 
-      // Incluir horário de almoço do agendamento mensal como break
+      // Incluir horário de almoço e pausa do agendamento mensal como break
       const allBreaks: BreakSlot[] = [
         ...((breaks || []) as BreakSlot[]),
-        ...(barberHours?.lunchBreak ? [barberHours.lunchBreak] : [])
+        ...(barberHours?.lunchBreak ? [barberHours.lunchBreak] : []),
+        ...(barberHours?.pauseBreak ? [barberHours.pauseBreak] : [])
       ];
 
       // Verificar se há horários disponíveis hoje
@@ -909,6 +914,7 @@ const Booking = () => {
       const combinedBreaks = [
         ...(breaks || []),
         ...(lunchBreak ? [lunchBreak] : []),
+        ...(barberHours?.pauseBreak ? [barberHours.pauseBreak] : []),
       ];
 
       // Ignore 404/table not found errors (table might not exist)
@@ -1058,6 +1064,7 @@ const Booking = () => {
       const combinedBreaks = [
         ...(breaks || []),
         ...(lunchBreak ? [lunchBreak] : []),
+        ...(barberHours?.pauseBreak ? [barberHours.pauseBreak] : []),
       ];
 
       // Atualizar estado para exibir faixa de pausas (incluindo almoço recorrente)
@@ -1324,7 +1331,7 @@ const Booking = () => {
       // Verificar pausas do barbeiro (incluindo almoço)
       const serviceDuration = getServiceDuration(formData.service, services);
       const manualBreaks = (breaksResult.data || []) as BreakSlot[];
-      const combinedBreaks = [...manualBreaks, ...(lunchBreak ? [lunchBreak] : [])];
+      const combinedBreaks = [...manualBreaks, ...(lunchBreak ? [lunchBreak] : []), ...(barberHours?.pauseBreak ? [barberHours.pauseBreak] : [])];
 
       const isInBreak = isTimeConflict(formData.time, serviceDuration, [], combinedBreaks);
 
