@@ -189,15 +189,17 @@ const getBarberWorkingHours = async (barberId: string, date: Date, operatingHour
     
   if (monthly) {
     const m = monthly as any;
+    const trimTime = (t: string) => t ? t.substring(0, 5) : t;
     return {
-      open: m.open,
-      close: m.close,
+      open: trimTime(m.open),
+      close: trimTime(m.close),
       closed: Boolean(m.closed),
+      fromMonthly: true,
       lunchBreak: (m.has_lunch && m.lunch_start && m.lunch_end)
-        ? { start_time: m.lunch_start as string, end_time: m.lunch_end as string }
+        ? { start_time: trimTime(m.lunch_start as string), end_time: trimTime(m.lunch_end as string) }
         : null,
       pauseBreak: (m.has_pause && m.pause_start && m.pause_end)
-        ? { start_time: m.pause_start as string, end_time: m.pause_end as string }
+        ? { start_time: trimTime(m.pause_start as string), end_time: trimTime(m.pause_end as string) }
         : null
     };
   }
@@ -319,7 +321,7 @@ const Booking = () => {
   const { user, blocked } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const { operatingHours, getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
+  const { operatingHours, getTimeSlotsForDate, getTimeSlotsForDateRaw, isDateOpen, loading: hoursLoading } = useOperatingHours();
   const [step, setStep] = useState<BookingStep>("service");
   const [services, setServices] = useState<ServiceRecord[]>([]);
   const [barbers, setBarbers] = useState<BarberRecord[]>([]);
@@ -583,7 +585,7 @@ const Booking = () => {
       const todayStr = formatLocalDate(today);
       const isOpen = isDateOpen(today);
       const serviceDuration = getServiceDuration(formData.service, services);
-      const timeSlots = getTimeSlotsForDate(today);
+      const timeSlots = getTimeSlotsForDateRaw(today);
       const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
       const result: Record<string, boolean> = {};
       const availableBarbersForSelectedDate = [];
@@ -656,7 +658,7 @@ const Booking = () => {
       setBarberHasSlotsToday(result);
     };
     run();
-  }, [step, formData.date, formData.service, barbers, services, getTimeSlotsForDate, isDateOpen]);
+  }, [step, formData.date, formData.service, barbers, services, getTimeSlotsForDate, getTimeSlotsForDateRaw, isDateOpen]);
 
   const [availableBarbers, setAvailableBarbers] = useState<BarberRecord[]>([]);
 
@@ -861,7 +863,7 @@ const Booking = () => {
     // Check if today has any slots left - if not, start from tomorrow
     let startOffset = 0;
     if (isDateOpen(today)) {
-      const todaySlots = getTimeSlotsForDate(today);
+      const todaySlots = getTimeSlotsForDateRaw(today);
       const hasSlotsToday = todaySlots.some(slot => slot >= currentTime);
       if (!hasSlotsToday) {
         startOffset = 1; // Start from tomorrow if today has no more slots
@@ -887,7 +889,7 @@ const Booking = () => {
         continue;
       }
       
-      const dayTimeSlots = getTimeSlotsForDate(checkDate);
+      const dayTimeSlots = getTimeSlotsForDateRaw(checkDate);
       
       const { data: appointments } = await supabase
         .from('appointments')
@@ -903,9 +905,9 @@ const Booking = () => {
         .eq('barber_id', currentFormData.barber)
         .eq('date', dateStr);
       
-      // Adicionar verificação de almoço — prioridade: escala mensal, fallback: semanal
+      // Escala mensal é autoritativa — só aplicar fallback semanal se não há registro mensal
       let lunchBreak: { start_time: string; end_time: string } | null = barberHours?.lunchBreak ?? null;
-      if (!lunchBreak) {
+      if (!barberHours?.fromMonthly && !lunchBreak) {
         try {
           lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, checkDate);
         } catch (e) { console.warn('Falha ao validar almoço em findNextAvailableDateTime:', e); }
@@ -998,46 +1000,43 @@ const Booking = () => {
       const barberHours = await getBarberWorkingHours(selectedBarber.id, selectedDate, operatingHours);
       if (barberHours?.closed) return [];
 
-      let lunchBreak: { start_time: string; end_time: string } | null = null;
+      // Se barberHours veio do barber_schedules (fromMonthly=true), ele é autoritativo:
+      // lunchBreak = null significa que o barbeiro NÃO tem almoço nesse dia.
+      // Só aplicar fallbacks se não houver registro mensal.
+      let lunchBreak: { start_time: string; end_time: string } | null =
+        barberHours?.lunchBreak ?? null;
 
-      // 1. Prioridade máxima: almoço da escala mensal (barber_schedules)
-      if (barberHours?.lunchBreak) {
-        lunchBreak = barberHours.lunchBreak;
-      }
-
-      // 2. Fallback: almoço da disponibilidade semanal do barbeiro
-      if (!lunchBreak && selectedBarber?.availability) {
-        try {
-          lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, selectedDate);
-        } catch (err) {
-          console.error('Error parsing barber availability (getAvailableSlotsForDate):', err);
-        }
-      }
-      
-      // 3. Fallback: almoço da barbearia
-      if (!lunchBreak) {
-        try {
-          const { data: shopHours } = await supabase
-            .from('site_config')
-            .select('config_value')
-            .eq('config_key', 'operating_hours')
-            .maybeSingle();
-          
-          if (shopHours?.config_value) {
-            lunchBreak = getLunchBreakFromSchedule(shopHours.config_value, selectedDate);
+      if (!barberHours?.fromMonthly) {
+        // Fallback 1: almoço da disponibilidade semanal do barbeiro
+        if (!lunchBreak && selectedBarber?.availability) {
+          try {
+            lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, selectedDate);
+          } catch (err) {
+            console.error('Error parsing barber availability (getAvailableSlotsForDate):', err);
           }
-        } catch (err) {
-          console.error('Error loading shop operating hours for lunch break:', err);
         }
-      }
-      
-      // 4. BLOQUEIO FORÇADO: Se for sábado e não tiver almoço configurado, aplicar almoço padrão (12:00-14:00)
-      const dayKey = getDayKey(selectedDate);
-      if (!lunchBreak && dayKey === 'saturday') {
-        lunchBreak = {
-          start_time: '12:00',
-          end_time: '14:00',
-        };
+
+        // Fallback 2: almoço da barbearia
+        if (!lunchBreak) {
+          try {
+            const { data: shopHours } = await supabase
+              .from('site_config')
+              .select('config_value')
+              .eq('config_key', 'operating_hours')
+              .maybeSingle();
+            if (shopHours?.config_value) {
+              lunchBreak = getLunchBreakFromSchedule(shopHours.config_value, selectedDate);
+            }
+          } catch (err) {
+            console.error('Error loading shop operating hours for lunch break:', err);
+          }
+        }
+
+        // Fallback 3: sábado sem almoço configurado
+        const dayKey = getDayKey(selectedDate);
+        if (!lunchBreak && dayKey === 'saturday') {
+          lunchBreak = { start_time: '12:00', end_time: '14:00' };
+        }
       }
       
       // Check if barbershop is open on this day
@@ -1081,9 +1080,10 @@ const Booking = () => {
       };
 
       // Base slots compartilhados com o agendamento local (sincronização)
+      // Usa Raw para não pré-filtrar almoço da loja (breaks do barbeiro já estão em combinedBreaks)
       const baseSlots = getAvailableSlotsForBarber(
         selectedDate,
-        getTimeSlotsForDate,
+        getTimeSlotsForDateRaw,
         ((appointments || []) as AppointmentWithServiceDuration[]).map((appointment) => ({
           appointment_time: appointment.appointment_time,
           duration: appointment.service?.duration,
@@ -1092,7 +1092,7 @@ const Booking = () => {
       );
       // Ajustar pelos conflitos do serviço selecionado (duração)
       const serviceDuration = getServiceDuration(formData.service, services);
-      return baseSlots.filter(slot => {
+      const finalSlots = baseSlots.filter(slot => {
         // 1. Garantir que o slot de início seja estritamente menor que o fechamento do barbeiro
         if (slot >= workingHours.close) {
           return false;
@@ -1107,11 +1107,12 @@ const Booking = () => {
           workingHours.close
         );
       });
+      return finalSlots;
     } catch (error) {
       console.error('Error in getAvailableSlotsForDate:', error);
       return [];
     }
-  }, [barbers, formData.barber, formData.date, formData.service, getTimeSlotsForDate, hoursLoading, isDateOpen, services]);
+  }, [barbers, formData.barber, formData.date, formData.service, getTimeSlotsForDate, getTimeSlotsForDateRaw, hoursLoading, isDateOpen, services]);
 
   const loadAvailableSlots = useCallback(async () => {
     if (loadingSlots) return; // Prevenir múltiplas chamadas simultâneas
@@ -1266,10 +1267,10 @@ const Booking = () => {
         return;
       }
 
-      // Prioridade: almoço da escala mensal (barber_schedules)
+      // Escala mensal é autoritativa — só aplicar fallback semanal se não há registro mensal
       let lunchBreak: { start_time: string; end_time: string } | null = barberHours?.lunchBreak ?? null;
 
-      if (!lunchBreak) {
+      if (!barberHours?.fromMonthly && !lunchBreak) {
         try {
           if (selectedBarber?.availability) {
             lunchBreak = getLunchBreakFromSchedule(selectedBarber.availability, selectedDate);
