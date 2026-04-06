@@ -42,6 +42,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const [availableSlotsByBarber, setAvailableSlotsByBarber] = useState<Record<string, string[]>>({});
   type BreakRow = { id?: string; start_time: string; end_time: string };
   const [barberBreaksByBarber, setBarberBreaksByBarber] = useState<Record<string, BreakRow[]>>({});
+  const [barberMonthlySchedules, setBarberMonthlySchedules] = useState<Record<string, any>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState("");
   const [quickBookingOpen, setQuickBookingOpen] = useState(false);
@@ -187,6 +188,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       `)
       .eq("appointment_date", today)
       .neq("status", "completed")
+      .neq("status", "cancelled")
       .order("appointment_time");
 
     if (error) {
@@ -267,6 +269,35 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     console.log("Loaded barbers:", data);
     setBarbers(data || []);
 
+    // Load today's monthly schedules for all barbers
+    try {
+      const todayStr = format(new Date(), "yyyy-MM-dd");
+      const barberIds = (data || []).map((b: any) => b.id);
+      if (barberIds.length > 0) {
+        const { data: schedules } = await supabase
+          .from('barber_schedules' as any)
+          .select('*')
+          .in('barber_id', barberIds)
+          .eq('date', todayStr);
+        const trimTime = (t: string) => t ? String(t).substring(0, 5) : t;
+        const map: Record<string, any> = {};
+        (schedules || []).forEach((s: any) => {
+          map[s.barber_id] = {
+            open: trimTime(s.open),
+            close: trimTime(s.close),
+            closed: Boolean(s.closed),
+            fromMonthly: true,
+            lunchBreak: (s.has_lunch && s.lunch_start && s.lunch_end)
+              ? { start_time: trimTime(s.lunch_start), end_time: trimTime(s.lunch_end) }
+              : null,
+          };
+        });
+        setBarberMonthlySchedules(map);
+      }
+    } catch (e) {
+      console.warn('Could not load barber monthly schedules:', e);
+    }
+
     try {
       const { data: auth } = await supabase.auth.getUser();
       const uid = auth?.user?.id || null;
@@ -338,6 +369,11 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const todayDate = new Date();
 
   const isBarberClosedToday = (barber: any) => {
+    // Prioridade: escala mensal (barber_schedules)
+    if (barberMonthlySchedules[barber.id]) {
+      return Boolean(barberMonthlySchedules[barber.id].closed);
+    }
+    // Fallback: disponibilidade semanal
     try {
       const availability = typeof barber.availability === "string"
         ? JSON.parse(barber.availability)
@@ -352,6 +388,13 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   };
 
   const getBarberAvailableUntilToday = (barber: any): string | null => {
+    // Prioridade: escala mensal (barber_schedules)
+    const monthly = barberMonthlySchedules[barber.id];
+    if (monthly) {
+      if (monthly.closed) return null;
+      return monthly.close || null;
+    }
+    // Fallback: disponibilidade semanal
     try {
       const availability = typeof barber.availability === "string"
         ? JSON.parse(barber.availability)
@@ -388,35 +431,51 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       // Se o barbeiro marcou o dia como fechado, não exibir slots
       let isClosed = false;
       let workingHours: { open: string; close: string } | undefined = undefined;
-      try {
-        const availability = typeof barber.availability === "string"
-          ? JSON.parse(barber.availability)
-          : barber.availability;
-        if (availability) {
-          const dayKeyMap = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const;
-          const dayKey = dayKeyMap[todayDate.getDay()];
-          const dayAvailability = availability?.[dayKey];
-          isClosed = Boolean(dayAvailability?.closed);
-          if (!isClosed) {
+      let lunchBreak: BarberBreak | null = null;
+
+      // Prioridade: escala mensal (barber_schedules)
+      const monthly = barberMonthlySchedules[barber.id];
+      if (monthly) {
+        isClosed = monthly.closed;
+        if (!isClosed) {
+          workingHours = { open: monthly.open, close: monthly.close };
+          lunchBreak = monthly.lunchBreak || null;
+        }
+      } else {
+        // Fallback: disponibilidade semanal
+        try {
+          const availability = typeof barber.availability === "string"
+            ? JSON.parse(barber.availability)
+            : barber.availability;
+          if (availability) {
             const dayKeyMap = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const;
             const dayKey = dayKeyMap[todayDate.getDay()];
-            const shopHours = operatingHours[dayKey];
-            workingHours = {
-              open: dayAvailability?.open || shopHours.open,
-              close: dayAvailability?.close || shopHours.close,
-            };
+            const dayAvailability = availability?.[dayKey];
+            isClosed = Boolean(dayAvailability?.closed);
+            if (!isClosed) {
+              const shopHours = operatingHours[dayKey];
+              workingHours = {
+                open: dayAvailability?.open || shopHours.open,
+                close: dayAvailability?.close || shopHours.close,
+              };
+            }
           }
-        }
-      } catch {}
+        } catch {}
+      }
+
+      const allBreaks: BarberBreak[] = [
+        ...(barberBreaksByBarber[barber.id] || []),
+        ...(lunchBreak ? [lunchBreak] : []),
+      ];
       next[barber.id] = isClosed ? [] : getAvailableSlotsForBarber(
         todayDate,
         getTimeSlotsForDate,
         barberAppointmentsToday,
-        { filterPastSlots: true, breaks: barberBreaksByBarber[barber.id] || [], workingHours }
+        { filterPastSlots: true, breaks: allBreaks, workingHours }
       );
     });
     setAvailableSlotsByBarber(next);
-  }, [barbers, appointments, today, hoursLoading, barberBreaksByBarber]);
+  }, [barbers, appointments, today, hoursLoading, barberBreaksByBarber, barberMonthlySchedules]);
 
   const localAppointments = appointments.filter((apt) => apt.booking_type === "local");
   const onlineAppointments = appointments.filter((apt) => apt.booking_type === "online");

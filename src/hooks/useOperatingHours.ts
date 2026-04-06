@@ -136,6 +136,37 @@ export const useOperatingHours = () => {
     return slots;
   };
 
+  // Generate all slots without filtering shop lunch break.
+  // Use this when generating slots for a specific barber — the barber's own
+  // breaks (from barber_schedules) are applied separately in combinedBreaks,
+  // so the shop lunch must NOT pre-filter the base list or the slot at the
+  // exact end of the lunch (e.g. 13:00 when lunch ends at 13:00) gets lost.
+  const getTimeSlotsForDateRaw = (date: Date): string[] => {
+    const dayKey = getDayKey(date);
+    const dayHours = operatingHours[dayKey];
+
+    if (dayHours.closed) return [];
+
+    const slots: string[] = [];
+    const [openHour, openMin] = dayHours.open.split(':').map(Number);
+    const [closeHour, closeMin] = dayHours.close.split(':').map(Number);
+    const closeTime = closeHour * 60 + closeMin;
+
+    let currentHour = openHour;
+    let currentMin = openMin;
+
+    while (currentHour * 60 + currentMin < closeTime) {
+      slots.push(`${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`);
+      currentMin += 30;
+      if (currentMin >= 60) {
+        currentMin = 0;
+        currentHour += 1;
+      }
+    }
+
+    return slots;
+  };
+
   const isDateOpen = (date: Date): boolean => {
     const dayKey = getDayKey(date);
     return !operatingHours[dayKey].closed;
@@ -146,6 +177,7 @@ export const useOperatingHours = () => {
     setOperatingHours,
     saveOperatingHours,
     getTimeSlotsForDate,
+    getTimeSlotsForDateRaw,
     isDateOpen,
     loading,
   };

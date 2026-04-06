@@ -132,10 +132,13 @@ const Navbar = () => {
     setWifiDialogOpen(true);
   };
 
+  // Escape special chars per WiFi QR Code spec: \ ; , " :
+  const escapeWifi = (s: string) => s.replace(/([\\;,":'])/g, '\\$1');
+
   const generateWifiQRCode = async () => {
     try {
       // Formato padrão WiFi para QR Code (funciona em Android e iOS)
-      const wifiString = `WIFI:T:WPA;S:${wifiCredentials.username};P:${wifiCredentials.password};H:false;;`;
+      const wifiString = `WIFI:T:WPA;S:${escapeWifi(wifiCredentials.username)};P:${escapeWifi(wifiCredentials.password)};H:;;`;
       
       // Gerar QR Code usando API pública (alternativa simples)
       const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(wifiString)}`;
@@ -148,7 +151,7 @@ const Navbar = () => {
 
   const copyWifiCredentials = async () => {
     try {
-      const wifiString = `WIFI:T:WPA;S:${wifiCredentials.username};P:${wifiCredentials.password};H:false;;`;
+      const wifiString = `WIFI:T:WPA;S:${escapeWifi(wifiCredentials.username)};P:${escapeWifi(wifiCredentials.password)};H:;;`;
       await navigator.clipboard.writeText(wifiString);
       
       toast.success('✅ Credenciais copiadas!', {
@@ -165,7 +168,7 @@ const Navbar = () => {
   };
 
   const connectToWifi = async () => {
-    const wifiString = `WIFI:T:WPA;S:${wifiCredentials.username};P:${wifiCredentials.password};H:false;;`;
+    const wifiString = `WIFI:T:WPA;S:${escapeWifi(wifiCredentials.username)};P:${escapeWifi(wifiCredentials.password)};H:;;`;
     
     // Detectar dispositivo
     const isAndroid = navigator.userAgent.match(/Android/i);
@@ -675,22 +678,35 @@ const Navbar = () => {
             </div>
 
             {/* Botões de ação */}
-            <div className="flex gap-3">
-              <Button
-                onClick={connectToWifi}
-                className="flex-1 bg-blue-600 hover:bg-blue-700"
+            <div className="flex flex-col gap-2">
+              <a
+                href={`WIFI:T:WPA;S:${escapeWifi(wifiCredentials.username)};P:${escapeWifi(wifiCredentials.password)};H:;;`}
+                className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-md bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors"
               >
-                <Smartphone className="w-4 h-4 mr-2" />
-                Abrir Configurações
-              </Button>
-              <Button
-                onClick={copyWifiCredentials}
-                variant="outline"
-                className="flex-1"
-              >
-                <Copy className="w-4 h-4 mr-2" />
-                Copiar Dados
-              </Button>
+                <Wifi className="w-4 h-4" />
+                Conectar ao WiFi
+              </a>
+              <div className="flex gap-2">
+                <Button
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(wifiCredentials.password);
+                    toast.success('Senha copiada!', { duration: 2000 });
+                  }}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copiar Senha
+                </Button>
+                <Button
+                  onClick={copyWifiCredentials}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copiar Dados
+                </Button>
+              </div>
             </div>
 
             {/* Destaque para QR Code */}
