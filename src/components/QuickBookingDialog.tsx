@@ -210,8 +210,6 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
          // Ensure slot doesn't end after barber's closing time
          if (slotEnd > barberClose) return 'past';
 
-         // Bloqueia também o slot imediatamente após a pausa (quando slot inicia exatamente no fim da pausa)
-         if (breakRanges.some(r => r.end === slot)) return 'break';
          if (breakRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return 'break';
          if (apptRanges.some(r => overlaps(slot, slotEnd, r.start, r.end))) return 'booked';
          return 'available';
