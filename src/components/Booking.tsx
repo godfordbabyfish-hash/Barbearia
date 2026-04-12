@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { User as SupabaseUser, RealtimeChannel } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1156,38 +1156,34 @@ const Booking = () => {
     if (step !== "success" && formData.date && formData.barber && formData.service && !hoursLoading) {
       loadAvailableSlots();
     }
-
-    let channel: RealtimeChannel | null = null;
-    if (step !== "success" && formData.date && formData.barber && formData.service && !hoursLoading) {
-      channel = supabase
-        .channel('booking-appointments')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'appointments',
-            filter: `barber_id=eq.${formData.barber}`,
-          },
-          () => {
-            console.log('Appointment change detected, forcing full reload...');
-            setTimeout(() => {
-              if (formData.date && formData.barber && formData.service) {
-                setAvailableSlots([]);
-                loadAvailableSlots();
-              }
-            }, 300);
-          }
-        )
-        .subscribe();
-    }
-
-    return () => {
-      if (channel) {
-        supabase.removeChannel(channel);
-      }
-    };
   }, [formData.date, formData.barber, formData.service, hoursLoading, loadAvailableSlots, step]);
+
+  // Subscription Realtime separada — recriada só quando o barbeiro muda
+  const loadAvailableSlotsRef = useRef(loadAvailableSlots);
+  useEffect(() => { loadAvailableSlotsRef.current = loadAvailableSlots; }, [loadAvailableSlots]);
+
+  useEffect(() => {
+    if (!formData.barber) return;
+    const channel = supabase
+      .channel(`booking-appointments-${formData.barber}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'appointments',
+          filter: `barber_id=eq.${formData.barber}`,
+        },
+        () => {
+          setTimeout(() => {
+            setAvailableSlots([]);
+            loadAvailableSlotsRef.current();
+          }, 300);
+        }
+      )
+      .subscribe();
+    return () => { try { supabase.removeChannel(channel); } catch { /* ignore */ } };
+  }, [formData.barber]);
 
 
   const handleTimeSelect = (time: string) => {

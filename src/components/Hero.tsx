@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Scissors } from "lucide-react";
 import heroImage from "@/assets/hero-barber.jpg";
-import { supabase } from "@/integrations/supabase/client";
+import { getSiteConfig } from '@/lib/siteConfigCache';
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,14 +28,9 @@ const Hero = () => {
   }, []);
 
   const loadHeroConfig = async () => {
-    const { data, error } = await supabase
-      .from('site_config')
-      .select('config_value')
-      .eq('config_key', 'hero_section')
-      .single();
-
-    if (!error && data) {
-      setConfig(data.config_value as unknown as HeroConfig);
+    const value = await getSiteConfig('hero_section');
+    if (value) {
+      setConfig(value as unknown as HeroConfig);
     }
   };
 

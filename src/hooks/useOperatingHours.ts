@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { getSiteConfig, invalidateSiteConfig } from '@/lib/siteConfigCache';
 
 export interface DayHours {
   open: string;
@@ -59,14 +60,9 @@ export const useOperatingHours = () => {
   }, []);
 
   const loadOperatingHours = async () => {
-    const { data, error } = await supabase
-      .from('site_config')
-      .select('config_value')
-      .eq('config_key', 'operating_hours')
-      .maybeSingle();
-
-    if (!error && data) {
-      setOperatingHours(data.config_value as unknown as OperatingHours);
+    const value = await getSiteConfig('operating_hours');
+    if (value) {
+      setOperatingHours(value as unknown as OperatingHours);
     }
     setLoading(false);
   };
@@ -81,6 +77,7 @@ export const useOperatingHours = () => {
 
     if (!error) {
       setOperatingHours(hours);
+      invalidateSiteConfig('operating_hours');
     }
     return { error };
   };
