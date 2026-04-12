@@ -649,27 +649,65 @@ const BarbeiroDashboard = () => {
 
       let combined: TodayBreakItem[] = (breaksData || []) as TodayBreakItem[];
 
+      // 1. Carregar almoço da escala mensal (prioridade) ou disponibilidade semanal
       try {
-        const barber = barbers.find((item) => item.id === barberId);
-        const lunchBreak = getLunchBreakForDate(barber?.availability, new Date(todayStr + 'T00:00:00'));
-        if (lunchBreak) {
-          combined = [
-            ...combined,
-            {
+        const { data: mSchedule } = await supabase
+          .from('barber_schedules')
+          .select('has_lunch, lunch_start, lunch_end, has_pause, pause_start, pause_end')
+          .eq('barber_id', barberId)
+          .eq('date', todayStr)
+          .maybeSingle();
+
+        if (mSchedule?.has_lunch && mSchedule.lunch_start && mSchedule.lunch_end) {
+          combined.push({
+            id: `lunch-${barberId}-${todayStr}`,
+            date: todayStr,
+            start_time: mSchedule.lunch_start,
+            end_time: mSchedule.lunch_end,
+            notes: 'Almoço',
+            isLunch: true,
+          });
+        } else {
+          // Fallback: almoço da disponibilidade semanal
+          let barber = barbers.find((item) => item.id === barberId);
+          if (!barber) {
+            const { data: barberData } = await supabase
+              .from('barbers')
+              .select('availability')
+              .eq('id', barberId)
+              .maybeSingle();
+            barber = barberData as any;
+          }
+          const lunchBreak = getLunchBreakForDate(barber?.availability, new Date(todayStr + 'T00:00:00'));
+          if (lunchBreak) {
+            combined.push({
               id: `lunch-${barberId}-${todayStr}`,
               date: todayStr,
               start_time: lunchBreak.start_time,
               end_time: lunchBreak.end_time,
               notes: 'Almoço',
               isLunch: true,
-            },
-          ];
+            });
+          }
+        }
+
+        // 2. Carregar pausa da escala mensal
+        if (mSchedule?.has_pause && mSchedule.pause_start && mSchedule.pause_end) {
+          combined.push({
+            id: `pause-${barberId}-${todayStr}`,
+            date: todayStr,
+            start_time: mSchedule.pause_start,
+            end_time: mSchedule.pause_end,
+            notes: 'Pausa',
+            isLunch: false,
+          });
         }
       } catch (err) {
-        console.warn('Error loading lunch break for today:', err);
+        console.warn('Error loading schedule breaks for today:', err);
       }
 
       combined.sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)));
+      console.log('[DEBUG] todayBreaks loaded:', combined.length, combined);
       setTodayBreaks(combined);
     } catch (err) {
       console.error('Error in loadTodayBreaks:', err);
@@ -1026,6 +1064,10 @@ const BarbeiroDashboard = () => {
   // Sistema de notificações e Realtime
   const { isReady, showNotification } = useNotifications();
   const pendingNotifiedRef = useRef<Set<string>>(new Set());
+  const isReadyRef = useRef(isReady);
+  const showNotificationRef = useRef(showNotification);
+  useEffect(() => { isReadyRef.current = isReady; }, [isReady]);
+  useEffect(() => { showNotificationRef.current = showNotification; }, [showNotification]);
 
   // Lógica para detectar atualização do PWA
   useEffect(() => {
@@ -1046,9 +1088,9 @@ const BarbeiroDashboard = () => {
 
     console.log('📡 Setting up consolidated Realtime subscriptions for barber:', barberId);
 
-    const breaksChannelName = `barber-breaks-${barberId}-${Date.now()}`;
-    const lunchChannelName = `barber-lunch-${barberId}-${Date.now()}`;
-    const appointmentsChannelName = `appointments-barber-${barberId}-${Date.now()}`;
+    const breaksChannelName = `barber-breaks-${barberId}`;
+    const lunchChannelName = `barber-lunch-${barberId}`;
+    const appointmentsChannelName = `appointments-barber-${barberId}`;
 
     let breaksRemoved = false;
     const breaksChannel = supabase
@@ -1135,8 +1177,8 @@ const BarbeiroDashboard = () => {
                 duration: 3000,
               });
               
-              if (isReady && showNotification) {
-                await showNotification('🔔 Novo Agendamento', {
+              if (isReadyRef.current && showNotificationRef.current) {
+                await showNotificationRef.current('🔔 Novo Agendamento', {
                   body: notificationMessage,
                 });
               }
@@ -1162,7 +1204,7 @@ const BarbeiroDashboard = () => {
       try { supabase.removeChannel(lunchChannel); } catch { /* ignore */ }
       try { supabase.removeChannel(appointmentsChannel); } catch { /* ignore */ }
     };
-  }, [selectedBarber, currentUserBarber?.id, isReady, showNotification]);
+  }, [selectedBarber, currentUserBarber?.id]);
 
   useEffect(() => {
     const now = new Date();
@@ -2193,8 +2235,9 @@ const BarbeiroDashboard = () => {
 
   // Agrupar agendamentos por barbeiro
   const appointmentsByBarber = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-    
+    const todayLocal = new Date();
+    const today = `${todayLocal.getFullYear()}-${String(todayLocal.getMonth() + 1).padStart(2, '0')}-${String(todayLocal.getDate()).padStart(2, '0')}`;
+
     const relevantAppointments = appointments
       .filter(a => {
         const isToday = a.appointment_date === today;
@@ -2211,6 +2254,7 @@ const BarbeiroDashboard = () => {
 
     let appointmentsWithBreaks = [...relevantAppointments];
     const currentBarberId = selectedBarber || currentUserBarber?.id;
+    console.log('[DEBUG] appointmentsByBarber - currentBarberId:', currentBarberId, 'todayBreaks:', todayBreaks.length, 'today:', today);
     if (currentBarberId && todayBreaks.length > 0) {
       const breakAppointments = todayBreaks.map((brk) => {
         const startTime = String(brk.start_time || '').slice(0, 5);
@@ -2219,7 +2263,7 @@ const BarbeiroDashboard = () => {
         return {
           id: `break-${brk.id}`,
           barber_id: currentBarberId,
-          appointment_date: brk.date,
+          appointment_date: today, // Usar mesma data local 'today' do useMemo
           appointment_time: startTime,
           client_name: title,
           status: 'break',
@@ -2960,8 +3004,10 @@ const BarbeiroDashboard = () => {
                     {appointmentsByBarber.length > 0 ? (
                       <div className="space-y-4">
                         {appointmentsByBarber.map(({ barber, appointments, todayCount, upcomingCount }) => {
-                          const today = new Date().toISOString().split('T')[0];
+                          const todayLocal2 = new Date();
+                          const today = `${todayLocal2.getFullYear()}-${String(todayLocal2.getMonth() + 1).padStart(2, '0')}-${String(todayLocal2.getDate()).padStart(2, '0')}`;
                           const list = appointments.filter(a => a.appointment_date === today);
+                          console.log('[DEBUG] Rendering barber:', barber.name, 'today:', today, 'appointments:', appointments.length, 'list:', list.length, list.map(a => ({ date: a.appointment_date, time: a.appointment_time, status: a.status })));
                           return (
                             <div key={barber.id} className="border border-border rounded-lg p-3 bg-secondary/30">
                               <div className="flex items-center gap-3 mb-3 pb-2 border-b border-border">

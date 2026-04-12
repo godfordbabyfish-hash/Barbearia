@@ -136,18 +136,14 @@ const FinancialDashboard = () => {
   useEffect(() => {
     loadAppointments();
     loadProductSales();
+  }, [period, dateFrom, dateTo, filterType, filterBarber, filterService, filterProduct, filterStatus]);
 
-    // Realtime subscription
+  // Subscriptions Realtime separadas — criadas apenas uma vez
+  useEffect(() => {
     let apptRemoved = false;
     const appointmentsChannel = supabase
       .channel('financial-appointments')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'appointments',
-        },
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' },
         () => { loadAppointments(); }
       )
       .subscribe((status: string) => {
@@ -160,13 +156,7 @@ const FinancialDashboard = () => {
     let salesRemoved = false;
     const productSalesChannel = supabase
       .channel('financial-product-sales')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'product_sales',
-        },
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'product_sales' },
         () => { loadProductSales(); }
       )
       .subscribe((status: string) => {
@@ -182,7 +172,7 @@ const FinancialDashboard = () => {
       try { supabase.removeChannel(appointmentsChannel); } catch { /* ignore */ }
       try { supabase.removeChannel(productSalesChannel); } catch { /* ignore */ }
     };
-  }, [period, dateFrom, dateTo, filterType, filterBarber, filterService, filterProduct, filterStatus]);
+  }, []);
 
   const loadBarbers = async () => {
     const { data } = await supabase

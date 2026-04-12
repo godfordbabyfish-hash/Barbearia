@@ -1,5 +1,5 @@
 import { MapPin, Phone, Mail, Clock, Instagram, Facebook } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { getSiteConfig } from '@/lib/siteConfigCache';
 import { useEffect, useState } from "react";
 import { useOperatingHours, dayNames, OperatingHours } from "@/hooks/useOperatingHours";
 
@@ -59,14 +59,9 @@ const Footer = () => {
   }, []);
 
   const loadFooterConfig = async () => {
-    const { data, error } = await supabase
-      .from('site_config')
-      .select('config_value')
-      .eq('config_key', 'footer_info')
-      .maybeSingle();
-
-    if (!error && data) {
-      setConfig(data.config_value as unknown as FooterConfig);
+    const value = await getSiteConfig('footer_info');
+    if (value) {
+      setConfig(value as unknown as FooterConfig);
     }
   };
 

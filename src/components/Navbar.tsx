@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { getSiteConfig } from '@/lib/siteConfigCache';
 import { Button } from "@/components/ui/button";
 import { Scissors, Menu, X, LogOut, Home, ShoppingBag, Users, Calendar, Wifi, Star, Instagram, Facebook, QrCode, Copy, Smartphone } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -57,14 +58,8 @@ const Navbar = () => {
   }, [user, role]);
 
   const loadSocialConfig = async () => {
-    const { data, error } = await supabase
-      .from('site_config')
-      .select('config_value')
-      .eq('config_key', 'footer_info')
-      .maybeSingle();
-
-    if (!error && data) {
-      const config = data.config_value as any;
+    const config = await getSiteConfig('footer_info');
+    if (config) {
       setWifiCredentials({
         username: config?.wifi?.username || '',
         password: config?.wifi?.password || '',

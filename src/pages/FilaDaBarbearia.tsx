@@ -290,6 +290,9 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
             lunchBreak: (s.has_lunch && s.lunch_start && s.lunch_end)
               ? { start_time: trimTime(s.lunch_start), end_time: trimTime(s.lunch_end) }
               : null,
+            pauseBreak: (s.has_pause && s.pause_start && s.pause_end)
+              ? { start_time: trimTime(s.pause_start), end_time: trimTime(s.pause_end) }
+              : null,
           };
         });
         setBarberMonthlySchedules(map);
@@ -435,11 +438,13 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
 
       // Prioridade: escala mensal (barber_schedules)
       const monthly = barberMonthlySchedules[barber.id];
+      let pauseBreak: BarberBreak | null = null;
       if (monthly) {
         isClosed = monthly.closed;
         if (!isClosed) {
           workingHours = { open: monthly.open, close: monthly.close };
           lunchBreak = monthly.lunchBreak || null;
+          pauseBreak = monthly.pauseBreak || null;
         }
       } else {
         // Fallback: disponibilidade semanal
@@ -466,6 +471,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       const allBreaks: BarberBreak[] = [
         ...(barberBreaksByBarber[barber.id] || []),
         ...(lunchBreak ? [lunchBreak] : []),
+        ...(pauseBreak ? [pauseBreak] : []),
       ];
       next[barber.id] = isClosed ? [] : getAvailableSlotsForBarber(
         todayDate,
@@ -744,22 +750,37 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                               Disponível até {(slots.length > 0 ? slots[slots.length - 1] : getBarberAvailableUntilToday(barber)) || '--:--'}
                             </span>
                           )}
-                          {(barberBreaksByBarber[barber.id] || []).length > 0 && (
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              Pausas hoje:
-                              {(barberBreaksByBarber[barber.id] || []).slice(0, 3).map((br, idx) => (
-                                <span key={`${barber.id}-${br.id || br.start_time}-${idx}`} className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-destructive/15 text-destructive border border-destructive/30">
-                                  {String(br.start_time).slice(0,5)}-{String(br.end_time).slice(0,5)}
-                                </span>
-                              ))}
-                              {(barberBreaksByBarber[barber.id] || []).length > 3 && (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-secondary text-secondary-foreground border border-border">
-                                  +{(barberBreaksByBarber[barber.id] || []).length - 3}
-                                </span>
-                              )}
-                            </span>
-                          )}
+                          {(() => {
+                            const breaks = barberBreaksByBarber[barber.id] || [];
+                            const monthly = barberMonthlySchedules[barber.id];
+                            const allBreaks = [
+                              ...breaks,
+                              ...(monthly?.lunchBreak ? [{ ...monthly.lunchBreak, isLunch: true }] : []),
+                              ...(monthly?.pauseBreak ? [{ ...monthly.pauseBreak, isPause: true }] : []),
+                            ];
+                            if (allBreaks.length === 0) return null;
+                            return (
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                Pausas hoje:
+                                {allBreaks.slice(0, 3).map((br: any, idx: number) => (
+                                  <span key={`${barber.id}-${br.id || br.start_time}-${idx}`} className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                    br.isLunch ? 'bg-orange-500/15 text-orange-500 border-orange-500/30' :
+                                    br.isPause ? 'bg-blue-500/15 text-blue-500 border-blue-500/30' :
+                                    'bg-destructive/15 text-destructive border-destructive/30'
+                                  }`}>
+                                    {String(br.start_time).slice(0,5)}-{String(br.end_time).slice(0,5)}
+                                    {br.isLunch ? ' (Almoço)' : br.isPause ? ' (Pausa)' : ''}
+                                  </span>
+                                ))}
+                                {allBreaks.length > 3 && (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-secondary text-secondary-foreground border border-border">
+                                    +{allBreaks.length - 3}
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })()}
                           {/* Removido contador de futuros */}
                           {inProgressCount > 0 && (
                             <span className="flex items-center gap-1 text-warning">
