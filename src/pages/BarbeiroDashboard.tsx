@@ -651,7 +651,7 @@ const BarbeiroDashboard = () => {
 
       // 1. Carregar almoço da escala mensal (prioridade) ou disponibilidade semanal
       try {
-        const { data: mSchedule } = await supabase
+        const { data: mSchedule } = await (supabase as any)
           .from('barber_schedules')
           .select('has_lunch, lunch_start, lunch_end, has_pause, pause_start, pause_end')
           .eq('barber_id', barberId)
