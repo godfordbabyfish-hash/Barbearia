@@ -22,6 +22,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { IndividualCommissionManager } from '@/components/IndividualCommissionManager';
 import BarberAdvancesManager from '@/components/admin/BarberAdvancesManager';
 import ReportsManager from '@/components/admin/ReportsManager';
+import OperationalExpensesManager from '@/components/admin/OperationalExpensesManager';
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
@@ -87,7 +88,7 @@ const FinancialDashboard = () => {
   const [filterService, setFilterService] = useState<string>('all');
   const [filterProduct, setFilterProduct] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
-  const [activeTab, setActiveTab] = useState<'overview' | 'commissions' | 'advances' | 'reports'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'commissions' | 'advances' | 'expenses' | 'reports'>('overview');
   const [showFilters, setShowFilters] = useState(false);
   const [recentTab, setRecentTab] = useState<'appointments' | 'products'>('appointments');
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
@@ -1305,11 +1306,12 @@ const FinancialDashboard = () => {
   return (
     <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       {isManager ? (
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'overview' | 'commissions' | 'advances' | 'reports')} className="w-full" style={{ maxWidth: '100%' }}>
-          <TabsList className="grid w-full max-w-full grid-cols-4">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'overview' | 'commissions' | 'advances' | 'expenses' | 'reports')} className="w-full" style={{ maxWidth: '100%' }}>
+          <TabsList className="grid w-full max-w-full grid-cols-5">
             <TabsTrigger value="overview" className="text-xs sm:text-sm">Visão Geral</TabsTrigger>
             <TabsTrigger value="commissions" className="text-xs sm:text-sm">Comissões</TabsTrigger>
             <TabsTrigger value="advances" className="text-xs sm:text-sm">Vales</TabsTrigger>
+            <TabsTrigger value="expenses" className="text-xs sm:text-sm">Despesas</TabsTrigger>
             <TabsTrigger value="reports" className="text-xs sm:text-sm">Relatórios</TabsTrigger>
           </TabsList>
           
@@ -1323,6 +1325,10 @@ const FinancialDashboard = () => {
           
           <TabsContent value="advances" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
             <BarberAdvancesManager />
+          </TabsContent>
+
+          <TabsContent value="expenses" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+            <OperationalExpensesManager />
           </TabsContent>
           
           <TabsContent value="reports" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>

@@ -15,7 +15,8 @@ import {
   PowerOff,
   HelpCircle,
   Copy,
-  Mail
+  Mail,
+  Clock,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { 
@@ -25,6 +26,7 @@ import {
 } from '@/services/whatsappConnectionService';
 import { supabase } from '@/integrations/supabase/client';
 import WhatsAppMessages from '@/components/admin/WhatsAppMessages';
+import WhatsAppDailyReportSettings from '@/components/admin/WhatsAppDailyReportSettings';
 
 // Componente refatorado para controle manual - sem polling automático
 export const WhatsAppManager = () => {
@@ -214,10 +216,18 @@ export const WhatsAppManager = () => {
             <Mail className="h-4 w-4" />
             Mensagens
           </TabsTrigger>
+          <TabsTrigger value="daily-report" className="gap-2">
+            <Clock className="h-4 w-4" />
+            Relatório diário
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="messages">
           <WhatsAppMessages />
+        </TabsContent>
+
+        <TabsContent value="daily-report">
+          <WhatsAppDailyReportSettings />
         </TabsContent>
 
         <TabsContent value="connection">
