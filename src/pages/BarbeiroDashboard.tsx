@@ -78,6 +78,7 @@ type ProductFilterItem = Pick<ProductRecord, 'id' | 'name'>;
 type ProductOption = Pick<ProductRecord, 'id' | 'name' | 'price' | 'stock'>;
 type TodayBreakItem = Pick<BarberBreakRecord, 'id' | 'date' | 'start_time' | 'end_time' | 'notes'> & {
   isLunch?: boolean;
+  breakType?: 'lunch' | 'pause';
 };
 type BarberAvailabilityDay = {
   closed?: boolean;
@@ -130,6 +131,23 @@ const getWorkingHoursForDate = (
     };
   }
   return null;
+};
+
+const DASHBOARD_DEBUG =
+  import.meta.env.DEV ||
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1';
+
+const debugLog = (...args: unknown[]) => {
+  if (DASHBOARD_DEBUG) {
+    console.log(...args);
+  }
+};
+
+const debugWarn = (...args: unknown[]) => {
+  if (DASHBOARD_DEBUG) {
+    console.warn(...args);
+  }
 };
 
 const BarbeiroDashboard = () => {
@@ -315,7 +333,7 @@ const BarbeiroDashboard = () => {
         .order('sale_time', { ascending: false });
       setProductHistory((data || []) as ProductHistoryItem[]);
     } catch (e) {
-      console.warn('Erro ao carregar histórico de produtos do barbeiro:', e);
+      debugWarn('Erro ao carregar histórico de produtos do barbeiro:', e);
       setProductHistory([]);
     } finally {
       setLoadingProductHistory(false);
@@ -333,7 +351,7 @@ const BarbeiroDashboard = () => {
         setProductFilterList((data || []) as ProductFilterItem[]);
       }
     } catch (e) {
-      console.warn('Erro ao carregar lista de produtos para filtro:', e);
+      debugWarn('Erro ao carregar lista de produtos para filtro:', e);
       setProductFilterList([]);
     }
   };
@@ -431,7 +449,7 @@ const BarbeiroDashboard = () => {
       const phone = b?.whatsapp_phone || '';
       const barberName = b?.name || 'Barbeiro';
       if (!phone) {
-        console.warn('Barber has no whatsapp_phone, skipping WhatsApp message');
+        debugWarn('Barber has no whatsapp_phone, skipping WhatsApp message');
         return;
       }
       let msg = `🔔 *Pendências de Atendimento*\n*${barberName}*\n\n`;
@@ -534,12 +552,12 @@ const BarbeiroDashboard = () => {
       }
       
       if (!user) {
-        console.log('No user found, redirecting to auth');
+        debugLog('No user found, redirecting to auth');
         navigate('/auth');
         return;
       }
 
-      console.log('Current user ID:', user.id);
+      debugLog('Current user ID:', user.id);
       
       // Load user's barber profile
       const { data: userBarber, error: barberError } = await supabase
@@ -553,16 +571,16 @@ const BarbeiroDashboard = () => {
       }
       
       if (userBarber) {
-        console.log('User is a barber:', userBarber.name);
+        debugLog('User is a barber:', userBarber.name);
         setCurrentUserBarber(userBarber);
         setSelectedBarber(userBarber.id);
         
         // If user is a barber (not admin), only show their own data
         if (!userRole || userRole !== 'admin') {
-          console.log('NOT ADMIN - Setting barbers to only:', userBarber.name);
+          debugLog('NOT ADMIN - Setting barbers to only:', userBarber.name);
           setBarbers([userBarber]);
         } else {
-          console.log('IS ADMIN - Loading all barbers');
+          debugLog('IS ADMIN - Loading all barbers');
           const { data: barbersData, error: barbersError } = await supabase
             .from('barbers')
             .select('*')
@@ -574,14 +592,14 @@ const BarbeiroDashboard = () => {
           }
           
           if (barbersData && barbersData.length > 0) {
-            console.log('Loaded ALL barbers for admin:', barbersData);
+            debugLog('Loaded ALL barbers for admin:', barbersData);
             setBarbers(barbersData);
           }
         }
         // Carregar vales do barbeiro
         loadAdvances();
       } else {
-        console.log('User is not a barber');
+        debugLog('User is not a barber');
         if (userRole === 'admin') {
           const { data: barbersData, error: barbersError } = await supabase
             .from('barbers')
@@ -594,7 +612,7 @@ const BarbeiroDashboard = () => {
           }
           
           if (barbersData && barbersData.length > 0) {
-            console.log('Loaded barbers:', barbersData);
+            debugLog('Loaded barbers:', barbersData);
             setBarbers(barbersData);
             setSelectedBarber(barbersData[0].id);
           }
@@ -613,7 +631,7 @@ const BarbeiroDashboard = () => {
       }
       
       if (servicesData) {
-        console.log('Loaded services:', servicesData);
+        debugLog('Loaded services:', servicesData);
         setServices(servicesData);
       }
     } catch (error) {
@@ -644,7 +662,7 @@ const BarbeiroDashboard = () => {
         .order('start_time', { ascending: true });
 
       if (breaksError && breaksError.code !== 'PGRST116' && breaksError.code !== 'PGRST205' && breaksError.code !== '42P01') {
-        console.warn('Error loading today breaks:', breaksError);
+        debugWarn('Error loading today breaks:', breaksError);
       }
 
       let combined: TodayBreakItem[] = (breaksData || []) as TodayBreakItem[];
@@ -666,6 +684,7 @@ const BarbeiroDashboard = () => {
             end_time: mSchedule.lunch_end,
             notes: 'Almoço',
             isLunch: true,
+            breakType: 'lunch',
           });
         } else {
           // Fallback: almoço da disponibilidade semanal
@@ -687,12 +706,17 @@ const BarbeiroDashboard = () => {
               end_time: lunchBreak.end_time,
               notes: 'Almoço',
               isLunch: true,
+              breakType: 'lunch',
             });
           }
         }
 
         // 2. Carregar pausa da escala mensal
-        if (mSchedule?.has_pause && mSchedule.pause_start && mSchedule.pause_end) {
+        const hasPauseEnabled =
+          mSchedule?.has_pause === true ||
+          (mSchedule?.has_pause == null && mSchedule.pause_start && mSchedule.pause_end);
+
+        if (hasPauseEnabled && mSchedule.pause_start && mSchedule.pause_end) {
           combined.push({
             id: `pause-${barberId}-${todayStr}`,
             date: todayStr,
@@ -700,14 +724,15 @@ const BarbeiroDashboard = () => {
             end_time: mSchedule.pause_end,
             notes: 'Pausa',
             isLunch: false,
+            breakType: 'pause',
           });
         }
       } catch (err) {
-        console.warn('Error loading schedule breaks for today:', err);
+        debugWarn('Error loading schedule breaks for today:', err);
       }
 
       combined.sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)));
-      console.log('[DEBUG] todayBreaks loaded:', combined.length, combined);
+      debugLog('[DEBUG] todayBreaks loaded:', combined.length, combined);
       setTodayBreaks(combined);
     } catch (err) {
       console.error('Error in loadTodayBreaks:', err);
@@ -946,7 +971,7 @@ const BarbeiroDashboard = () => {
             category: 'product-sales',
           });
         } catch (e) {
-          console.warn('Erro ao enviar foto da venda:', e);
+          debugWarn('Erro ao enviar foto da venda:', e);
         }
       }
 
@@ -1069,27 +1094,15 @@ const BarbeiroDashboard = () => {
   useEffect(() => { isReadyRef.current = isReady; }, [isReady]);
   useEffect(() => { showNotificationRef.current = showNotification; }, [showNotification]);
 
-  // Lógica para detectar atualização do PWA
-  useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        toast.info('Nova versão disponível!', {
-          description: 'O sistema foi atualizado automaticamente.',
-          duration: 5000,
-        });
-        setTimeout(() => window.location.reload(), 2000);
-      });
-    }
-  }, []);
-
   useEffect(() => {
     const barberId = selectedBarber || currentUserBarber?.id;
     if (!barberId) return;
 
-    console.log('📡 Setting up consolidated Realtime subscriptions for barber:', barberId);
+    debugLog('📡 Setting up consolidated Realtime subscriptions for barber:', barberId);
 
     const breaksChannelName = `barber-breaks-${barberId}`;
     const lunchChannelName = `barber-lunch-${barberId}`;
+    const schedulesChannelName = `barber-schedules-${barberId}`;
     const appointmentsChannelName = `appointments-barber-${barberId}`;
 
     let breaksRemoved = false;
@@ -1104,7 +1117,7 @@ const BarbeiroDashboard = () => {
           filter: `barber_id=eq.${barberId}`,
         },
         () => {
-          console.log('🔄 Breaks updated via Realtime');
+          debugLog('🔄 Breaks updated via Realtime');
           loadTodayBreaks();
         },
       )
@@ -1127,7 +1140,7 @@ const BarbeiroDashboard = () => {
           filter: `id=eq.${barberId}`,
         },
         () => {
-          console.log('🔄 Barber profile (lunch) updated via Realtime');
+          debugLog('🔄 Barber profile (lunch) updated via Realtime');
           loadTodayBreaks();
         },
       )
@@ -1138,6 +1151,7 @@ const BarbeiroDashboard = () => {
         }
       });
 
+    let appointmentsRemoved = false;
     const appointmentsChannel = supabase
       .channel(appointmentsChannelName)
       .on(
@@ -1149,7 +1163,7 @@ const BarbeiroDashboard = () => {
           filter: `barber_id=eq.${barberId}`
         },
         (payload) => {
-          console.log('🎉 NEW APPOINTMENT RECEIVED!!!');
+          debugLog('🎉 NEW APPOINTMENT RECEIVED!!!');
           
           const processNotification = async () => {
             try {
@@ -1193,18 +1207,48 @@ const BarbeiroDashboard = () => {
         }
       )
       .subscribe((status) => {
-        console.log(`📡 Appointments subscription status: ${status}`);
+        debugLog(`📡 Appointments subscription status: ${status}`);
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !appointmentsRemoved) {
+          appointmentsRemoved = true;
+          setTimeout(() => { try { supabase.removeChannel(appointmentsChannel); } catch { /* ignore */ } }, 0);
+        }
+      });
+
+    let schedulesRemoved = false;
+    const schedulesChannel = supabase
+      .channel(schedulesChannelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'barber_schedules',
+          filter: `barber_id=eq.${barberId}`,
+        },
+        () => {
+          debugLog('🔄 Schedules updated via Realtime');
+          loadTodayBreaks();
+        },
+      )
+      .subscribe((status) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !schedulesRemoved) {
+          schedulesRemoved = true;
+          setTimeout(() => { try { supabase.removeChannel(schedulesChannel); } catch { /* ignore */ } }, 0);
+        }
       });
 
     return () => {
-      console.log('🔴 Cleaning up Realtime subscriptions');
+      debugLog('🔴 Cleaning up Realtime subscriptions');
       breaksRemoved = true;
       lunchRemoved = true;
+      appointmentsRemoved = true;
+      schedulesRemoved = true;
       try { supabase.removeChannel(breaksChannel); } catch { /* ignore */ }
       try { supabase.removeChannel(lunchChannel); } catch { /* ignore */ }
       try { supabase.removeChannel(appointmentsChannel); } catch { /* ignore */ }
+      try { supabase.removeChannel(schedulesChannel); } catch { /* ignore */ }
     };
-  }, [selectedBarber, currentUserBarber?.id]);
+  }, [selectedBarber, currentUserBarber?.id, user?.id, isReady]);
 
   useEffect(() => {
     const now = new Date();
@@ -1231,7 +1275,7 @@ const BarbeiroDashboard = () => {
   }, [appointments, selectedBarber, currentUserBarber?.id, isReady, showNotification]);
 
   const loadAppointments = async () => {
-    console.log('Loading appointments for barber:', selectedBarber);
+    debugLog('Loading appointments for barber:', selectedBarber);
     
     // Carregar appointments sem o join problemático
     const { data: appointmentsData, error } = await supabase
@@ -1251,7 +1295,7 @@ const BarbeiroDashboard = () => {
       return;
     }
     
-    console.log('Loaded appointments:', appointmentsData);
+    debugLog('Loaded appointments:', appointmentsData);
     
     if (appointmentsData && appointmentsData.length > 0) {
       // Carregar dados dos clientes separadamente
@@ -1261,7 +1305,7 @@ const BarbeiroDashboard = () => {
         .select('id, name, phone, whatsapp, photo_url')
         .in('id', clientIds);
       
-      console.log('Loaded clients:', clientsData);
+      debugLog('Loaded clients:', clientsData);
       
       // Mapear clientes para appointments, garantindo telefone preenchido
       const appointmentsWithClients: AppointmentWithRelations[] = appointmentsData.map((appointment) => {
@@ -1500,8 +1544,10 @@ const BarbeiroDashboard = () => {
 
         let lunchBreak: { start_time: string; end_time: string } | null = null;
         let monthlySchedule: any = null;
+        let workingHours: { open: string; close: string } = { open: '09:00', close: '20:00' };
         try {
           const selectedDateStr = newAppointment.date;
+          const selectedDate = new Date(`${selectedDateStr}T00:00:00`);
           const { data: mSchedule } = await supabase
             .from('barber_schedules' as any)
             .select('*')
@@ -1510,6 +1556,25 @@ const BarbeiroDashboard = () => {
             .maybeSingle();
           monthlySchedule = mSchedule;
 
+          const trimTime = (t: unknown, fallback: string) => {
+            const normalized = String(t || fallback);
+            return normalized.slice(0, 5) || fallback;
+          };
+
+          if (monthlySchedule?.closed) {
+            toast.error('Barbeiro indisponível nesta data', {
+              description: 'Este barbeiro marcou o dia como fechado.',
+            });
+            return;
+          }
+
+          if (monthlySchedule) {
+            workingHours = {
+              open: trimTime(monthlySchedule.open, '09:00'),
+              close: trimTime(monthlySchedule.close, '20:00'),
+            };
+          }
+
           if (monthlySchedule && monthlySchedule.has_lunch && monthlySchedule.lunch_start && monthlySchedule.lunch_end) {
             lunchBreak = {
               start_time: monthlySchedule.lunch_start,
@@ -1517,7 +1582,17 @@ const BarbeiroDashboard = () => {
             };
           } else {
             const barber = barbers.find(b => b.id === barberId) as any;
-            const selectedDate = new Date(newAppointment.date + 'T00:00:00');
+            const availabilityHours = getWorkingHoursForDate(barber?.availability, selectedDate);
+            if (availabilityHours) {
+              workingHours = availabilityHours;
+            } else {
+              const dayKey = getDayKey(selectedDate);
+              const shopHours = operatingHours[dayKey];
+              workingHours = {
+                open: shopHours?.open || '09:00',
+                close: shopHours?.close || '20:00',
+              };
+            }
             if (barber?.availability) {
               const availability = typeof barber.availability === 'string'
                 ? JSON.parse(barber.availability)
@@ -1554,13 +1629,22 @@ const BarbeiroDashboard = () => {
             }
           }
         } catch (err) {
-          console.warn('Erro ao ler horário de almoço do barbeiro:', err);
+          debugWarn('Erro ao ler horário de almoço do barbeiro:', err);
         }
 
         const combinedBreaks = [
           ...dbBreaks,
           ...(lunchBreak ? [lunchBreak] : []),
         ];
+
+        const serviceDuration = selectedService.duration || 30;
+        const appointmentEnd = addMinutesToTime(newAppointment.time, serviceDuration);
+        if (newAppointment.time < workingHours.open || appointmentEnd > workingHours.close) {
+          toast.error('Horário fora da programação do barbeiro', {
+            description: `Atendimento permitido: ${workingHours.open} até ${workingHours.close}.`,
+          });
+          return;
+        }
 
         // Adicionar pausa da observação da escala mensal
         if (monthlySchedule && monthlySchedule.observation) {
@@ -1574,8 +1658,6 @@ const BarbeiroDashboard = () => {
         }
 
         if (combinedBreaks.length > 0) {
-          const serviceDuration = selectedService.duration || 30;
-          
           const timeToMinutes = (time: string) => {
             const [hours, minutes] = time.split(':').map(Number);
             return hours * 60 + minutes;
@@ -1744,7 +1826,7 @@ const BarbeiroDashboard = () => {
             });
 
             if (response.ok) {
-              console.log('✅ WhatsApp queue processed');
+              debugLog('✅ WhatsApp queue processed');
             }
           })(),
           new Promise((_, reject) => 
@@ -1755,15 +1837,15 @@ const BarbeiroDashboard = () => {
 
       // Log dos resultados (não bloquear se falhar)
       if (webhookResult.status === 'fulfilled') {
-        console.log('✅ Webhook notification sent');
+        debugLog('✅ Webhook notification sent');
       } else {
-        console.warn('⚠️ Webhook failed:', webhookResult.reason);
+        debugWarn('⚠️ Webhook failed:', webhookResult.reason);
       }
 
       if (whatsappResult.status === 'fulfilled') {
-        console.log('✅ WhatsApp notification processed');
+        debugLog('✅ WhatsApp notification processed');
       } else {
-        console.warn('⚠️ WhatsApp failed:', whatsappResult.reason);
+        debugWarn('⚠️ WhatsApp failed:', whatsappResult.reason);
       }
 
     } catch (error) {
@@ -1829,7 +1911,7 @@ const BarbeiroDashboard = () => {
           clearTimeout(timeoutId);
 
           if (response.ok) {
-            console.log('✅ WhatsApp queue processed after cancellation');
+            debugLog('✅ WhatsApp queue processed after cancellation');
           }
         }
       } catch (queueError: any) {
@@ -2121,7 +2203,7 @@ const BarbeiroDashboard = () => {
       if (error) {
         // Se a tabela não existir ainda, vamos lidar graciosamente
         if (error.code === '42P01') {
-          console.warn('Tabela barber_schedules ainda não existe.');
+          debugWarn('Tabela barber_schedules ainda não existe.');
           return;
         }
         throw error;
@@ -2173,7 +2255,7 @@ const BarbeiroDashboard = () => {
       
       toast.success('Programação do dia atualizada!');
       setEditingDay(null);
-      loadBarberSchedules();
+      await Promise.all([loadBarberSchedules(), loadTodayBreaks()]);
     } catch (e: any) {
       console.error('Erro ao salvar escala:', e);
       toast.error('Erro ao salvar: ' + e.message);
@@ -2254,11 +2336,12 @@ const BarbeiroDashboard = () => {
 
     let appointmentsWithBreaks = [...relevantAppointments];
     const currentBarberId = selectedBarber || currentUserBarber?.id;
-    console.log('[DEBUG] appointmentsByBarber - currentBarberId:', currentBarberId, 'todayBreaks:', todayBreaks.length, 'today:', today);
+    debugLog('[DEBUG] appointmentsByBarber - currentBarberId:', currentBarberId, 'todayBreaks:', todayBreaks.length, 'today:', today);
     if (currentBarberId && todayBreaks.length > 0) {
       const breakAppointments = todayBreaks.map((brk) => {
         const startTime = String(brk.start_time || '').slice(0, 5);
         const isLunch = brk.isLunch === true || brk.notes === 'Almoço';
+        const breakType = brk.breakType || (isLunch ? 'lunch' : 'pause');
         const title = isLunch ? 'Almoço' : 'Pausa';
         return {
           id: `break-${brk.id}`,
@@ -2270,6 +2353,7 @@ const BarbeiroDashboard = () => {
           service: { title, price: 0, duration: 30 },
           notes: brk.notes || title,
           isBreak: true,
+          break_type: breakType,
           break_start_time: brk.start_time,
           break_end_time: brk.end_time,
         };
@@ -3007,7 +3091,7 @@ const BarbeiroDashboard = () => {
                           const todayLocal2 = new Date();
                           const today = `${todayLocal2.getFullYear()}-${String(todayLocal2.getMonth() + 1).padStart(2, '0')}-${String(todayLocal2.getDate()).padStart(2, '0')}`;
                           const list = appointments.filter(a => a.appointment_date === today);
-                          console.log('[DEBUG] Rendering barber:', barber.name, 'today:', today, 'appointments:', appointments.length, 'list:', list.length, list.map(a => ({ date: a.appointment_date, time: a.appointment_time, status: a.status })));
+                          debugLog('[DEBUG] Rendering barber:', barber.name, 'today:', today, 'appointments:', appointments.length, 'list:', list.length, list.map(a => ({ date: a.appointment_date, time: a.appointment_time, status: a.status })));
                           return (
                             <div key={barber.id} className="border border-border rounded-lg p-3 bg-secondary/30">
                               <div className="flex items-center gap-3 mb-3 pb-2 border-b border-border">
@@ -3065,8 +3149,10 @@ const BarbeiroDashboard = () => {
                                       ? 'p-3 rounded-lg border cursor-default bg-red-500/10 border-red-400'
                                       : 'p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-primary/5 border-primary/30';
 
+                                    const isLunchBreak = isBreak && (appointment.break_type === 'lunch' || appointment.client_name === 'Almoço' || appointment.service?.title === 'Almoço');
+
                                     const statusLabel = isBreak
-                                      ? 'Pausa / Almoço'
+                                      ? (isLunchBreak ? 'Almoço' : 'Pausa')
                                       : (appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente');
 
                                     const statusClasses = isBreak
@@ -3120,7 +3206,7 @@ const BarbeiroDashboard = () => {
                                             <div className="flex items-center justify-between">
                                               <p className={`text-xs ${isBreak ? 'text-red-600' : 'text-muted-foreground'}`}>
                                                 {isBreak
-                                                  ? `Horário de pausa: ${breakStart}${breakEnd ? ` - ${breakEnd}` : ''}`
+                                                  ? `${isLunchBreak ? 'Horário de almoço' : 'Horário de pausa'}: ${breakStart}${breakEnd ? ` - ${breakEnd}` : ''}`
                                                   : `Cliente: ${clientName}`
                                                 }
                                               </p>
@@ -3221,8 +3307,10 @@ const BarbeiroDashboard = () => {
                                       ? 'p-3 rounded-lg border cursor-default bg-red-500/10 border-red-400'
                                       : 'p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-card border-border';
 
+                                    const isLunchBreak = isBreak && (appointment.break_type === 'lunch' || appointment.client_name === 'Almoço' || appointment.service?.title === 'Almoço');
+
                                     const statusLabel = isBreak
-                                      ? 'Pausa / Almoço'
+                                      ? (isLunchBreak ? 'Almoço' : 'Pausa')
                                       : (appointment.status === 'confirmed' ? 'Confirmado' : 'Pendente');
 
                                     const statusClasses = isBreak
@@ -3276,7 +3364,7 @@ const BarbeiroDashboard = () => {
                                             <div className="flex items-center justify-between">
                                               <p className={`text-xs ${isBreak ? 'text-red-600' : 'text-muted-foreground'}`}>
                                                 {isBreak
-                                                  ? `Horário de pausa: ${breakStart}${breakEnd ? ` - ${breakEnd}` : ''}`
+                                                  ? `${isLunchBreak ? 'Horário de almoço' : 'Horário de pausa'}: ${breakStart}${breakEnd ? ` - ${breakEnd}` : ''}`
                                                   : `Cliente: ${clientName}`
                                                 }
                                               </p>

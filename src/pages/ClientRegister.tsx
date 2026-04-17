@@ -27,18 +27,23 @@ const ClientRegister = () => {
   // Load auth logo from database
   useEffect(() => {
     const loadAuthLogo = async () => {
-      const { data, error } = await supabase
-        .from('site_config')
-        .select('config_value')
-        .eq('config_key', 'auth_logo')
-        .maybeSingle();
-      
-      if (error && error.code !== 'PGRST116') {
+      try {
+        const { data, error } = await supabase
+          .from('site_config')
+          .select('config_value')
+          .eq('config_key', 'auth_logo')
+          .maybeSingle();
+
+        if (error && error.code !== 'PGRST116') {
+          console.warn('Error loading auth logo:', error);
+          return;
+        }
+
+        if (data?.config_value && typeof data.config_value === 'object' && 'image_url' in data.config_value) {
+          setAuthLogo((data.config_value as { image_url: string }).image_url);
+        }
+      } catch (error) {
         console.warn('Error loading auth logo:', error);
-      }
-      
-      if (data?.config_value && typeof data.config_value === 'object' && 'image_url' in data.config_value) {
-        setAuthLogo((data.config_value as { image_url: string }).image_url);
       }
     };
     loadAuthLogo();

@@ -852,6 +852,23 @@ const Booking = () => {
     return `${year}-${month}-${day}`;
   };
 
+  const normalizeTime = (time: string | undefined, fallback: string): string => {
+    if (!time) return fallback;
+    const normalized = String(time).trim();
+    if (!normalized) return fallback;
+    return normalized.slice(0, 5);
+  };
+
+  const buildBarberTimeSlots = (open: string, close: string): string[] => {
+    const slots: string[] = [];
+    let cursor = open;
+    while (cursor < close) {
+      slots.push(cursor);
+      cursor = addMinutesToTime(cursor, 30);
+    }
+    return slots;
+  };
+
   const findNextAvailableDateTime = async (currentFormData: typeof formData) => {
     if (!currentFormData.service || !currentFormData.barber || hoursLoading) return;
 
@@ -889,8 +906,6 @@ const Booking = () => {
         continue;
       }
       
-      const dayTimeSlots = getTimeSlotsForDateRaw(checkDate);
-      
       const { data: appointments } = await supabase
         .from('appointments')
         .select('appointment_time, service:services(duration)')
@@ -925,15 +940,20 @@ const Booking = () => {
       }
 
       const serviceDuration = getServiceDuration(currentFormData.service, services);
-      
-      const barberOpen = barberHours?.open || '09:00';
-      const barberClose = barberHours?.close || '20:00';
+
+      const barberOpen = normalizeTime(barberHours?.open, '09:00');
+      const barberClose = normalizeTime(barberHours?.close, '20:00');
+      const dayTimeSlots = buildBarberTimeSlots(barberOpen, barberClose);
 
       // Filter out past times if it's today
       const isToday = checkDate.toDateString() === today.toDateString();
       const currentTimeLocal = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
       
       const availableSlots = dayTimeSlots.filter(slot => {
+        if (slot < barberOpen) {
+          return false;
+        }
+
         // 1. Check if slot is within barber's working hours
         // O horário de início deve ser estritamente menor que o horário de fechamento
         if (slot >= barberClose) {
@@ -1075,15 +1095,15 @@ const Booking = () => {
       }
 
       const workingHours = {
-        open: barberHours?.open || '09:00',
-        close: barberHours?.close || '20:00'
+        open: normalizeTime(barberHours?.open, '09:00'),
+        close: normalizeTime(barberHours?.close, '20:00')
       };
 
       // Base slots compartilhados com o agendamento local (sincronização)
       // Usa Raw para não pré-filtrar almoço da loja (breaks do barbeiro já estão em combinedBreaks)
       const baseSlots = getAvailableSlotsForBarber(
         selectedDate,
-        getTimeSlotsForDateRaw,
+        () => buildBarberTimeSlots(workingHours.open, workingHours.close),
         ((appointments || []) as AppointmentWithServiceDuration[]).map((appointment) => ({
           appointment_time: appointment.appointment_time,
           duration: appointment.service?.duration,
@@ -1263,6 +1283,18 @@ const Booking = () => {
         return;
       }
 
+      const serviceDuration = getServiceDuration(formData.service, services);
+      const barberOpen = barberHours?.open || '09:00';
+      const barberClose = barberHours?.close || '20:00';
+      const appointmentEnd = addMinutesToTime(formData.time, serviceDuration);
+
+      if (formData.time < barberOpen || appointmentEnd > barberClose) {
+        toast.error("Horário fora da programação do barbeiro", {
+          description: `Este barbeiro atende de ${barberOpen} até ${barberClose} nesta data.`,
+        });
+        return;
+      }
+
       // Escala mensal é autoritativa — só aplicar fallback semanal se não há registro mensal
       let lunchBreak: { start_time: string; end_time: string } | null = barberHours?.lunchBreak ?? null;
 
@@ -1326,7 +1358,6 @@ const Booking = () => {
       }
 
       // Verificar pausas do barbeiro (incluindo almoço)
-      const serviceDuration = getServiceDuration(formData.service, services);
       const manualBreaks = (breaksResult.data || []) as BreakSlot[];
       const combinedBreaks = [...manualBreaks, ...(lunchBreak ? [lunchBreak] : []), ...(barberHours?.pauseBreak ? [barberHours.pauseBreak] : [])];
 

@@ -561,24 +561,31 @@ const ClienteDashboard = () => {
                 Usuário bloqueado. Entre em contato com a barbearia para desbloqueio.
               </div>
             ) : null}
-            <Button
-              onClick={() => {
-                if (blocked) return;
-                navigate('/');
-                setTimeout(() => {
-                  const bookingSection = document.getElementById('agendamento');
-                  if (bookingSection) {
-                    const yOffset = -80;
-                    const y = bookingSection.getBoundingClientRect().top + window.pageYOffset + yOffset;
-                    window.scrollTo({ top: y, behavior: 'smooth' });
-                  }
-                }, 300);
-              }}
-              disabled={blocked}
-              variant={blocked ? 'outline' : 'default'}
-            >
-              {blocked ? 'Usuário bloqueado' : 'Novo Agendamento'}
-            </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                onClick={() => {
+                  if (blocked) return;
+                  navigate('/');
+                  setTimeout(() => {
+                    const bookingSection = document.getElementById('agendamento');
+                    if (bookingSection) {
+                      const yOffset = -80;
+                      const y = bookingSection.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                      window.scrollTo({ top: y, behavior: 'smooth' });
+                    }
+                  }, 300);
+                }}
+                disabled={blocked}
+                variant={blocked ? 'outline' : 'default'}
+              >
+                {blocked ? 'Usuário bloqueado' : 'Novo Agendamento'}
+              </Button>
+
+              <Button variant="outline" onClick={() => navigate('/shop')}>
+                <ShoppingBag className="h-4 w-4 mr-2" />
+                Shop
+              </Button>
+            </div>
           </div>
 
           <TabsContent value="agendamentos" className="space-y-6">

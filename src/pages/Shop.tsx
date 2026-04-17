@@ -359,7 +359,7 @@ const Shop = () => {
       </section>
 
       {/* Fixed Floating Cart */}
-      <div className="fixed top-4 right-4 z-50">
+      <div className="fixed top-20 md:top-24 right-4 z-40">
         <Sheet open={cartOpen} onOpenChange={setCartOpen}>
           <SheetTrigger asChild>
             <div className="relative">

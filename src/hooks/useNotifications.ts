@@ -1,6 +1,23 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+const NOTIF_DEBUG =
+  import.meta.env.DEV ||
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1';
+
+const debugLog = (...args: unknown[]) => {
+  if (NOTIF_DEBUG) {
+    console.log(...args);
+  }
+};
+
+const debugWarn = (...args: unknown[]) => {
+  if (NOTIF_DEBUG) {
+    console.warn(...args);
+  }
+};
+
 export const useNotifications = () => {
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -8,12 +25,12 @@ export const useNotifications = () => {
   useEffect(() => {
     const setupServiceWorker = async () => {
       if (!('serviceWorker' in navigator)) {
-        console.warn('Service Worker não suportado');
+        debugWarn('Service Worker não suportado');
         return;
       }
 
       try {
-        console.log('🔧 Registrando Service Worker...');
+        debugLog('🔧 Registrando Service Worker...');
         
         // Registrar Service Worker
         const reg = await navigator.serviceWorker.register('/sw.js', {
@@ -21,7 +38,7 @@ export const useNotifications = () => {
           updateViaCache: 'none',
         });
 
-        console.log('✅ Service Worker registrado:', reg.scope);
+        debugLog('✅ Service Worker registrado:', reg.scope);
         
         // Forçar atualização do service worker
         await reg.update();
@@ -33,9 +50,9 @@ export const useNotifications = () => {
 
         // Solicitar permissão de notificação
         if (Notification.permission === 'default') {
-          console.log('⚠️ Solicitando permissão de notificações...');
+          debugLog('⚠️ Solicitando permissão de notificações...');
           const permission = await Notification.requestPermission();
-          console.log('✅ Permissão de notificação:', permission);
+          debugLog('✅ Permissão de notificação:', permission);
 
           if (permission === 'granted') {
             toast.success('Notificações ativadas!', {
@@ -43,7 +60,7 @@ export const useNotifications = () => {
             });
 
             // Mostrar notificação de teste DIRETAMENTE via registration
-            console.log('📢 Enviando notificação de teste...');
+            debugLog('📢 Enviando notificação de teste...');
             await reg.showNotification('🎉 Sistema de Notificações Ativo', {
               body: 'Você receberá alertas de novos agendamentos.',
               icon: '/icon-192.png',
@@ -52,14 +69,14 @@ export const useNotifications = () => {
               requireInteraction: false,
               silent: false,
             });
-            console.log('✅ Notificação de teste enviada!');
+            debugLog('✅ Notificação de teste enviada!');
           } else {
             toast.error('Permissão de notificações negada', {
               description: 'Ative as notificações nas configurações do navegador.',
             });
           }
         } else if (Notification.permission === 'granted') {
-          console.log('✅ Permissão de notificações já concedida');
+          debugLog('✅ Permissão de notificações já concedida');
           toast.success('Notificações ativas');
         }
 
@@ -70,7 +87,7 @@ export const useNotifications = () => {
           if (navigator.serviceWorker.controller) {
             const messageChannel = new MessageChannel();
             messageChannel.port1.onmessage = (event) => {
-              console.log('💚 Keep-alive response:', event.data);
+              debugLog('💚 Keep-alive response:', event.data);
             };
             navigator.serviceWorker.controller.postMessage(
               { type: 'KEEP_ALIVE' },
@@ -93,20 +110,20 @@ export const useNotifications = () => {
     title: string,
     options: NotificationOptions
   ) => {
-    console.log('🔔 showNotification chamada:', { title, options, registration, permission: Notification.permission });
+    debugLog('🔔 showNotification chamada:', { title, options, registration, permission: Notification.permission });
     
     if (!registration) {
-      console.warn('⚠️ Registration não disponível ainda');
+      debugWarn('⚠️ Registration não disponível ainda');
       return;
     }
     
     if (Notification.permission !== 'granted') {
-      console.warn('⚠️ Permissão de notificações não concedida:', Notification.permission);
+      debugWarn('⚠️ Permissão de notificações não concedida:', Notification.permission);
       return;
     }
 
     try {
-      console.log('📢 Enviando notificação via Service Worker...');
+      debugLog('📢 Enviando notificação via Service Worker...');
       
       // Usar diretamente o registration.showNotification
       await registration.showNotification(title, {
@@ -119,7 +136,7 @@ export const useNotifications = () => {
         data: options.data,
       });
       
-      console.log('✅ Notificação enviada com sucesso!');
+      debugLog('✅ Notificação enviada com sucesso!');
     } catch (error) {
       console.error('❌ Erro ao mostrar notificação:', error);
     }
@@ -129,7 +146,7 @@ export const useNotifications = () => {
     isReady,
     registration,
     showNotification: (title: string, options: NotificationOptions) => {
-      console.log('📞 showNotification wrapper chamado');
+      debugLog('📞 showNotification wrapper chamado');
       return showNotification(title, options);
     },
   };

@@ -1,7 +1,16 @@
 // Service Worker para notificações persistentes e gerenciamento de cache
 const CACHE_NAME = 'barbearia-v3';
+const SW_DEBUG =
+  self.location.hostname === 'localhost' ||
+  self.location.hostname === '127.0.0.1';
 
-console.log('🔧 Service Worker: Loading...');
+const debugLog = (...args) => {
+  if (SW_DEBUG) {
+    console.log(...args);
+  }
+};
+
+debugLog('🔧 Service Worker: Loading...');
 
 // Lista de assets para cache (será preenchida pelo VitePWA em produção)
 const ASSETS_TO_CACHE = [
@@ -14,7 +23,7 @@ const ASSETS_TO_CACHE = [
 ];
 
 self.addEventListener('install', (event) => {
-  console.log('✅ Service Worker: Installing...');
+  debugLog('✅ Service Worker: Installing...');
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS_TO_CACHE);
@@ -24,13 +33,13 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  console.log('✅ Service Worker: Activating...');
+  debugLog('✅ Service Worker: Activating...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
-            console.log('🗑️ Service Worker: Deleting old cache', cacheName);
+            debugLog('🗑️ Service Worker: Deleting old cache', cacheName);
             return caches.delete(cacheName);
           }
         })
@@ -64,7 +73,7 @@ self.addEventListener('fetch', (event) => {
 
 // Lidar com mensagens do cliente (Notificações)
 self.addEventListener('message', (event) => {
-  console.log('📨 Service Worker: Message received', event.data);
+  debugLog('📨 Service Worker: Message received', event.data);
   
   if (event.data.type === 'SHOW_NOTIFICATION') {
     const { title, options } = event.data;

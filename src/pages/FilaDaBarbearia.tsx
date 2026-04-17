@@ -34,6 +34,23 @@ type FilaProps = {
   readOnly?: boolean;
 };
 
+const FILA_DEBUG =
+  import.meta.env.DEV ||
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1";
+
+const debugLog = (...args: unknown[]) => {
+  if (FILA_DEBUG) {
+    console.log(...args);
+  }
+};
+
+const debugWarn = (...args: unknown[]) => {
+  if (FILA_DEBUG) {
+    console.warn(...args);
+  }
+};
+
 const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const [currentTime, setCurrentTime] = useState("");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -71,8 +88,25 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const navigate = useNavigate();
   const { operatingHours, getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
   const { role } = useAuth();
-  const isClient = role === "cliente";
-  const isReadOnly = readOnly || isClient;
+  const canManageQueue = role === "admin" || role === "gestor" || role === "barbeiro";
+  const isReadOnly = readOnly || !canManageQueue;
+
+  const normalizeTime = (value: string | undefined, fallback: string): string => {
+    if (!value) return fallback;
+    const normalized = String(value).trim();
+    if (!normalized) return fallback;
+    return normalized.slice(0, 5);
+  };
+
+  const buildBarberSlots = (open: string, close: string): string[] => {
+    const slots: string[] = [];
+    let cursor = open;
+    while (cursor < close) {
+      slots.push(cursor);
+      cursor = format(addMinutes(new Date(`2000-01-01T${cursor}:00`), 30), "HH:mm");
+    }
+    return slots;
+  };
 
   const handleDashboardClick = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -209,15 +243,15 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         console.error("Error loading profiles:", profilesError);
       }
 
-      console.log("Loaded profiles:", profiles);
-      console.log("Client IDs from appointments:", clientIds);
+      debugLog("Loaded profiles:", profiles);
+      debugLog("Client IDs from appointments:", clientIds);
 
       const profilesMap = new Map(profiles?.map(p => [p.id, p]) || []);
       
       const appointmentsWithProfiles = data.map(apt => {
         const profile = profilesMap.get(apt.client_id);
         
-        console.log(`Appointment ${apt.id} - client_id: ${apt.client_id}, profile found:`, profile);
+        debugLog(`Appointment ${apt.id} - client_id: ${apt.client_id}, profile found:`, profile);
         
         // Se encontrou o perfil e tem nome
         if (profile && profile.name && profile.name.trim() !== '') {
@@ -229,9 +263,9 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         
         // Se perfil existe mas nome está vazio, tenta buscar do metadata do usuário
         if (profile && (!profile.name || profile.name.trim() === '')) {
-          console.warn(`Profile exists but name is empty for client_id: ${apt.client_id}`);
+          debugWarn(`Profile exists but name is empty for client_id: ${apt.client_id}`);
         } else {
-          console.warn(`Profile NOT found for client_id: ${apt.client_id}`);
+          debugWarn(`Profile NOT found for client_id: ${apt.client_id}`);
         }
         
         // Fallback: usa nome do perfil mesmo que vazio, ou cria um nome temporário
@@ -247,7 +281,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         };
       });
 
-      console.log("Appointments with profiles:", appointmentsWithProfiles);
+      debugLog("Appointments with profiles:", appointmentsWithProfiles);
       setAppointments(appointmentsWithProfiles as any);
     } else {
       setAppointments([]);
@@ -266,7 +300,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       return;
     }
 
-    console.log("Loaded barbers:", data);
+    debugLog("Loaded barbers:", data);
     setBarbers(data || []);
 
     // Load today's monthly schedules for all barbers
@@ -298,7 +332,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         setBarberMonthlySchedules(map);
       }
     } catch (e) {
-      console.warn('Could not load barber monthly schedules:', e);
+      debugWarn('Could not load barber monthly schedules:', e);
     }
 
     try {
@@ -311,7 +345,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         }
       }
     } catch (e) {
-      console.warn("Could not resolve current barber id:", e);
+      debugWarn("Could not resolve current barber id:", e);
       setCurrentUserBarberId(null);
     }
   };
@@ -442,7 +476,10 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       if (monthly) {
         isClosed = monthly.closed;
         if (!isClosed) {
-          workingHours = { open: monthly.open, close: monthly.close };
+          workingHours = {
+            open: normalizeTime(monthly.open, "09:00"),
+            close: normalizeTime(monthly.close, "20:00"),
+          };
           lunchBreak = monthly.lunchBreak || null;
           pauseBreak = monthly.pauseBreak || null;
         }
@@ -460,8 +497,8 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
             if (!isClosed) {
               const shopHours = operatingHours[dayKey];
               workingHours = {
-                open: dayAvailability?.open || shopHours.open,
-                close: dayAvailability?.close || shopHours.close,
+                open: normalizeTime(dayAvailability?.open || shopHours.open, "09:00"),
+                close: normalizeTime(dayAvailability?.close || shopHours.close, "20:00"),
               };
             }
           }
@@ -473,9 +510,17 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         ...(lunchBreak ? [lunchBreak] : []),
         ...(pauseBreak ? [pauseBreak] : []),
       ];
+
+      const getBarberTimeSlotsForDate = (date: Date) => {
+        if (!workingHours) {
+          return getTimeSlotsForDate(date);
+        }
+        return buildBarberSlots(workingHours.open, workingHours.close);
+      };
+
       next[barber.id] = isClosed ? [] : getAvailableSlotsForBarber(
         todayDate,
-        getTimeSlotsForDate,
+        getBarberTimeSlotsForDate,
         barberAppointmentsToday,
         { filterPastSlots: true, breaks: allBreaks, workingHours }
       );
