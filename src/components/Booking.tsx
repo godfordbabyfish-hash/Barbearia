@@ -391,6 +391,10 @@ const Booking = () => {
   useEffect(() => {
     // Não fazer nada se estiver na tela de sucesso ou se já estiver em um step avançado
     if (step === "success" || step === "time" || step === "form") return;
+
+    // Não reexecutar pré-seleção quando já existe serviço selecionado
+    // (permite usar o botão Voltar para trocar de serviço sem retornar para barbeiro automaticamente)
+    if (formData.service) return;
     
     // Não fazer nada se já tiver um barbeiro selecionado (já passou da etapa de seleção de barbeiro)
     if (formData.barber) return;
@@ -428,7 +432,7 @@ const Booking = () => {
     return () => {
       window.removeEventListener('popstate', checkPreSelectedService);
     };
-  }, [location, step, formData.barber]);
+  }, [location, step, formData.service, formData.barber]);
 
   const loadUserProfile = useCallback(async () => {
     if (!user) return;
