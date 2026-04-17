@@ -2,8 +2,16 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const DEFAULT_SUPABASE_URL = 'https://wabefmgfsatlusevxyfo.supabase.co';
+const configuredSupabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+const SUPABASE_URL = configuredSupabaseUrl || DEFAULT_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+if (configuredSupabaseUrl && configuredSupabaseUrl !== DEFAULT_SUPABASE_URL) {
+  console.warn(
+    `⚠️ VITE_SUPABASE_URL (${configuredSupabaseUrl}) difere do projeto ativo (${DEFAULT_SUPABASE_URL}).`
+  );
+}
 
 // Validação das variáveis de ambiente
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
@@ -22,7 +30,7 @@ if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(
-  SUPABASE_URL || 'https://placeholder.supabase.co',
+  SUPABASE_URL,
   SUPABASE_PUBLISHABLE_KEY || 'placeholder-key',
   {
     auth: {

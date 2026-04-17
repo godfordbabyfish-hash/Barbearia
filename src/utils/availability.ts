@@ -1,4 +1,4 @@
-import { format, addMinutes } from "date-fns";
+import { format } from "date-fns";
 
 export interface AppointmentSlotInfo {
   appointment_time: string;
@@ -9,6 +9,11 @@ export interface BarberBreak {
   start_time: string;
   end_time: string;
 }
+
+const timeToMinutes = (time: string): number => {
+  const [hours, minutes] = String(time || "00:00").split(":").map(Number);
+  return (hours || 0) * 60 + (minutes || 0);
+};
 
 /**
  * Returns available time slots for a specific barber on a date.
@@ -50,36 +55,26 @@ export function getAvailableSlotsForBarber(
       })
     : [...allSlots];
 
-  const bookedSlots = new Set<string>();
-  barberAppointmentsOnDate.forEach((apt) => {
-    const startTime = apt.appointment_time;
-    const duration = apt.duration ?? 30;
-    const [hours, minutes] = startTime.split(":").map(Number);
-    let currentSlotTime = new Date(date);
-    currentSlotTime.setHours(hours, minutes, 0, 0);
+  return slots.filter((slot) => {
+    const slotStart = timeToMinutes(slot);
+    const slotEnd = slotStart + 30;
 
-    for (let i = 0; i < Math.ceil(duration / 30); i++) {
-      bookedSlots.add(format(currentSlotTime, "HH:mm"));
-      currentSlotTime = addMinutes(currentSlotTime, 30);
-    }
-  });
-
-  const breakSlots = new Set<string>();
-  if (options?.breaks && options.breaks.length > 0) {
-    options.breaks.forEach((br) => {
-      const [startH, startM] = br.start_time.split(":").map(Number);
-      const [endH, endM] = br.end_time.split(":").map(Number);
-      let cursor = new Date(date);
-      cursor.setHours(startH, startM, 0, 0);
-      const end = new Date(date);
-      end.setHours(endH, endM, 0, 0);
-      while (cursor < end) {
-        breakSlots.add(format(cursor, "HH:mm"));
-        cursor = addMinutes(cursor, 30);
-      }
-      // Intervalo de almoço tratado como [início, fim): permitir início exatamente no fim
+    const overlapsAppointment = barberAppointmentsOnDate.some((apt) => {
+      const aptStart = timeToMinutes(apt.appointment_time);
+      const aptEnd = aptStart + (apt.duration ?? 30);
+      return slotStart < aptEnd && slotEnd > aptStart;
     });
-  }
 
-  return slots.filter((slot) => !bookedSlots.has(slot) && !breakSlots.has(slot));
+    if (overlapsAppointment) {
+      return false;
+    }
+
+    const overlapsBreak = (options?.breaks || []).some((br) => {
+      const breakStart = timeToMinutes(br.start_time);
+      const breakEnd = timeToMinutes(br.end_time);
+      return slotStart < breakEnd && slotEnd > breakStart;
+    });
+
+    return !overlapsBreak;
+  });
 }
