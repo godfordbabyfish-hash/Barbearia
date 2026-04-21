@@ -8,8 +8,24 @@ type UploadOpts = {
 
 const compressImage = async (file: File, category?: string): Promise<File> => {
   if (!file.type.startsWith('image/')) return file;
-  const maxSize = category === 'appointment-photos' ? 900 : 700;
-  const quality = category === 'appointment-photos' ? 0.6 : 0.7;
+
+  const getCompressionProfile = (targetCategory?: string) => {
+    if (targetCategory === 'appointment-photos') {
+      return { maxSize: 800, quality: 0.55 };
+    }
+
+    if (targetCategory === 'avatars') {
+      return { maxSize: 256, quality: 0.65 };
+    }
+
+    if (targetCategory === 'product-sales') {
+      return { maxSize: 900, quality: 0.6 };
+    }
+
+    return { maxSize: 700, quality: 0.68 };
+  };
+
+  const { maxSize, quality } = getCompressionProfile(category);
 
   return new Promise((resolve) => {
     const image = new Image();
@@ -70,7 +86,7 @@ export async function uploadPublicImage(file: File, opts: UploadOpts = {}): Prom
   const { error: uploadError } = await supabase.storage
     .from(bucket)
     .upload(filePath, fileToUpload, {
-      cacheControl: '3600',
+      cacheControl: '31536000',
       upsert: true,
     });
   if (uploadError) throw uploadError;

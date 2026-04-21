@@ -51,6 +51,30 @@ const debugWarn = (...args: unknown[]) => {
   }
 };
 
+const getOptimizedStorageAvatarUrl = (imageUrl?: string | null) => {
+  if (!imageUrl) return '';
+  try {
+    const parsed = new URL(imageUrl);
+    const objectPathMarker = '/storage/v1/object/public/';
+    const markerIndex = parsed.pathname.indexOf(objectPathMarker);
+
+    if (markerIndex === -1) {
+      return imageUrl;
+    }
+
+    const objectPath = parsed.pathname.slice(markerIndex + objectPathMarker.length);
+    const prefix = parsed.pathname.slice(0, markerIndex);
+    parsed.pathname = `${prefix}/storage/v1/render/image/public/${objectPath}`;
+    parsed.searchParams.set('width', '128');
+    parsed.searchParams.set('height', '128');
+    parsed.searchParams.set('quality', '65');
+    parsed.searchParams.set('resize', 'cover');
+    return parsed.toString();
+  } catch {
+    return imageUrl;
+  }
+};
+
 const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const [currentTime, setCurrentTime] = useState("");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -769,7 +793,10 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                   <div className="p-4 border-b border-border">
                     <div className="flex flex-col items-center gap-3">
                       <Avatar className="h-16 w-16 border-2 border-primary/20">
-                        <AvatarImage src={barber.photo_url || barber.image_url || ''} alt={barber.name} />
+                        <AvatarImage
+                          src={getOptimizedStorageAvatarUrl(barber.photo_url || barber.image_url || '')}
+                          alt={barber.name}
+                        />
                         <AvatarFallback className="bg-primary/20 text-primary font-bold text-xl">
                           <span>{barber.name.charAt(0).toUpperCase()}</span>
                         </AvatarFallback>
