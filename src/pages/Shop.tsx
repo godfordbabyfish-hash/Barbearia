@@ -66,6 +66,39 @@ interface CheckoutError {
   hint?: string;
 }
 
+const getOptimizedStorageImageUrl = (
+  imageUrl?: string | null,
+  options?: { width?: number; height?: number; quality?: number; resize?: 'cover' | 'contain' }
+) => {
+  if (!imageUrl) return '';
+
+  try {
+    const parsed = new URL(imageUrl);
+    const objectPathMarker = '/storage/v1/object/public/';
+    const markerIndex = parsed.pathname.indexOf(objectPathMarker);
+
+    if (markerIndex === -1) {
+      return imageUrl;
+    }
+
+    const objectPath = parsed.pathname.slice(markerIndex + objectPathMarker.length);
+    const prefix = parsed.pathname.slice(0, markerIndex);
+    parsed.pathname = `${prefix}/storage/v1/render/image/public/${objectPath}`;
+
+    parsed.searchParams.set('width', String(options?.width ?? 640));
+    if (options?.height) {
+      parsed.searchParams.set('height', String(options.height));
+    } else {
+      parsed.searchParams.delete('height');
+    }
+    parsed.searchParams.set('quality', String(options?.quality ?? 70));
+    parsed.searchParams.set('resize', options?.resize ?? 'cover');
+    return parsed.toString();
+  } catch {
+    return imageUrl;
+  }
+};
+
 const Shop = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -417,8 +450,17 @@ const Shop = () => {
                     <div key={item.product.id} className="flex gap-4 p-4 bg-card rounded-lg border border-border">
                       <div className="w-20 h-20 rounded-md overflow-hidden flex-shrink-0">
                         <img 
-                          src={item.product.image_url || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"}
+                          src={
+                            getOptimizedStorageImageUrl(item.product.image_url, {
+                              width: 160,
+                              height: 160,
+                              quality: 60,
+                              resize: 'cover',
+                            }) || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"
+                          }
                           alt={item.product.name}
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover"
                         />
                       </div>
@@ -516,8 +558,17 @@ const Shop = () => {
                   onClick={() => handleProductImageClick(product)}
                 >
                   <img 
-                    src={product.image_url || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"}
+                    src={
+                      getOptimizedStorageImageUrl(product.image_url, {
+                        width: 640,
+                        height: 640,
+                        quality: 70,
+                        resize: 'cover',
+                      }) || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"
+                    }
                     alt={product.name}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-card via-card/50 to-transparent"></div>
@@ -588,8 +639,15 @@ const Shop = () => {
                 {/* Product Image */}
                 <div className="relative h-80 w-full overflow-hidden rounded-lg">
                   <img 
-                    src={selectedProduct.image_url || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"}
+                    src={
+                      getOptimizedStorageImageUrl(selectedProduct.image_url, {
+                        width: 1200,
+                        quality: 80,
+                        resize: 'contain',
+                      }) || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"
+                    }
                     alt={selectedProduct.name}
+                    decoding="async"
                     className="w-full h-full object-cover"
                   />
                   {(selectedProduct.stock ?? 0) <= 0 && (

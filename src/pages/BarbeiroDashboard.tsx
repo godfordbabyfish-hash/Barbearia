@@ -90,6 +90,35 @@ type BarberAvailability = Record<string, BarberAvailabilityDay | undefined>;
 type UserMetadata = {
   name?: string;
 };
+type DayScheduleForm = {
+  open: string;
+  close: string;
+  closed: boolean;
+  observation: string;
+  lunch_start: string;
+  lunch_end: string;
+  has_lunch: boolean;
+  pause_start: string;
+  pause_end: string;
+  has_pause: boolean;
+};
+type ScheduleValidationAppointment = {
+  id: string;
+  appointment_time: string;
+  status: string;
+  client_id: string | null;
+  client_name: string | null;
+  service: Pick<ServiceRecord, 'title' | 'duration'> | null;
+};
+type ScheduleConflictItem = {
+  appointmentId: string;
+  clientName: string;
+  serviceTitle: string;
+  appointmentTime: string;
+  reasons: string[];
+};
+
+const HISTORY_PAGE_SIZE = 12;
 
 const getUserMetadata = (user: SupabaseUser | null | undefined): UserMetadata =>
   (user?.user_metadata ?? {}) as UserMetadata;
@@ -200,6 +229,7 @@ const BarbeiroDashboard = () => {
   const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'completed' | 'cancelled' | 'confirmed'>('all');
   const [historyFilterService, setHistoryFilterService] = useState<string>('all');
   const [historyFilterPayment, setHistoryFilterPayment] = useState<'all' | 'pix' | 'dinheiro'>('all');
+  const [historyPage, setHistoryPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'agendamentos' | 'horarios' | 'financeiro' | 'historico'>('agendamentos');
   const [showHistoryFilters, setShowHistoryFilters] = useState(false);
   const [historySectionTab, setHistorySectionTab] = useState<'servicos' | 'produtos'>('servicos');
@@ -229,18 +259,7 @@ const BarbeiroDashboard = () => {
   const [savingFit, setSavingFit] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [editingDay, setEditingDay] = useState<Date | null>(null);
-  const [daySchedule, setDaySchedule] = useState<{
-    open: string;
-    close: string;
-    closed: boolean;
-    observation: string;
-    lunch_start: string;
-    lunch_end: string;
-    has_lunch: boolean;
-    pause_start: string;
-    pause_end: string;
-    has_pause: boolean;
-  }>({
+  const [daySchedule, setDaySchedule] = useState<DayScheduleForm>({
     open: '09:00',
     close: '20:00',
     closed: false,
@@ -259,6 +278,7 @@ const BarbeiroDashboard = () => {
   const [applyingBulkLunch, setApplyingBulkLunch] = useState(false);
   const [editingDayBreaks, setEditingDayBreaks] = useState<any[]>([]);
   const [loadingDayBreaks, setLoadingDayBreaks] = useState(false);
+  const [scheduleConflicts, setScheduleConflicts] = useState<ScheduleConflictItem[]>([]);
   const [showNewBreakForm, setShowNewBreakForm] = useState(false);
   const [newBreak, setNewBreak] = useState({ start: '', end: '' });
 
@@ -748,6 +768,113 @@ const BarbeiroDashboard = () => {
     const mm = String(out.getMinutes()).padStart(2, '0');
     return `${hh}:${mm}`;
   };
+
+  const timeToMinutes = (time: string) => {
+    const [hours, minutes] = time.slice(0, 5).split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+
+  const hasTimeOverlap = (startA: string, endA: string, startB: string, endB: string) => {
+    const startAMin = timeToMinutes(startA);
+    const endAMin = timeToMinutes(endA);
+    const startBMin = timeToMinutes(startB);
+    const endBMin = timeToMinutes(endB);
+    return startAMin < endBMin && endAMin > startBMin;
+  };
+
+  const getScheduleConflicts = async (
+    barberId: string,
+    dateStr: string,
+    schedule: DayScheduleForm
+  ): Promise<ScheduleConflictItem[]> => {
+    const { data: appointmentsData, error: appointmentsError } = await supabase
+      .from('appointments')
+      .select('id, appointment_time, status, client_id, client_name, service:services(title, duration)')
+      .eq('barber_id', barberId)
+      .eq('appointment_date', dateStr)
+      .in('status', ['pending', 'confirmed']);
+
+    if (appointmentsError) {
+      throw appointmentsError;
+    }
+
+    const appointments = (appointmentsData || []) as ScheduleValidationAppointment[];
+    if (appointments.length === 0) return [];
+
+    const clientIds = [...new Set(appointments.map((item) => item.client_id).filter(Boolean))] as string[];
+    const clientNameById = new Map<string, string>();
+
+    if (clientIds.length > 0) {
+      const { data: clientsData } = await supabase
+        .from('profiles')
+        .select('id, name')
+        .in('id', clientIds);
+
+      (clientsData || []).forEach((client) => {
+        if (client?.id && client?.name) {
+          clientNameById.set(client.id, client.name);
+        }
+      });
+    }
+
+    const conflicts = appointments
+      .map((appointment) => {
+        const appointmentStart = appointment.appointment_time.slice(0, 5);
+        const appointmentDuration = appointment.service?.duration || 30;
+        const appointmentEnd = addMinutesToTime(appointmentStart, appointmentDuration);
+        const reasons: string[] = [];
+
+        if (schedule.closed) {
+          reasons.push('dia marcado como fechado');
+        } else {
+          if (
+            timeToMinutes(appointmentStart) < timeToMinutes(schedule.open) ||
+            timeToMinutes(appointmentEnd) > timeToMinutes(schedule.close)
+          ) {
+            reasons.push(`fora do horário (${schedule.open} - ${schedule.close})`);
+          }
+
+          if (
+            schedule.has_lunch &&
+            schedule.lunch_start &&
+            schedule.lunch_end &&
+            hasTimeOverlap(appointmentStart, appointmentEnd, schedule.lunch_start, schedule.lunch_end)
+          ) {
+            reasons.push(`conflita com almoço (${schedule.lunch_start} - ${schedule.lunch_end})`);
+          }
+
+          if (
+            schedule.has_pause &&
+            schedule.pause_start &&
+            schedule.pause_end &&
+            hasTimeOverlap(appointmentStart, appointmentEnd, schedule.pause_start, schedule.pause_end)
+          ) {
+            reasons.push(`conflita com pausa (${schedule.pause_start} - ${schedule.pause_end})`);
+          }
+        }
+
+        if (reasons.length === 0) return null;
+
+        return {
+          appointmentId: appointment.id,
+          clientName:
+            (appointment.client_id ? clientNameById.get(appointment.client_id) : undefined) ||
+            appointment.client_name ||
+            'Cliente',
+          serviceTitle: appointment.service?.title || 'Serviço',
+          appointmentTime: appointmentStart,
+          reasons,
+        } as ScheduleConflictItem;
+      })
+      .filter((item): item is ScheduleConflictItem => item !== null)
+      .sort((a, b) => a.appointmentTime.localeCompare(b.appointmentTime));
+
+    return conflicts;
+  };
+
+  useEffect(() => {
+    setScheduleConflicts([]);
+  }, [daySchedule, editingDay]);
 
   const loadAvailableSlotsForNewAppointment = async () => {
     try {
@@ -2233,6 +2360,17 @@ const BarbeiroDashboard = () => {
       if (!barberId || !editingDay) return;
       
       const dateStr = editingDay.toISOString().split('T')[0];
+
+      const conflicts = await getScheduleConflicts(barberId, dateStr, daySchedule);
+      if (conflicts.length > 0) {
+        setScheduleConflicts(conflicts);
+        toast.error(
+          `Não foi possível salvar. ${conflicts.length} agendamento(s) seriam impactados pela nova programação.`
+        );
+        return;
+      }
+
+      setScheduleConflicts([]);
       
       const { error } = await (supabase as any)
         .from('barber_schedules')
@@ -2254,10 +2392,20 @@ const BarbeiroDashboard = () => {
       if (error) throw error;
       
       toast.success('Programação do dia atualizada!');
+      setScheduleConflicts([]);
       setEditingDay(null);
       await Promise.all([loadBarberSchedules(), loadTodayBreaks()]);
     } catch (e: any) {
       console.error('Erro ao salvar escala:', e);
+      if (barberId && editingDay) {
+        try {
+          const dateStr = editingDay.toISOString().split('T')[0];
+          const conflicts = await getScheduleConflicts(barberId, dateStr, daySchedule);
+          setScheduleConflicts(conflicts);
+        } catch (validationError) {
+          debugWarn('Erro ao recarregar conflitos após falha de salvamento:', validationError);
+        }
+      }
       toast.error('Erro ao salvar: ' + e.message);
     }
   };
@@ -2272,6 +2420,8 @@ const BarbeiroDashboard = () => {
       const year = currentMonth.getFullYear();
       const month = currentMonth.getMonth();
       const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const failedDates: { date: string; reason: string }[] = [];
+      let appliedCount = 0;
 
       for (let d = 1; d <= daysInMonth; d++) {
         const date = new Date(year, month, d);
@@ -2284,7 +2434,7 @@ const BarbeiroDashboard = () => {
 
         if (!isOpen) continue;
 
-        await (supabase as any)
+        const { error } = await (supabase as any)
           .from('barber_schedules')
           .upsert({
             barber_id: barberId,
@@ -2300,9 +2450,30 @@ const BarbeiroDashboard = () => {
             pause_end: existing?.pause_end || '15:30',
             has_pause: existing?.has_pause ?? false,
           }, { onConflict: 'barber_id,date' });
+
+        if (error) {
+          failedDates.push({
+            date: dateStr,
+            reason: error.message || 'Conflito de agendamento',
+          });
+          continue;
+        }
+
+        appliedCount += 1;
       }
 
-      toast.success('Horário de almoço aplicado a todos os dias do mês!');
+      if (failedDates.length > 0) {
+        const failedPreview = failedDates
+          .slice(0, 3)
+          .map((item) => `${new Date(item.date + 'T00:00:00').toLocaleDateString('pt-BR')}: ${item.reason}`)
+          .join(' | ');
+
+        toast.error(
+          `Almoço aplicado em ${appliedCount} dia(s), com ${failedDates.length} bloqueio(s) por conflito. ${failedPreview}`
+        );
+      } else {
+        toast.success('Horário de almoço aplicado a todos os dias do mês!');
+      }
       setBulkLunchDialogOpen(false);
       loadBarberSchedules();
     } catch (e: any) {
@@ -2446,6 +2617,80 @@ const BarbeiroDashboard = () => {
     });
   }, [appointments, historyFilterPeriod, historyFilterStatus, historyFilterService, historyFilterPayment]);
 
+  const historyTotalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(filteredHistoryAppointments.length / HISTORY_PAGE_SIZE));
+  }, [filteredHistoryAppointments.length]);
+
+  const currentHistoryPage = useMemo(() => {
+    return Math.min(historyPage, historyTotalPages);
+  }, [historyPage, historyTotalPages]);
+
+  const paginatedHistoryAppointments = useMemo(() => {
+    const start = (currentHistoryPage - 1) * HISTORY_PAGE_SIZE;
+    return filteredHistoryAppointments.slice(start, start + HISTORY_PAGE_SIZE);
+  }, [filteredHistoryAppointments, currentHistoryPage]);
+
+  const historyStartIndex = filteredHistoryAppointments.length === 0
+    ? 0
+    : (currentHistoryPage - 1) * HISTORY_PAGE_SIZE + 1;
+
+  const historyEndIndex = Math.min(
+    currentHistoryPage * HISTORY_PAGE_SIZE,
+    filteredHistoryAppointments.length
+  );
+
+  useEffect(() => {
+    if (historyPage > historyTotalPages) {
+      setHistoryPage(historyTotalPages);
+    }
+  }, [historyPage, historyTotalPages]);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [
+    historyFilterPeriod,
+    historyFilterStatus,
+    historyFilterService,
+    historyFilterPayment,
+    historySectionTab,
+  ]);
+
+  const getSupabaseImagePreviewUrl = (
+    photoUrl?: string | null,
+    options?: { width?: number; height?: number; quality?: number; resize?: 'cover' | 'contain' }
+  ) => {
+    if (!photoUrl) return '';
+    try {
+      const parsed = new URL(photoUrl);
+      const objectPathMarker = '/storage/v1/object/public/';
+      const markerIndex = parsed.pathname.indexOf(objectPathMarker);
+
+      if (markerIndex === -1) {
+        return photoUrl;
+      }
+
+      const objectPath = parsed.pathname.slice(markerIndex + objectPathMarker.length);
+      const prefix = parsed.pathname.slice(0, markerIndex);
+      parsed.pathname = `${prefix}/storage/v1/render/image/public/${objectPath}`;
+
+      const width = options?.width ?? 320;
+      const quality = options?.quality ?? 65;
+      const resize = options?.resize ?? 'cover';
+
+      parsed.searchParams.set('width', String(width));
+      if (options?.height) {
+        parsed.searchParams.set('height', String(options.height));
+      } else {
+        parsed.searchParams.delete('height');
+      }
+      parsed.searchParams.set('resize', resize);
+      parsed.searchParams.set('quality', String(quality));
+      return parsed.toString();
+    } catch {
+      return photoUrl;
+    }
+  };
+
   const completedAppointments = useMemo(() => {
     return appointments
       .filter(a => a.status === 'completed')
@@ -2573,7 +2818,7 @@ const BarbeiroDashboard = () => {
                 <TabsTrigger value="historico">Histórico</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="agendamentos" className="space-y-6" forceMount>
+              <TabsContent value="agendamentos" className="space-y-6">
               <div className="mb-8">
                 <Card className="bg-card border-border" translate="no">
                   <CardHeader>
@@ -3407,7 +3652,7 @@ const BarbeiroDashboard = () => {
 
           
 
-          <TabsContent value="horarios" className="space-y-6" forceMount>
+          <TabsContent value="horarios" className="space-y-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold">Programação de Atendimento</h2>
             </div>
@@ -3492,6 +3737,7 @@ const BarbeiroDashboard = () => {
                             <button
                               key={d}
                               onClick={() => {
+                                setScheduleConflicts([]);
                                 setEditingDay(date);
                                 setDaySchedule({
                                   open: openTime,
@@ -3562,7 +3808,12 @@ const BarbeiroDashboard = () => {
                 </CardContent>
               </Card>
 
-            <Dialog open={editingDay !== null} onOpenChange={(open) => !open && setEditingDay(null)}>
+            <Dialog open={editingDay !== null} onOpenChange={(open) => {
+              if (!open) {
+                setScheduleConflicts([]);
+                setEditingDay(null);
+              }
+            }}>
               <DialogContent className="sm:max-w-md max-h-[90dvh] flex flex-col p-0">
                 <DialogHeader className="px-4 pt-4 pb-2 shrink-0">
                   <DialogTitle className="text-base">
@@ -3691,6 +3942,34 @@ const BarbeiroDashboard = () => {
                       </div>
                     </>
                   )}
+
+                  {scheduleConflicts.length > 0 && (
+                    <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 space-y-2">
+                      <p className="text-sm font-semibold text-destructive">
+                        Não foi possível salvar a programação
+                      </p>
+                      <p className="text-xs text-destructive/90">
+                        Ajuste os horários e tente novamente. Agendamentos impactados:
+                      </p>
+                      <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                        {scheduleConflicts.map((conflict) => (
+                          <div
+                            key={conflict.appointmentId}
+                            className="rounded-md border border-destructive/30 bg-background/70 p-2"
+                          >
+                            <div className="flex items-center justify-between gap-2 text-xs">
+                              <span className="font-semibold text-foreground truncate">{conflict.clientName}</span>
+                              <span className="font-semibold text-destructive">{conflict.appointmentTime}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground truncate">{conflict.serviceTitle}</p>
+                            <p className="text-[11px] text-destructive mt-1">
+                              {conflict.reasons.join(' • ')}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-2 px-4 py-3 border-t border-border shrink-0">
@@ -3767,7 +4046,7 @@ const BarbeiroDashboard = () => {
 
           {/* Duplicate Financeiro Tab Removed */}
 
-      <TabsContent value="financeiro" className="space-y-6" forceMount>
+      <TabsContent value="financeiro" className="space-y-6">
         <BarberFinancialDashboard barberId={selectedBarber} isActive={activeTab === 'financeiro'} />
         <Card className="bg-card border-border">
           <CardHeader className="pb-2">
@@ -3886,13 +4165,13 @@ const BarbeiroDashboard = () => {
                 </Card>
               </TabsContent>
 
-              <TabsContent value="historico" className="space-y-6" forceMount>
+              <TabsContent value="historico" className="space-y-6">
                 <Tabs value={historySectionTab} onValueChange={setHistorySectionTab as any} className="w-full">
                   <TabsList className="grid w-full grid-cols-2 mb-4">
                     <TabsTrigger value="servicos">Histórico de Serviços</TabsTrigger>
                     <TabsTrigger value="produtos">Histórico de Produtos</TabsTrigger>
                   </TabsList>
-                  <TabsContent value="servicos" className="space-y-6" forceMount>
+                  <TabsContent value="servicos" className="space-y-6">
                 <Card className="bg-card border-border">
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
@@ -4082,9 +4361,10 @@ const BarbeiroDashboard = () => {
 
                     {(() => {
                       const filteredAppointments = filteredHistoryAppointments;
+                      const visibleAppointments = paginatedHistoryAppointments;
                       return filteredAppointments.length > 0 ? (
                         <div className="space-y-3">
-                          {filteredAppointments.map((appointment) => (
+                          {visibleAppointments.map((appointment) => (
                           <div key={appointment.id} className={`p-3 rounded-lg border ${
                             appointment.status === 'completed' ? 'bg-green-500/10 border-green-500/30' :
                             appointment.status === 'confirmed' ? 'bg-blue-500/10 border-blue-500/30' :
@@ -4191,13 +4471,21 @@ const BarbeiroDashboard = () => {
                                       type="button"
                                       className="w-full max-w-xs h-40 rounded-lg border border-border overflow-hidden focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
                                       onClick={() => {
-                                        setPhotoModalUrl(appointment.photo_url as string);
+                                        setPhotoModalUrl(
+                                          getSupabaseImagePreviewUrl(appointment.photo_url as string, {
+                                            width: 1280,
+                                            quality: 80,
+                                            resize: 'contain',
+                                          })
+                                        );
                                         setPhotoModalOpen(true);
                                       }}
                                     >
                                       <img 
-                                        src={appointment.photo_url} 
+                                        src={getSupabaseImagePreviewUrl(appointment.photo_url as string)} 
                                         alt="Foto do corte" 
+                                        loading="lazy"
+                                        decoding="async"
                                         className="w-full h-full object-cover"
                                       />
                                     </button>
@@ -4207,6 +4495,35 @@ const BarbeiroDashboard = () => {
                             </div>
                           </div>
                         ))}
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60">
+                            <span className="text-xs text-muted-foreground">
+                              Mostrando {historyStartIndex}-{historyEndIndex} de {filteredAppointments.length}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                disabled={currentHistoryPage <= 1}
+                                onClick={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
+                              >
+                                Anterior
+                              </Button>
+                              <span className="text-xs text-muted-foreground min-w-[68px] text-center">
+                                {currentHistoryPage} / {historyTotalPages}
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                disabled={currentHistoryPage >= historyTotalPages}
+                                onClick={() => setHistoryPage((prev) => Math.min(historyTotalPages, prev + 1))}
+                              >
+                                Próxima
+                              </Button>
+                            </div>
+                          </div>
                       </div>
                     ) : (
                       <p className="text-center text-muted-foreground py-8">
@@ -4219,7 +4536,7 @@ const BarbeiroDashboard = () => {
                   </CardContent>
               </Card>
             </TabsContent>
-                  <TabsContent value="produtos" className="space-y-6" forceMount>
+                  <TabsContent value="produtos" className="space-y-6">
                 <Card className="bg-card border-border">
                   <CardHeader className="pb-2">
                     <div className="flex items-center justify-between">
@@ -4344,7 +4661,13 @@ const BarbeiroDashboard = () => {
                                         size="sm"
                                         className="h-6 px-2 text-xs"
                                         onClick={() => {
-                                          setPhotoModalUrl(sale.photo_url);
+                                          setPhotoModalUrl(
+                                            getSupabaseImagePreviewUrl(sale.photo_url, {
+                                              width: 1280,
+                                              quality: 80,
+                                              resize: 'contain',
+                                            })
+                                          );
                                           setPhotoModalOpen(true);
                                         }}
                                       >

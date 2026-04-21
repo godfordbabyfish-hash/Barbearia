@@ -82,6 +82,39 @@ const defaultImages: Record<string, string> = {
   "Finalização": stylingImg,
 };
 
+const getOptimizedStorageImageUrl = (
+  imageUrl?: string | null,
+  options?: { width?: number; height?: number; quality?: number; resize?: 'cover' | 'contain' }
+) => {
+  if (!imageUrl) return '';
+
+  try {
+    const parsed = new URL(imageUrl);
+    const objectPathMarker = '/storage/v1/object/public/';
+    const markerIndex = parsed.pathname.indexOf(objectPathMarker);
+
+    if (markerIndex === -1) {
+      return imageUrl;
+    }
+
+    const objectPath = parsed.pathname.slice(markerIndex + objectPathMarker.length);
+    const prefix = parsed.pathname.slice(0, markerIndex);
+    parsed.pathname = `${prefix}/storage/v1/render/image/public/${objectPath}`;
+
+    parsed.searchParams.set('width', String(options?.width ?? 240));
+    if (options?.height) {
+      parsed.searchParams.set('height', String(options.height));
+    } else {
+      parsed.searchParams.delete('height');
+    }
+    parsed.searchParams.set('quality', String(options?.quality ?? 65));
+    parsed.searchParams.set('resize', options?.resize ?? 'cover');
+    return parsed.toString();
+  } catch {
+    return imageUrl;
+  }
+};
+
 const historyFilterPeriods: readonly HistoryFilterPeriod[] = ['all', 'today', 'week', 'month', 'year'];
 const historyFilterStatuses: readonly HistoryFilterStatus[] = ['all', 'completed', 'cancelled', 'confirmed', 'pending'];
 
@@ -947,8 +980,17 @@ const ClienteDashboard = () => {
                               <div className="h-16 w-16 bg-background rounded-md overflow-hidden flex-shrink-0">
                                 {sale.product?.image_url ? (
                                   <img 
-                                    src={sale.product.image_url} 
+                                    src={
+                                      getOptimizedStorageImageUrl(sale.product.image_url, {
+                                        width: 128,
+                                        height: 128,
+                                        quality: 60,
+                                        resize: 'cover',
+                                      }) || sale.product.image_url
+                                    }
                                     alt={sale.product.name} 
+                                    loading="lazy"
+                                    decoding="async"
                                     className="h-full w-full object-cover"
                                   />
                                 ) : (
