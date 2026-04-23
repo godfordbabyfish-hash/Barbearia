@@ -28,7 +28,64 @@ type DailyReportConfig = {
 
 type ReportType = "daily" | "weekly" | "monthly";
 
+type ReportLogStatus = "success" | "error" | "skipped";
+
 type ServiceMap = Record<string, { title: string; price: number }>;
+
+const logReportEvent = async (
+  supabase: any,
+  params: {
+    reportType: ReportType;
+    status: ReportLogStatus;
+    targetPhone: string;
+    periodStart?: string;
+    periodEnd?: string;
+    grossRevenue?: number;
+    netProfit?: number;
+    roi?: number;
+    goalsDailyPct?: number;
+    goalsWeeklyPct?: number;
+    goalsMonthlyPct?: number;
+    errorMessage?: string;
+    metadata?: Record<string, unknown>;
+  }
+) => {
+  const {
+    reportType,
+    status,
+    targetPhone,
+    periodStart,
+    periodEnd,
+    grossRevenue,
+    netProfit,
+    roi,
+    goalsDailyPct,
+    goalsWeeklyPct,
+    goalsMonthlyPct,
+    errorMessage,
+    metadata,
+  } = params;
+
+  try {
+    await supabase.from("whatsapp_report_logs").insert({
+      report_type: reportType,
+      status,
+      phone_number: targetPhone,
+      period_start: periodStart ?? null,
+      period_end: periodEnd ?? null,
+      gross_revenue: Number(grossRevenue || 0),
+      net_profit: Number(netProfit || 0),
+      roi: Number(roi || 0),
+      goals_daily_pct: Number(goalsDailyPct || 0),
+      goals_weekly_pct: Number(goalsWeeklyPct || 0),
+      goals_monthly_pct: Number(goalsMonthlyPct || 0),
+      error_message: errorMessage ?? null,
+      metadata: metadata || {},
+    });
+  } catch (logError) {
+    console.error("Error writing whatsapp_report_logs:", logError);
+  }
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -491,7 +548,18 @@ const generateMessage = (params: {
   includeInsights: boolean;
   insights: string[];
 }) => {
-  const { reportType, periodLabel, localDate, metrics, topServices, goalsProgress, includeGoals, includeRoi, includeInsights, insights } = params;
+  const {
+    reportType,
+    periodLabel,
+    localDate,
+    metrics,
+    topServices,
+    goalsProgress,
+    includeGoals,
+    includeRoi,
+    includeInsights,
+    insights,
+  } = params;
 
   const lines: string[] = [];
   const title = reportType === "daily" ? "📊 *Resumo Diário*" : reportType === "weekly" ? "📊 *Resumo Semanal*" : "📊 *Resumo Mensal*";
@@ -660,6 +728,7 @@ Deno.serve(async (req: Request) => {
 
     const reportTypes: ReportType[] = forceSendNow ? [requestedType] : ["daily", "weekly", "monthly"];
     const sendResults: any[] = [];
+    const sendErrors: any[] = [];
     let updatedConfig: DailyReportConfig = { ...cfg };
 
     for (const reportType of reportTypes) {
@@ -672,135 +741,174 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      const range = getRangeForType(nowLocal.date, reportType);
-      const [appointments, sales, expenses] = await Promise.all([
-        loadAppointmentsInRange(supabase, range.start, range.end),
-        loadProductSalesInRange(supabase, range.start, range.end),
-        loadExpensesInRange(supabase, range.start, range.end),
-      ]);
+      try {
+        const range = getRangeForType(nowLocal.date, reportType);
+        const [appointments, sales, expenses] = await Promise.all([
+          loadAppointmentsInRange(supabase, range.start, range.end),
+          loadProductSalesInRange(supabase, range.start, range.end),
+          loadExpensesInRange(supabase, range.start, range.end),
+        ]);
 
-      const serviceData = await computeServiceRevenue(supabase, appointments);
-      const grossProducts = sales.reduce((sum: number, s: any) => sum + Number(s.total_price || 0), 0);
-      const productCommissions = sales.reduce((sum: number, s: any) => sum + Number(s.commission_value || 0), 0);
-      const totalCommissions = serviceData.serviceCommissions + productCommissions;
-      const expensesTotal = expenses.reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
-      const grossRevenue = serviceData.grossServices + grossProducts;
-      const netProfit = grossRevenue - totalCommissions - expensesTotal;
-      const roi = grossRevenue > 0 ? (netProfit / grossRevenue) * 100 : 0;
+        const serviceData = await computeServiceRevenue(supabase, appointments);
+        const grossProducts = sales.reduce((sum: number, s: any) => sum + Number(s.total_price || 0), 0);
+        const productCommissions = sales.reduce((sum: number, s: any) => sum + Number(s.commission_value || 0), 0);
+        const totalCommissions = serviceData.serviceCommissions + productCommissions;
+        const expensesTotal = expenses.reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
+        const grossRevenue = serviceData.grossServices + grossProducts;
+        const netProfit = grossRevenue - totalCommissions - expensesTotal;
+        const roi = grossRevenue > 0 ? (netProfit / grossRevenue) * 100 : 0;
 
-      const goalsProgress = {
-        daily: {
-          goal: dailyGoal,
-          achieved: reportType === "daily" ? grossRevenue : dailyAchieved,
-          percent: 0,
-        },
-        weekly: {
-          goal: weeklyGoal,
-          achieved: reportType === "weekly" ? grossRevenue : weeklyAchieved,
-          percent: 0,
-        },
-        monthly: {
-          goal: monthlyGoal,
-          achieved: reportType === "monthly" ? grossRevenue : monthlyAchieved,
-          percent: 0,
-        },
-      };
+        const goalsProgress = {
+          daily: {
+            goal: dailyGoal,
+            achieved: reportType === "daily" ? grossRevenue : dailyAchieved,
+            percent: 0,
+          },
+          weekly: {
+            goal: weeklyGoal,
+            achieved: reportType === "weekly" ? grossRevenue : weeklyAchieved,
+            percent: 0,
+          },
+          monthly: {
+            goal: monthlyGoal,
+            achieved: reportType === "monthly" ? grossRevenue : monthlyAchieved,
+            percent: 0,
+          },
+        };
 
-      goalsProgress.daily.percent = dailyGoal > 0 ? (goalsProgress.daily.achieved / dailyGoal) * 100 : 0;
-      goalsProgress.weekly.percent = weeklyGoal > 0 ? (goalsProgress.weekly.achieved / weeklyGoal) * 100 : 0;
-      goalsProgress.monthly.percent = monthlyGoal > 0 ? (goalsProgress.monthly.achieved / monthlyGoal) * 100 : 0;
+        goalsProgress.daily.percent = dailyGoal > 0 ? (goalsProgress.daily.achieved / dailyGoal) * 100 : 0;
+        goalsProgress.weekly.percent = weeklyGoal > 0 ? (goalsProgress.weekly.achieved / weeklyGoal) * 100 : 0;
+        goalsProgress.monthly.percent = monthlyGoal > 0 ? (goalsProgress.monthly.achieved / monthlyGoal) * 100 : 0;
 
-      const topServices = Object.entries(serviceData.servicesCounter)
-        .map(([name, data]) => ({ name, qty: data.qty, revenue: data.revenue }))
-        .sort((a, b) => b.revenue - a.revenue)
-        .slice(0, 3);
+        const topServices = Object.entries(serviceData.servicesCounter)
+          .map(([name, data]) => ({ name, qty: data.qty, revenue: data.revenue }))
+          .sort((a, b) => b.revenue - a.revenue)
+          .slice(0, 3);
 
-      let comparisonBase = previous7Average;
-      let comparisonLabel = "média diária dos últimos 7 dias";
-      if (reportType === "weekly") {
-        const currentWeekStart = new Date(`${range.start}T00:00:00`);
-        const prevWeekStart = new Date(currentWeekStart);
-        prevWeekStart.setDate(currentWeekStart.getDate() - 7);
-        const prevWeekEnd = new Date(currentWeekStart);
-        prevWeekEnd.setDate(currentWeekStart.getDate() - 1);
-        comparisonBase = await loadRevenueForRange(
-          supabase,
-          prevWeekStart.toISOString().split("T")[0],
-          prevWeekEnd.toISOString().split("T")[0]
-        );
-        comparisonLabel = "a semana anterior";
-      } else if (reportType === "monthly") {
-        const startDate = new Date(`${range.start}T00:00:00`);
-        const prevMonthStart = new Date(startDate.getFullYear(), startDate.getMonth() - 1, 1);
-        const prevMonthEnd = new Date(startDate.getFullYear(), startDate.getMonth(), 0);
-        comparisonBase = await loadRevenueForRange(
-          supabase,
-          prevMonthStart.toISOString().split("T")[0],
-          prevMonthEnd.toISOString().split("T")[0]
-        );
-        comparisonLabel = "o mês anterior";
-      }
+        let comparisonBase = previous7Average;
+        let comparisonLabel = "média diária dos últimos 7 dias";
+        if (reportType === "weekly") {
+          const currentWeekStart = new Date(`${range.start}T00:00:00`);
+          const prevWeekStart = new Date(currentWeekStart);
+          prevWeekStart.setDate(currentWeekStart.getDate() - 7);
+          const prevWeekEnd = new Date(currentWeekStart);
+          prevWeekEnd.setDate(currentWeekStart.getDate() - 1);
+          comparisonBase = await loadRevenueForRange(
+            supabase,
+            prevWeekStart.toISOString().split("T")[0],
+            prevWeekEnd.toISOString().split("T")[0]
+          );
+          comparisonLabel = "a semana anterior";
+        } else if (reportType === "monthly") {
+          const startDate = new Date(`${range.start}T00:00:00`);
+          const prevMonthStart = new Date(startDate.getFullYear(), startDate.getMonth() - 1, 1);
+          const prevMonthEnd = new Date(startDate.getFullYear(), startDate.getMonth(), 0);
+          comparisonBase = await loadRevenueForRange(
+            supabase,
+            prevMonthStart.toISOString().split("T")[0],
+            prevMonthEnd.toISOString().split("T")[0]
+          );
+          comparisonLabel = "o mês anterior";
+        }
 
-      const goalTarget = reportType === "daily" ? dailyGoal : reportType === "weekly" ? weeklyGoal : monthlyGoal;
+        const goalTarget = reportType === "daily" ? dailyGoal : reportType === "weekly" ? weeklyGoal : monthlyGoal;
 
-      const insights = buildInsights({
-        reportType,
-        grossRevenue,
-        goalTarget,
-        averageTicket: serviceData.averageTicket,
-        comparisonRevenue: comparisonBase,
-        comparisonLabel,
-        netProfit,
-        expenses: expensesTotal,
-      });
-
-      const message = generateMessage({
-        reportType,
-        periodLabel: getPeriodLabel(reportType, range.start, range.end),
-        localDate: nowLocal.date,
-        metrics: {
-          appointmentsCount: serviceData.appointmentCount,
-          grossServices: serviceData.grossServices,
-          grossProducts,
+        const insights = buildInsights({
+          reportType,
           grossRevenue,
-          serviceCommissions: serviceData.serviceCommissions,
-          productCommissions,
-          totalCommissions,
-          expenses: expensesTotal,
-          netProfit,
-          roi,
+          goalTarget,
           averageTicket: serviceData.averageTicket,
-          uniqueClients: serviceData.uniqueClients,
-        },
-        topServices,
-        goalsProgress,
-        includeGoals: Boolean(cfg.include_goals),
-        includeRoi: Boolean(cfg.include_roi),
-        includeInsights: Boolean(cfg.include_insights),
-        insights,
-      });
+          comparisonRevenue: comparisonBase,
+          comparisonLabel,
+          netProfit,
+          expenses: expensesTotal,
+        });
 
-      const sendResult = await sendEvolutionMessage(waConfig, targetPhone, message);
-      const sentAt = new Date().toISOString();
-      (updatedConfig as any)[getLastSentKeyByType(reportType)] = sentAt;
+        const message = generateMessage({
+          reportType,
+          periodLabel: getPeriodLabel(reportType, range.start, range.end),
+          localDate: nowLocal.date,
+          metrics: {
+            appointmentsCount: serviceData.appointmentCount,
+            grossServices: serviceData.grossServices,
+            grossProducts,
+            grossRevenue,
+            serviceCommissions: serviceData.serviceCommissions,
+            productCommissions,
+            totalCommissions,
+            expenses: expensesTotal,
+            netProfit,
+            roi,
+            averageTicket: serviceData.averageTicket,
+            uniqueClients: serviceData.uniqueClients,
+          },
+          topServices,
+          goalsProgress,
+          includeGoals: Boolean(cfg.include_goals),
+          includeRoi: Boolean(cfg.include_roi),
+          includeInsights: Boolean(cfg.include_insights),
+          insights,
+        });
 
-      sendResults.push({
-        reportType,
-        range,
-        metrics: {
+        const sendResult = await sendEvolutionMessage(waConfig, targetPhone, message);
+        const sentAt = new Date().toISOString();
+        (updatedConfig as any)[getLastSentKeyByType(reportType)] = sentAt;
+
+        await logReportEvent(supabase, {
+          reportType,
+          status: "success",
+          targetPhone,
+          periodStart: range.start,
+          periodEnd: range.end,
           grossRevenue,
-          totalCommissions,
-          expensesTotal,
           netProfit,
           roi,
-        },
-        sendResult,
-      });
+          goalsDailyPct: goalsProgress.daily.percent,
+          goalsWeeklyPct: goalsProgress.weekly.percent,
+          goalsMonthlyPct: goalsProgress.monthly.percent,
+          metadata: {
+            appointmentsCount: serviceData.appointmentCount,
+            productSalesCount: sales.length,
+            expensesCount: expenses.length,
+          },
+        });
+
+        sendResults.push({
+          reportType,
+          range,
+          metrics: {
+            grossRevenue,
+            totalCommissions,
+            expensesTotal,
+            netProfit,
+            roi,
+          },
+          sendResult,
+        });
+      } catch (reportError) {
+        const reportMessage = reportError instanceof Error ? reportError.message : String(reportError);
+        sendErrors.push({ reportType, error: reportMessage });
+
+        const range = getRangeForType(nowLocal.date, reportType);
+        await logReportEvent(supabase, {
+          reportType,
+          status: "error",
+          targetPhone,
+          periodStart: range.start,
+          periodEnd: range.end,
+          errorMessage: reportMessage,
+        });
+      }
     }
 
     if (sendResults.length === 0) {
       return new Response(
-        JSON.stringify({ success: true, skipped: true, reason: forceSendNow ? "no-data-or-config" : "no-report-due-now" }),
+        JSON.stringify({
+          success: sendErrors.length === 0,
+          skipped: sendErrors.length === 0,
+          reason: sendErrors.length === 0 ? (forceSendNow ? "no-data-or-config" : "no-report-due-now") : "all-report-sends-failed",
+          errors: sendErrors,
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -813,6 +921,7 @@ Deno.serve(async (req: Request) => {
         sent_to: targetPhone,
         date: nowLocal.date,
         reports_sent: sendResults,
+        report_errors: sendErrors,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

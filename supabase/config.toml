@@ -18,6 +18,9 @@ verify_jwt = false
 [functions.whatsapp-reminder]
 verify_jwt = false
 
+[functions.whatsapp-daily-report]
+verify_jwt = false
+
 [functions.setup-reminder-cron]
 verify_jwt = false
 
@@ -25,6 +28,12 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.cleanup-whatsapp-queue]
+verify_jwt = false
+
+[functions.cleanup-appointment-photos]
+verify_jwt = false
+
+[functions.sync-supabase-usage]
 verify_jwt = false
 
 [functions.apply-product-commissions-migration]

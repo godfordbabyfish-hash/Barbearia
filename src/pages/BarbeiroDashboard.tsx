@@ -119,6 +119,9 @@ type ScheduleConflictItem = {
 };
 
 const HISTORY_PAGE_SIZE = 12;
+const PRODUCT_HISTORY_PAGE_SIZE = 12;
+const OPERATIONS_LOOKBACK_DAYS = 120;
+const HISTORY_LOOKBACK_DAYS = 365;
 
 const getUserMetadata = (user: SupabaseUser | null | undefined): UserMetadata =>
   (user?.user_metadata ?? {}) as UserMetadata;
@@ -179,11 +182,35 @@ const debugWarn = (...args: unknown[]) => {
   }
 };
 
+type DashboardQueryMetric = {
+  query: string;
+  durationMs: number;
+  rowCount: number;
+  totalCount?: number | null;
+  page?: number;
+  pageSize?: number;
+  filters?: Record<string, unknown>;
+  error?: string;
+};
+
+const logDashboardQueryMetric = (metric: DashboardQueryMetric) => {
+  if (!DASHBOARD_DEBUG) return;
+
+  console.info('[DashboardQueryMetric]', {
+    ...metric,
+    durationMs: Number(metric.durationMs.toFixed(1)),
+    timestamp: new Date().toISOString(),
+  });
+};
+
 const BarbeiroDashboard = () => {
   const navigate = useNavigate();
   const { role: userRole, user, signOut } = useAuth();
   const [displayName, setDisplayName] = useState<string>('');
   const [appointments, setAppointments] = useState<AppointmentWithRelations[]>([]);
+  const [historyAppointments, setHistoryAppointments] = useState<AppointmentWithRelations[]>([]);
+  const [historyTotalCount, setHistoryTotalCount] = useState(0);
+  const [loadingHistoryAppointments, setLoadingHistoryAppointments] = useState(false);
   const [barbers, setBarbers] = useState<BarberRecord[]>([]);
   const [services, setServices] = useState<ServiceRecord[]>([]);
   const [selectedBarber, setSelectedBarber] = useState<string>('');
@@ -242,6 +269,8 @@ const BarbeiroDashboard = () => {
   const [productHistoryFilterPeriod, setProductHistoryFilterPeriod] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
   const [productHistoryFilterStatus, setProductHistoryFilterStatus] = useState<'all' | 'confirmed' | 'pending' | 'cancelled'>('all');
   const [productHistoryFilterProductId, setProductHistoryFilterProductId] = useState<string>('all');
+  const [productHistoryPage, setProductHistoryPage] = useState(1);
+  const [productHistoryTotalCount, setProductHistoryTotalCount] = useState(0);
   const [productFilterList, setProductFilterList] = useState<ProductFilterItem[]>([]);
   
   // Product sale dialog
@@ -283,6 +312,11 @@ const BarbeiroDashboard = () => {
   const [newBreak, setNewBreak] = useState({ start: '', end: '' });
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const activeTabRef = useRef(activeTab);
+
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
   
   // Estado para prevenir submissões simultâneas de agendamentos
   const [creatingAppointment, setCreatingAppointment] = useState(false);
@@ -333,28 +367,101 @@ const BarbeiroDashboard = () => {
       });
   }, [appointments, selectedBarber, currentUserBarber?.id]);
 
-  const loadProductHistory = async () => {
+  const loadProductHistory = async (page: number = 1) => {
+    const startedAt = performance.now();
     try {
       setLoadingProductHistory(true);
       const targetBarber = selectedBarber || currentUserBarber?.id;
       if (!targetBarber) {
         setProductHistory([]);
+        setProductHistoryTotalCount(0);
         setLoadingProductHistory(false);
         return;
       }
-      const { data } = await supabase
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const lookbackDate = new Date(today);
+      lookbackDate.setDate(lookbackDate.getDate() - HISTORY_LOOKBACK_DAYS);
+
+      let startDate = format(lookbackDate, 'yyyy-MM-dd');
+      if (productHistoryFilterPeriod !== 'all') {
+        const periodDate = new Date(today);
+        if (productHistoryFilterPeriod === 'today') {
+          startDate = format(periodDate, 'yyyy-MM-dd');
+        } else if (productHistoryFilterPeriod === 'week') {
+          periodDate.setDate(periodDate.getDate() - 7);
+          startDate = format(periodDate, 'yyyy-MM-dd');
+        } else if (productHistoryFilterPeriod === 'month') {
+          periodDate.setMonth(periodDate.getMonth() - 1);
+          startDate = format(periodDate, 'yyyy-MM-dd');
+        } else if (productHistoryFilterPeriod === 'year') {
+          periodDate.setFullYear(periodDate.getFullYear() - 1);
+          startDate = format(periodDate, 'yyyy-MM-dd');
+        }
+      }
+
+      const safePage = Math.max(1, page);
+      const rangeFrom = (safePage - 1) * PRODUCT_HISTORY_PAGE_SIZE;
+      const rangeTo = rangeFrom + PRODUCT_HISTORY_PAGE_SIZE - 1;
+
+      let query = supabase
         .from('product_sales')
         .select(`
           id, product_id, sale_date, sale_time, quantity, total_price, status, notes, payment_method, photo_url,
           product:products(name)
-        `)
+        `, { count: 'exact' })
         .eq('barber_id', targetBarber)
+        .gte('sale_date', startDate);
+
+      if (productHistoryFilterStatus !== 'all') {
+        query = query.eq('status', productHistoryFilterStatus);
+      }
+      if (productHistoryFilterProductId !== 'all') {
+        query = query.eq('product_id', productHistoryFilterProductId);
+      }
+
+      const { data, count, error } = await query
         .order('sale_date', { ascending: false })
-        .order('sale_time', { ascending: false });
+        .order('sale_time', { ascending: false })
+        .range(rangeFrom, rangeTo);
+
+      if (error) {
+        throw error;
+      }
+
+      setProductHistoryTotalCount(count ?? 0);
       setProductHistory((data || []) as ProductHistoryItem[]);
+
+      logDashboardQueryMetric({
+        query: 'product_history',
+        durationMs: performance.now() - startedAt,
+        rowCount: (data || []).length,
+        totalCount: count,
+        page: safePage,
+        pageSize: PRODUCT_HISTORY_PAGE_SIZE,
+        filters: {
+          barberId: targetBarber,
+          period: productHistoryFilterPeriod,
+          status: productHistoryFilterStatus,
+          productId: productHistoryFilterProductId,
+          startDate,
+        },
+      });
     } catch (e) {
       debugWarn('Erro ao carregar histórico de produtos do barbeiro:', e);
       setProductHistory([]);
+      setProductHistoryTotalCount(0);
+
+      logDashboardQueryMetric({
+        query: 'product_history',
+        durationMs: performance.now() - startedAt,
+        rowCount: 0,
+        page: Math.max(1, page),
+        pageSize: PRODUCT_HISTORY_PAGE_SIZE,
+        error: e instanceof Error ? e.message : String(e),
+      });
     } finally {
       setLoadingProductHistory(false);
     }
@@ -377,51 +484,43 @@ const BarbeiroDashboard = () => {
   };
 
   useEffect(() => {
-    if (activeTab === 'historico') {
-      loadProductHistory();
-      loadProductsForFilter();
-    }
-  }, [activeTab, selectedBarber, currentUserBarber?.id]);
+    if (activeTab !== 'historico') return;
 
-  const getFilteredProductHistory = () => {
-    let filtered = [...productHistory];
-    if (productHistoryFilterStatus !== 'all') {
-      filtered = filtered.filter((sale) => sale.status === productHistoryFilterStatus);
+    if (historySectionTab === 'servicos') {
+      loadHistoryAppointments(historyPage);
+      return;
     }
-    if (productHistoryFilterProductId !== 'all') {
-      filtered = filtered.filter((sale) => sale.product_id === productHistoryFilterProductId);
-    }
-    if (productHistoryFilterPeriod !== 'all') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      filtered = filtered.filter((sale) => {
-        const saleDate = new Date(sale.sale_date + 'T00:00:00');
-        saleDate.setHours(0, 0, 0, 0);
-        switch (productHistoryFilterPeriod) {
-          case 'today':
-            return saleDate.getTime() === today.getTime();
-          case 'week': {
-            const weekAgo = new Date(today);
-            weekAgo.setDate(weekAgo.getDate() - 7);
-            return saleDate >= weekAgo;
-          }
-          case 'month': {
-            const monthAgo = new Date(today);
-            monthAgo.setMonth(monthAgo.getMonth() - 1);
-            return saleDate >= monthAgo;
-          }
-          case 'year': {
-            const yearAgo = new Date(today);
-            yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-            return saleDate >= yearAgo;
-          }
-          default:
-            return true;
-        }
-      });
-    }
-    return filtered;
-  };
+
+    loadProductHistory(productHistoryPage);
+    loadProductsForFilter();
+  }, [
+    activeTab,
+    historySectionTab,
+    selectedBarber,
+    currentUserBarber?.id,
+    historyPage,
+    productHistoryPage,
+    productHistoryFilterPeriod,
+    productHistoryFilterStatus,
+    productHistoryFilterProductId,
+  ]);
+
+  const productHistoryTotalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(productHistoryTotalCount / PRODUCT_HISTORY_PAGE_SIZE));
+  }, [productHistoryTotalCount]);
+
+  const currentProductHistoryPage = useMemo(() => {
+    return Math.min(productHistoryPage, productHistoryTotalPages);
+  }, [productHistoryPage, productHistoryTotalPages]);
+
+  const productHistoryStartIndex = productHistoryTotalCount === 0
+    ? 0
+    : (currentProductHistoryPage - 1) * PRODUCT_HISTORY_PAGE_SIZE + 1;
+
+  const productHistoryEndIndex = Math.min(
+    currentProductHistoryPage * PRODUCT_HISTORY_PAGE_SIZE,
+    productHistoryTotalCount
+  );
   const sendBarberPendingWhatsApp = async (barberId: string) => {
     try {
       const todayStr = new Date().toISOString().split('T')[0];
@@ -492,7 +591,6 @@ const BarbeiroDashboard = () => {
     if (userRole !== null) {
       loadData();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userRole]);
 
   useEffect(() => {
@@ -1023,7 +1121,6 @@ const BarbeiroDashboard = () => {
     if (newAppointmentStep === 'datetime') {
       loadAvailableSlotsForNewAppointment();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newAppointmentStep, newAppointment.serviceId, newAppointment.date, selectedBarber, currentUserBarber?.id, newAppointment.isRetroactive]);
 
   // Load products for sale
@@ -1324,7 +1421,11 @@ const BarbeiroDashboard = () => {
                 });
               }
               
-              loadAppointments();
+              await upsertOperationalAppointment(payload.new.id);
+              await loadTodayBreaks();
+              if (activeTabRef.current === 'historico' && historySectionTab === 'servicos') {
+                await loadHistoryAppointments(historyPage);
+              }
             } catch (error) {
               console.error('❌ Error processing notification:', error);
             }
@@ -1401,61 +1502,240 @@ const BarbeiroDashboard = () => {
     }
   }, [appointments, selectedBarber, currentUserBarber?.id, isReady, showNotification]);
 
+  const hydrateAppointmentsClients = async (baseAppointments: AppointmentWithRelations[]) => {
+    if (!baseAppointments || baseAppointments.length === 0) {
+      return [] as AppointmentWithRelations[];
+    }
+
+    const clientIds = [
+      ...new Set(
+        baseAppointments
+          .map((item) => item.client_id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      ),
+    ];
+
+    let clientsById = new Map<string, ClientProfile>();
+    if (clientIds.length > 0) {
+      const { data: clientsData } = await supabase
+        .from('profiles')
+        .select('id, name, phone, whatsapp, photo_url')
+        .in('id', clientIds);
+      clientsById = new Map((clientsData || []).map((item) => [item.id, item as ClientProfile]));
+    }
+
+    return baseAppointments.map((appointment) => {
+      const clientId = appointment.client_id;
+      if (!clientId) {
+        return {
+          ...appointment,
+          client: null,
+        };
+      }
+
+      const client = clientsById.get(clientId);
+      if (!client) {
+        return {
+          ...appointment,
+          client: null,
+        };
+      }
+
+      const phone = client.phone || client.whatsapp || '';
+      return {
+        ...appointment,
+        client: { ...client, phone } as ClientWithPhone,
+      };
+    });
+  };
+
   const loadAppointments = async () => {
-    debugLog('Loading appointments for barber:', selectedBarber);
-    
-    // Carregar appointments sem o join problemático
+    const startedAt = performance.now();
+    const targetBarber = selectedBarber || currentUserBarber?.id;
+    if (!targetBarber) {
+      setAppointments([]);
+      return;
+    }
+
+    const lookbackDate = new Date();
+    lookbackDate.setDate(lookbackDate.getDate() - OPERATIONS_LOOKBACK_DAYS);
+    const lookbackDateStr = format(lookbackDate, 'yyyy-MM-dd');
+
+    debugLog('Loading operational appointments for barber:', targetBarber, 'from:', lookbackDateStr);
+
     const { data: appointmentsData, error } = await supabase
       .from('appointments')
       .select(`
         *,
-        service:services(title, price, duration),
-        appointment_payments(amount, payment_method)
+        service:services(title, price, duration)
       `)
-      .eq('barber_id', selectedBarber)
+      .eq('barber_id', targetBarber)
+      .gte('appointment_date', lookbackDateStr)
       .order('appointment_date', { ascending: true })
       .order('appointment_time', { ascending: true });
 
     if (error) {
       console.error('Error loading appointments:', error);
       toast.error('Erro ao carregar agendamentos: ' + error.message);
+
+      logDashboardQueryMetric({
+        query: 'appointments_operational',
+        durationMs: performance.now() - startedAt,
+        rowCount: 0,
+        filters: {
+          barberId: targetBarber,
+          lookbackDays: OPERATIONS_LOOKBACK_DAYS,
+        },
+        error: error.message,
+      });
       return;
     }
-    
-    debugLog('Loaded appointments:', appointmentsData);
-    
-    if (appointmentsData && appointmentsData.length > 0) {
-      // Carregar dados dos clientes separadamente
-      const clientIds = [...new Set(appointmentsData.map(a => a.client_id))];
-      const { data: clientsData } = await supabase
-        .from('profiles')
-        .select('id, name, phone, whatsapp, photo_url')
-        .in('id', clientIds);
-      
-      debugLog('Loaded clients:', clientsData);
-      
-      // Mapear clientes para appointments, garantindo telefone preenchido
-      const appointmentsWithClients: AppointmentWithRelations[] = appointmentsData.map((appointment) => {
-        const client = clientsData?.find((item) => item.id === appointment.client_id);
-        if (!client) {
-          return {
-            ...appointment,
-            client: null,
-          };
-        }
-        const phone = client.phone || client.whatsapp || '';
-        return {
-          ...appointment,
-          client: { ...client, phone } as ClientWithPhone,
-        };
-      });
-      
-      setAppointments(appointmentsWithClients);
-    } else {
-      setAppointments([]);
+
+    const hydrated = await hydrateAppointmentsClients((appointmentsData || []) as AppointmentWithRelations[]);
+    setAppointments(hydrated);
+
+    logDashboardQueryMetric({
+      query: 'appointments_operational',
+      durationMs: performance.now() - startedAt,
+      rowCount: (appointmentsData || []).length,
+      filters: {
+        barberId: targetBarber,
+        lookbackDays: OPERATIONS_LOOKBACK_DAYS,
+        startDate: lookbackDateStr,
+      },
+    });
+
+    if (activeTabRef.current === 'historico' && historySectionTab === 'servicos') {
+      void loadHistoryAppointments(historyPage);
     }
 
     await loadTodayBreaks();
+  };
+
+  const loadHistoryAppointments = async (page: number = 1) => {
+    const startedAt = performance.now();
+    const targetBarber = selectedBarber || currentUserBarber?.id;
+    if (!targetBarber) {
+      setHistoryAppointments([]);
+      setHistoryTotalCount(0);
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const lookbackDate = new Date(today);
+    lookbackDate.setDate(lookbackDate.getDate() - HISTORY_LOOKBACK_DAYS);
+
+    let startDate = format(lookbackDate, 'yyyy-MM-dd');
+    if (historyFilterPeriod !== 'all') {
+      const periodDate = new Date(today);
+      if (historyFilterPeriod === 'today') {
+        startDate = format(periodDate, 'yyyy-MM-dd');
+      } else if (historyFilterPeriod === 'week') {
+        periodDate.setDate(periodDate.getDate() - 7);
+        startDate = format(periodDate, 'yyyy-MM-dd');
+      } else if (historyFilterPeriod === 'month') {
+        periodDate.setMonth(periodDate.getMonth() - 1);
+        startDate = format(periodDate, 'yyyy-MM-dd');
+      } else if (historyFilterPeriod === 'year') {
+        periodDate.setFullYear(periodDate.getFullYear() - 1);
+        startDate = format(periodDate, 'yyyy-MM-dd');
+      }
+    }
+
+    const safePage = Math.max(1, page);
+    const rangeFrom = (safePage - 1) * HISTORY_PAGE_SIZE;
+    const rangeTo = rangeFrom + HISTORY_PAGE_SIZE - 1;
+
+    setLoadingHistoryAppointments(true);
+    try {
+      let query = supabase
+        .from('appointments')
+        .select(`
+          *,
+          service:services(title, price, duration),
+          appointment_payments(amount, payment_method)
+        `, { count: 'exact' })
+        .eq('barber_id', targetBarber)
+        .gte('appointment_date', startDate);
+
+      if (historyFilterStatus !== 'all') {
+        query = query.eq('status', historyFilterStatus);
+      }
+      if (historyFilterService !== 'all') {
+        query = query.eq('service_id', historyFilterService);
+      }
+      if (historyFilterPayment !== 'all') {
+        query = query.eq('payment_method', historyFilterPayment);
+      }
+
+      const { data, error, count } = await query
+        .order('appointment_date', { ascending: false })
+        .order('appointment_time', { ascending: false })
+        .range(rangeFrom, rangeTo);
+
+      if (error) {
+        console.error('Error loading history appointments:', error);
+        toast.error('Erro ao carregar histórico: ' + error.message);
+        setHistoryAppointments([]);
+        setHistoryTotalCount(0);
+
+        logDashboardQueryMetric({
+          query: 'appointments_history',
+          durationMs: performance.now() - startedAt,
+          rowCount: 0,
+          page: safePage,
+          pageSize: HISTORY_PAGE_SIZE,
+          filters: {
+            barberId: targetBarber,
+            period: historyFilterPeriod,
+            status: historyFilterStatus,
+            serviceId: historyFilterService,
+            payment: historyFilterPayment,
+            startDate,
+          },
+          error: error.message,
+        });
+        return;
+      }
+
+      setHistoryTotalCount(count ?? 0);
+      const hydrated = await hydrateAppointmentsClients((data || []) as AppointmentWithRelations[]);
+      setHistoryAppointments(hydrated);
+
+      logDashboardQueryMetric({
+        query: 'appointments_history',
+        durationMs: performance.now() - startedAt,
+        rowCount: (data || []).length,
+        totalCount: count,
+        page: safePage,
+        pageSize: HISTORY_PAGE_SIZE,
+        filters: {
+          barberId: targetBarber,
+          period: historyFilterPeriod,
+          status: historyFilterStatus,
+          serviceId: historyFilterService,
+          payment: historyFilterPayment,
+          startDate,
+        },
+      });
+    } catch (error) {
+      console.error('Unexpected error loading history appointments:', error);
+      setHistoryAppointments([]);
+      setHistoryTotalCount(0);
+
+      logDashboardQueryMetric({
+        query: 'appointments_history',
+        durationMs: performance.now() - startedAt,
+        rowCount: 0,
+        page: Math.max(1, page),
+        pageSize: HISTORY_PAGE_SIZE,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setLoadingHistoryAppointments(false);
+    }
   };
 
   const loadAdvances = async () => {
@@ -1563,7 +1843,6 @@ const BarbeiroDashboard = () => {
     if (currentUserBarber?.id) {
       loadAdvances();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserBarber?.id]);
 
   // Quando o dialog de conclusão for aberto, sugerir o valor do serviço
@@ -2555,88 +2834,21 @@ const BarbeiroDashboard = () => {
     });
   }, [appointments, barbers, todayBreaks, selectedBarber, currentUserBarber?.id]);
 
-  // Função para filtrar agendamentos do histórico
-  const filteredHistoryAppointments = useMemo(() => {
-    // Começar com todos os agendamentos (não apenas concluídos, para permitir filtrar por status)
-    let filtered = [...appointments];
-
-    // Filtro por período
-    if (historyFilterPeriod !== 'all') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      filtered = filtered.filter(apt => {
-        const aptDate = new Date(apt.appointment_date + 'T00:00:00');
-        aptDate.setHours(0, 0, 0, 0);
-        
-        switch (historyFilterPeriod) {
-          case 'today':
-            return aptDate.getTime() === today.getTime();
-          case 'week': {
-            const weekAgo = new Date(today);
-            weekAgo.setDate(weekAgo.getDate() - 7);
-            return aptDate >= weekAgo;
-          }
-          case 'month': {
-            const monthAgo = new Date(today);
-            monthAgo.setMonth(monthAgo.getMonth() - 1);
-            return aptDate >= monthAgo;
-          }
-          case 'year': {
-            const yearAgo = new Date(today);
-            yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-            return aptDate >= yearAgo;
-          }
-          default:
-            return true;
-        }
-      });
-    }
-
-    // Filtro por status
-    if (historyFilterStatus !== 'all') {
-      filtered = filtered.filter(apt => apt.status === historyFilterStatus);
-    }
-
-    // Filtro por serviço
-    if (historyFilterService !== 'all') {
-      filtered = filtered.filter(apt => apt.service_id === historyFilterService);
-    }
-
-    // Filtro por forma de pagamento (apenas para concluídos)
-    if (historyFilterPayment !== 'all') {
-      filtered = filtered.filter(apt => apt.payment_method === historyFilterPayment);
-    }
-
-    // Ordenar por data descendente, depois por hora descendente
-    return filtered.sort((a, b) => {
-      if (a.appointment_date !== b.appointment_date) {
-        return b.appointment_date.localeCompare(a.appointment_date);
-      }
-      return b.appointment_time.localeCompare(a.appointment_time);
-    });
-  }, [appointments, historyFilterPeriod, historyFilterStatus, historyFilterService, historyFilterPayment]);
-
   const historyTotalPages = useMemo(() => {
-    return Math.max(1, Math.ceil(filteredHistoryAppointments.length / HISTORY_PAGE_SIZE));
-  }, [filteredHistoryAppointments.length]);
+    return Math.max(1, Math.ceil(historyTotalCount / HISTORY_PAGE_SIZE));
+  }, [historyTotalCount]);
 
   const currentHistoryPage = useMemo(() => {
     return Math.min(historyPage, historyTotalPages);
   }, [historyPage, historyTotalPages]);
 
-  const paginatedHistoryAppointments = useMemo(() => {
-    const start = (currentHistoryPage - 1) * HISTORY_PAGE_SIZE;
-    return filteredHistoryAppointments.slice(start, start + HISTORY_PAGE_SIZE);
-  }, [filteredHistoryAppointments, currentHistoryPage]);
-
-  const historyStartIndex = filteredHistoryAppointments.length === 0
+  const historyStartIndex = historyTotalCount === 0
     ? 0
     : (currentHistoryPage - 1) * HISTORY_PAGE_SIZE + 1;
 
   const historyEndIndex = Math.min(
     currentHistoryPage * HISTORY_PAGE_SIZE,
-    filteredHistoryAppointments.length
+    historyTotalCount
   );
 
   useEffect(() => {
@@ -2652,8 +2864,85 @@ const BarbeiroDashboard = () => {
     historyFilterStatus,
     historyFilterService,
     historyFilterPayment,
-    historySectionTab,
+    selectedBarber,
+    currentUserBarber?.id,
   ]);
+
+  useEffect(() => {
+    if (productHistoryPage > productHistoryTotalPages) {
+      setProductHistoryPage(productHistoryTotalPages);
+    }
+  }, [productHistoryPage, productHistoryTotalPages]);
+
+  useEffect(() => {
+    setProductHistoryPage(1);
+  }, [
+    productHistoryFilterPeriod,
+    productHistoryFilterStatus,
+    productHistoryFilterProductId,
+    selectedBarber,
+    currentUserBarber?.id,
+  ]);
+
+  const upsertOperationalAppointment = async (appointmentId: string) => {
+    const startedAt = performance.now();
+    const targetBarber = selectedBarber || currentUserBarber?.id;
+    if (!targetBarber) return;
+
+    const lookbackDate = new Date();
+    lookbackDate.setDate(lookbackDate.getDate() - OPERATIONS_LOOKBACK_DAYS);
+    const lookbackDateStr = format(lookbackDate, 'yyyy-MM-dd');
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .select(`
+        *,
+        service:services(title, price, duration)
+      `)
+      .eq('id', appointmentId)
+      .eq('barber_id', targetBarber)
+      .maybeSingle();
+
+    if (error || !data) {
+      if (error) {
+        logDashboardQueryMetric({
+          query: 'appointments_incremental_upsert',
+          durationMs: performance.now() - startedAt,
+          rowCount: 0,
+          filters: { barberId: targetBarber, appointmentId },
+          error: error.message,
+        });
+      }
+      return;
+    }
+
+    if (data.appointment_date < lookbackDateStr) {
+      return;
+    }
+
+    const hydrated = await hydrateAppointmentsClients([data as AppointmentWithRelations]);
+    const incoming = hydrated[0];
+    if (!incoming) return;
+
+    setAppointments((prev) => {
+      const withoutSame = prev.filter((item) => item.id !== incoming.id);
+      const merged = [...withoutSame, incoming];
+      merged.sort((a, b) => {
+        if (a.appointment_date !== b.appointment_date) {
+          return a.appointment_date.localeCompare(b.appointment_date);
+        }
+        return a.appointment_time.localeCompare(b.appointment_time);
+      });
+      return merged;
+    });
+
+    logDashboardQueryMetric({
+      query: 'appointments_incremental_upsert',
+      durationMs: performance.now() - startedAt,
+      rowCount: 1,
+      filters: { barberId: targetBarber, appointmentId },
+    });
+  };
 
   const getSupabaseImagePreviewUrl = (
     photoUrl?: string | null,
@@ -2673,8 +2962,8 @@ const BarbeiroDashboard = () => {
       const prefix = parsed.pathname.slice(0, markerIndex);
       parsed.pathname = `${prefix}/storage/v1/render/image/public/${objectPath}`;
 
-      const width = options?.width ?? 320;
-      const quality = options?.quality ?? 65;
+      const width = options?.width ?? 256;
+      const quality = options?.quality ?? 55;
       const resize = options?.resize ?? 'cover';
 
       parsed.searchParams.set('width', String(width));
@@ -4359,10 +4648,13 @@ const BarbeiroDashboard = () => {
                       </div>
                     </div>
 
-                    {(() => {
-                      const filteredAppointments = filteredHistoryAppointments;
-                      const visibleAppointments = paginatedHistoryAppointments;
-                      return filteredAppointments.length > 0 ? (
+                    {loadingHistoryAppointments ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                      </div>
+                    ) : (() => {
+                      const visibleAppointments = historyAppointments;
+                      return historyTotalCount > 0 ? (
                         <div className="space-y-3">
                           {visibleAppointments.map((appointment) => (
                           <div key={appointment.id} className={`p-3 rounded-lg border ${
@@ -4467,28 +4759,24 @@ const BarbeiroDashboard = () => {
                                 </div>
                                 {appointment.photo_url && (
                                   <div className="mt-3">
-                                    <button
+                                    <Button
                                       type="button"
-                                      className="w-full max-w-xs h-40 rounded-lg border border-border overflow-hidden focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background"
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
                                       onClick={() => {
                                         setPhotoModalUrl(
                                           getSupabaseImagePreviewUrl(appointment.photo_url as string, {
-                                            width: 1280,
-                                            quality: 80,
+                                            width: 960,
+                                            quality: 70,
                                             resize: 'contain',
                                           })
                                         );
                                         setPhotoModalOpen(true);
                                       }}
                                     >
-                                      <img 
-                                        src={getSupabaseImagePreviewUrl(appointment.photo_url as string)} 
-                                        alt="Foto do corte" 
-                                        loading="lazy"
-                                        decoding="async"
-                                        className="w-full h-full object-cover"
-                                      />
-                                    </button>
+                                      Ver foto
+                                    </Button>
                                   </div>
                                 )}
                               </div>
@@ -4498,7 +4786,7 @@ const BarbeiroDashboard = () => {
 
                           <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60">
                             <span className="text-xs text-muted-foreground">
-                              Mostrando {historyStartIndex}-{historyEndIndex} de {filteredAppointments.length}
+                              Mostrando {historyStartIndex}-{historyEndIndex} de {historyTotalCount}
                             </span>
                             <div className="flex items-center gap-2">
                               <Button
@@ -4527,7 +4815,7 @@ const BarbeiroDashboard = () => {
                       </div>
                     ) : (
                       <p className="text-center text-muted-foreground py-8">
-                        {appointments.length === 0 
+                        {historyTotalCount === 0 
                           ? 'Nenhum serviço registrado ainda'
                           : 'Nenhum agendamento encontrado com os filtros selecionados'}
                       </p>
@@ -4628,7 +4916,7 @@ const BarbeiroDashboard = () => {
                         <Loader2 className="h-6 w-6 animate-spin text-primary" />
                       </div>
                     ) : (() => {
-                      const sales = getFilteredProductHistory();
+                      const sales = productHistory;
                       return sales.length > 0 ? (
                         <div className="space-y-3">
                           {sales.map((sale) => (
@@ -4663,8 +4951,8 @@ const BarbeiroDashboard = () => {
                                         onClick={() => {
                                           setPhotoModalUrl(
                                             getSupabaseImagePreviewUrl(sale.photo_url, {
-                                              width: 1280,
-                                              quality: 80,
+                                              width: 960,
+                                              quality: 70,
                                               resize: 'contain',
                                             })
                                           );
@@ -4696,6 +4984,35 @@ const BarbeiroDashboard = () => {
                               </div>
                             </div>
                           ))}
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60">
+                            <span className="text-xs text-muted-foreground">
+                              Mostrando {productHistoryStartIndex}-{productHistoryEndIndex} de {productHistoryTotalCount}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                disabled={currentProductHistoryPage <= 1}
+                                onClick={() => setProductHistoryPage((prev) => Math.max(1, prev - 1))}
+                              >
+                                Anterior
+                              </Button>
+                              <span className="text-xs text-muted-foreground min-w-[68px] text-center">
+                                {currentProductHistoryPage} / {productHistoryTotalPages}
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                disabled={currentProductHistoryPage >= productHistoryTotalPages}
+                                onClick={() => setProductHistoryPage((prev) => Math.min(productHistoryTotalPages, prev + 1))}
+                              >
+                                Próxima
+                              </Button>
+                            </div>
+                          </div>
                         </div>
                       ) : (
                         <p className="text-center text-muted-foreground py-8">

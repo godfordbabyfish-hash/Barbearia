@@ -218,7 +218,7 @@ export const WhatsAppManager = () => {
           </TabsTrigger>
           <TabsTrigger value="daily-report" className="gap-2">
             <Clock className="h-4 w-4" />
-            Relatório diário
+            Relatório automático
           </TabsTrigger>
         </TabsList>
 

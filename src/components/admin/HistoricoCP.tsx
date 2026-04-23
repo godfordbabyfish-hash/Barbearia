@@ -75,6 +75,8 @@ interface ProductSale {
   barber?: { name: string } | null;
 }
 
+const HISTORICO_CP_PAGE_SIZE = 30;
+
 const HistoricoCP = () => {
   const isMobile = useIsMobile();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -120,6 +122,10 @@ const HistoricoCP = () => {
   const [activeTab, setActiveTab] = useState<'services' | 'products'>('services');
   const [completingAppointmentId, setCompletingAppointmentId] = useState<string | null>(null);
   const [completingSaleId, setCompletingSaleId] = useState<string | null>(null);
+  const [servicesPage, setServicesPage] = useState(1);
+  const [productsPage, setProductsPage] = useState(1);
+  const [servicesTotalCount, setServicesTotalCount] = useState(0);
+  const [productsTotalCount, setProductsTotalCount] = useState(0);
 
   // Form de edição
   const [editForm, setEditForm] = useState({
@@ -138,9 +144,44 @@ const HistoricoCP = () => {
   }, []);
 
   useEffect(() => {
-    loadAppointments();
-    loadProductSales();
-  }, [filterDateFrom, filterDateTo, filterBarber, filterService, filterProduct, filterStatus, filterType, filterPayment]);
+    if (activeTab === 'services') {
+      loadAppointments(servicesPage);
+      return;
+    }
+
+    loadProductSales(productsPage);
+  }, [
+    activeTab,
+    servicesPage,
+    productsPage,
+    filterDateFrom,
+    filterDateTo,
+    filterBarber,
+    filterService,
+    filterProduct,
+    filterStatus,
+    filterType,
+    filterPayment,
+  ]);
+
+  useEffect(() => {
+    if (activeTab === 'services') {
+      setServicesPage(1);
+      return;
+    }
+
+    setProductsPage(1);
+  }, [
+    activeTab,
+    filterDateFrom,
+    filterDateTo,
+    filterBarber,
+    filterService,
+    filterProduct,
+    filterStatus,
+    filterType,
+    filterPayment,
+  ]);
 
   const loadBarbers = async () => {
     const { data, error } = await supabase
@@ -157,9 +198,13 @@ const HistoricoCP = () => {
     }
   };
 
-  const loadProductSales = async () => {
+  const loadProductSales = async (page: number = 1) => {
     setLoadingProductSales(true);
     try {
+      const safePage = Math.max(1, page);
+      const rangeFrom = (safePage - 1) * HISTORICO_CP_PAGE_SIZE;
+      const rangeTo = rangeFrom + HISTORICO_CP_PAGE_SIZE - 1;
+
       let query = supabase
         .from('product_sales')
         .select(`
@@ -176,7 +221,7 @@ const HistoricoCP = () => {
           notes,
           product:products(name),
           barber:barbers(name)
-        `);
+        `, { count: 'exact' });
 
       if (filterDateFrom) {
         query = query.gte('sale_date', filterDateFrom);
@@ -201,15 +246,48 @@ const HistoricoCP = () => {
         }
       }
 
-      const { data, error } = await query
+      const { data, error, count } = await query
         .order('sale_date', { ascending: false })
-        .order('sale_time', { ascending: false });
+        .order('sale_time', { ascending: false })
+        .range(rangeFrom, rangeTo);
 
       if (error) throw error;
       const list = (data || []) as ProductSale[];
       setProductSales(list);
+      setProductsTotalCount(count ?? 0);
+
+      let totalsQuery = supabase
+        .from('product_sales')
+        .select('total_price');
+
+      if (filterDateFrom) {
+        totalsQuery = totalsQuery.gte('sale_date', filterDateFrom);
+      }
+      if (filterDateTo) {
+        totalsQuery = totalsQuery.lte('sale_date', filterDateTo);
+      }
+      if (filterBarber !== 'all') {
+        totalsQuery = totalsQuery.eq('barber_id', filterBarber);
+      }
+      if (filterProduct !== 'all') {
+        totalsQuery = totalsQuery.eq('product_id', filterProduct);
+      }
+      if (filterStatus !== 'all') {
+        totalsQuery = totalsQuery.eq('status', filterStatus);
+      }
+      if (filterPayment !== 'all') {
+        if (filterPayment === 'none') {
+          totalsQuery = totalsQuery.is('payment_method', null);
+        } else {
+          totalsQuery = totalsQuery.eq('payment_method', filterPayment);
+        }
+      }
+
+      const { data: totalsData, error: totalsError } = await totalsQuery;
+      if (totalsError) throw totalsError;
+
       try {
-        const total = list.reduce((sum, s) => sum + Number(s.total_price || 0), 0);
+        const total = (totalsData || []).reduce((sum: number, s: any) => sum + Number(s.total_price || 0), 0);
         setProductsTotal(total);
       } catch {
         setProductsTotal(0);
@@ -218,6 +296,7 @@ const HistoricoCP = () => {
       console.error('Error loading product sales:', error);
       toast.error('Erro ao carregar vendas de produtos: ' + error.message);
       setProductSales([]);
+      setProductsTotalCount(0);
       setProductsTotal(0);
     } finally {
       setLoadingProductSales(false);
@@ -254,9 +333,13 @@ const HistoricoCP = () => {
     }
   };
 
-  const loadAppointments = async () => {
+  const loadAppointments = async (page: number = 1) => {
     setLoading(true);
     try {
+      const safePage = Math.max(1, page);
+      const rangeFrom = (safePage - 1) * HISTORICO_CP_PAGE_SIZE;
+      const rangeTo = rangeFrom + HISTORICO_CP_PAGE_SIZE - 1;
+
       let query = supabase
         .from('appointments')
         .select(`
@@ -274,7 +357,7 @@ const HistoricoCP = () => {
           service:services(title, price),
           barber:barbers(name),
           appointment_payments(amount, payment_method)
-        `);
+        `, { count: 'exact' });
 
       // Aplicar filtros
       if (filterDateFrom) {
@@ -296,42 +379,78 @@ const HistoricoCP = () => {
         query = query.eq('booking_type', filterType);
       }
 
-      const { data, error } = await query
+      if (filterPayment !== 'all') {
+        if (filterPayment === 'none') {
+          query = query.is('payment_method', null);
+        } else {
+          query = query.eq('payment_method', filterPayment);
+        }
+      }
+
+      const { data, error, count } = await query
         .order('appointment_date', { ascending: false })
-        .order('appointment_time', { ascending: false });
+        .order('appointment_time', { ascending: false })
+        .range(rangeFrom, rangeTo);
 
       if (error) throw error;
 
-      const raw = (data || []) as any[];
-      const filteredByPayment =
-        filterPayment === 'all'
-          ? raw
-          : raw.filter((apt) => {
-              const payments = Array.isArray(apt.appointment_payments) ? apt.appointment_payments : [];
-              if (filterPayment === 'none') {
-                return (!apt.payment_method || apt.payment_method === '') && payments.length === 0;
-              }
-              const topMatch = apt.payment_method === filterPayment;
-              const nestedMatch = payments.some((p: any) => p?.payment_method === filterPayment);
-              return topMatch || nestedMatch;
-            });
+      setServicesTotalCount(count ?? 0);
 
-      if (filteredByPayment && filteredByPayment.length > 0) {
-        const clientIds = [...new Set(filteredByPayment.map(apt => apt.client_id))];
+      const raw = (data || []) as any[];
+      if (raw && raw.length > 0) {
+        const clientIds = [...new Set(raw.map(apt => apt.client_id))];
         const { data: clientsData } = await supabase
           .from('profiles')
           .select('id, name, phone')
           .in('id', clientIds);
 
         const clientsMap = new Map(clientsData?.map(c => [c.id, c]) || []);
-        const appointmentsWithClients = filteredByPayment.map(apt => ({
+        const appointmentsWithClients = raw.map(apt => ({
           ...apt,
           client: clientsMap.get(apt.client_id) || null,
         }));
 
         setAppointments(appointmentsWithClients as Appointment[]);
+
+        let totalsQuery = supabase
+          .from('appointments')
+          .select(`
+            status,
+            payment_method,
+            service:services(price)
+          `);
+
+        if (filterDateFrom) {
+          totalsQuery = totalsQuery.gte('appointment_date', filterDateFrom);
+        }
+        if (filterDateTo) {
+          totalsQuery = totalsQuery.lte('appointment_date', filterDateTo);
+        }
+        if (filterBarber !== 'all') {
+          totalsQuery = totalsQuery.eq('barber_id', filterBarber);
+        }
+        if (filterService !== 'all') {
+          totalsQuery = totalsQuery.eq('service_id', filterService);
+        }
+        if (filterStatus !== 'all') {
+          totalsQuery = totalsQuery.eq('status', filterStatus);
+        }
+        if (filterType !== 'all') {
+          totalsQuery = totalsQuery.eq('booking_type', filterType);
+        }
+        if (filterPayment !== 'all') {
+          if (filterPayment === 'none') {
+            totalsQuery = totalsQuery.is('payment_method', null);
+          } else {
+            totalsQuery = totalsQuery.eq('payment_method', filterPayment);
+          }
+        }
+
+        const { data: totalsData, error: totalsError } = await totalsQuery;
+        if (totalsError) throw totalsError;
+
         try {
-          const servicesSum = appointmentsWithClients.reduce((sum: number, apt: any) => {
+          const servicesSum = (totalsData || []).reduce((sum: number, apt: any) => {
             const status = String(apt.status || '');
             if (status === 'confirmed' || status === 'completed') {
               const price = Number(apt.service?.price || 0);
@@ -350,6 +469,9 @@ const HistoricoCP = () => {
     } catch (error: any) {
       console.error('Error loading appointments:', error);
       toast.error('Erro ao carregar agendamentos: ' + error.message);
+      setAppointments([]);
+      setServicesTotalCount(0);
+      setServicesTotal(0);
     } finally {
       setLoading(false);
     }
@@ -357,6 +479,26 @@ const HistoricoCP = () => {
 
   const [servicesTotal, setServicesTotal] = useState<number>(0);
   const [productsTotal, setProductsTotal] = useState<number>(0);
+
+  const servicesTotalPages = Math.max(1, Math.ceil(servicesTotalCount / HISTORICO_CP_PAGE_SIZE));
+  const productsTotalPages = Math.max(1, Math.ceil(productsTotalCount / HISTORICO_CP_PAGE_SIZE));
+
+  const servicesStartIndex = servicesTotalCount === 0 ? 0 : (servicesPage - 1) * HISTORICO_CP_PAGE_SIZE + 1;
+  const servicesEndIndex = Math.min(servicesPage * HISTORICO_CP_PAGE_SIZE, servicesTotalCount);
+  const productsStartIndex = productsTotalCount === 0 ? 0 : (productsPage - 1) * HISTORICO_CP_PAGE_SIZE + 1;
+  const productsEndIndex = Math.min(productsPage * HISTORICO_CP_PAGE_SIZE, productsTotalCount);
+
+  useEffect(() => {
+    if (servicesPage > servicesTotalPages) {
+      setServicesPage(servicesTotalPages);
+    }
+  }, [servicesPage, servicesTotalPages]);
+
+  useEffect(() => {
+    if (productsPage > productsTotalPages) {
+      setProductsPage(productsTotalPages);
+    }
+  }, [productsPage, productsTotalPages]);
 
   const handleEdit = (appointment: Appointment) => {
     setEditingAppointment(appointment);
@@ -398,7 +540,7 @@ const HistoricoCP = () => {
       toast.success('Agendamento atualizado com sucesso!');
       setEditDialogOpen(false);
       setEditingAppointment(null);
-      loadAppointments();
+      loadAppointments(servicesPage);
     } catch (error: any) {
       console.error('Error updating appointment:', error);
       toast.error('Erro ao atualizar agendamento: ' + error.message);
@@ -443,7 +585,7 @@ const HistoricoCP = () => {
 
       setDeleteDialogOpen(false);
       setDeletingAppointment(null);
-      await loadAppointments();
+      await loadAppointments(servicesPage);
     } catch (error: any) {
       console.error('Error deleting appointment:', error);
       toast.error('Erro ao excluir agendamento: ' + error.message);
@@ -464,7 +606,7 @@ const HistoricoCP = () => {
       toast.success('Venda de produto excluída com sucesso!');
       setDeleteSaleDialogOpen(false);
       setDeletingSale(null);
-      loadProductSales();
+      loadProductSales(productsPage);
     } catch (error: any) {
       console.error('Error deleting product sale:', error);
       toast.error('Erro ao excluir venda: ' + error.message);
@@ -520,7 +662,7 @@ const HistoricoCP = () => {
       }
 
       toast.success('Serviço marcado como concluído.');
-      loadAppointments();
+      loadAppointments(servicesPage);
     } catch (error: any) {
       console.error('Error completing appointment:', error);
       toast.error(error.message || 'Erro ao concluir o serviço.');
@@ -543,7 +685,7 @@ const HistoricoCP = () => {
       }
 
       toast.success('Venda marcada como concluída.');
-      loadProductSales();
+      loadProductSales(productsPage);
     } catch (error: any) {
       console.error('Error completing product sale:', error);
       toast.error(error.message || 'Erro ao concluir a venda.');
@@ -841,6 +983,8 @@ const HistoricoCP = () => {
         setManualProductId('');
         setManualQuantity(1);
         setManualClientName('');
+        setProductsPage(1);
+        loadProductSales(1);
         loadProducts();
       } catch (error: any) {
         console.error('Error saving manual product sale:', error);
@@ -908,7 +1052,8 @@ const HistoricoCP = () => {
       setManualDialogOpen(false);
       setManualServiceId('');
       setManualClientName('');
-      loadAppointments();
+      setServicesPage(1);
+      loadAppointments(1);
     } catch (error: any) {
       console.error('Error saving manual appointment:', error);
       toast.error(error.message || 'Erro ao lançar serviço manual');
@@ -1311,6 +1456,36 @@ const HistoricoCP = () => {
                   </div>
                 </>
               )}
+              {appointments.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t border-border/60">
+                  <span className="text-xs text-muted-foreground">
+                    Mostrando {servicesStartIndex}-{servicesEndIndex} de {servicesTotalCount}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      disabled={servicesPage <= 1}
+                      onClick={() => setServicesPage((prev) => Math.max(1, prev - 1))}
+                    >
+                      Anterior
+                    </Button>
+                    <span className="text-xs text-muted-foreground min-w-[68px] text-center">
+                      {servicesPage} / {servicesTotalPages}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      disabled={servicesPage >= servicesTotalPages}
+                      onClick={() => setServicesPage((prev) => Math.min(servicesTotalPages, prev + 1))}
+                    >
+                      Próxima
+                    </Button>
+                  </div>
+                </div>
+              )}
             </TabsContent>
 
             {/* Aba de Produtos */}
@@ -1446,6 +1621,36 @@ const HistoricoCP = () => {
                     </div>
                   </div>
                 </>
+              )}
+              {productSales.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t border-border/60">
+                  <span className="text-xs text-muted-foreground">
+                    Mostrando {productsStartIndex}-{productsEndIndex} de {productsTotalCount}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      disabled={productsPage <= 1}
+                      onClick={() => setProductsPage((prev) => Math.max(1, prev - 1))}
+                    >
+                      Anterior
+                    </Button>
+                    <span className="text-xs text-muted-foreground min-w-[68px] text-center">
+                      {productsPage} / {productsTotalPages}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      disabled={productsPage >= productsTotalPages}
+                      onClick={() => setProductsPage((prev) => Math.min(productsTotalPages, prev + 1))}
+                    >
+                      Próxima
+                    </Button>
+                  </div>
+                </div>
               )}
             </TabsContent>
           </Tabs>
