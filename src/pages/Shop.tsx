@@ -85,13 +85,13 @@ const getOptimizedStorageImageUrl = (
     const prefix = parsed.pathname.slice(0, markerIndex);
     parsed.pathname = `${prefix}/storage/v1/render/image/public/${objectPath}`;
 
-    parsed.searchParams.set('width', String(options?.width ?? 640));
+    parsed.searchParams.set('width', String(options?.width ?? 480));
     if (options?.height) {
       parsed.searchParams.set('height', String(options.height));
     } else {
       parsed.searchParams.delete('height');
     }
-    parsed.searchParams.set('quality', String(options?.quality ?? 70));
+    parsed.searchParams.set('quality', String(options?.quality ?? 60));
     parsed.searchParams.set('resize', options?.resize ?? 'cover');
     return parsed.toString();
   } catch {
@@ -452,9 +452,9 @@ const Shop = () => {
                         <img 
                           src={
                             getOptimizedStorageImageUrl(item.product.image_url, {
-                              width: 160,
-                              height: 160,
-                              quality: 60,
+                              width: 128,
+                              height: 128,
+                              quality: 55,
                               resize: 'cover',
                             }) || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"
                           }
@@ -560,9 +560,9 @@ const Shop = () => {
                   <img 
                     src={
                       getOptimizedStorageImageUrl(product.image_url, {
-                        width: 640,
-                        height: 640,
-                        quality: 70,
+                        width: 420,
+                        height: 420,
+                        quality: 55,
                         resize: 'cover',
                       }) || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"
                     }
@@ -641,8 +641,8 @@ const Shop = () => {
                   <img 
                     src={
                       getOptimizedStorageImageUrl(selectedProduct.image_url, {
-                        width: 1200,
-                        quality: 80,
+                        width: 900,
+                        quality: 70,
                         resize: 'contain',
                       }) || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop"
                     }

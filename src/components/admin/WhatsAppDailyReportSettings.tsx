@@ -383,6 +383,7 @@ const WhatsAppDailyReportSettings = () => {
                 onCheckedChange={(checked) => setConfig((prev) => ({ ...prev, include_insights: checked }))}
               />
             </div>
+
           </div>
 
           <div className="flex flex-wrap gap-2 justify-end">

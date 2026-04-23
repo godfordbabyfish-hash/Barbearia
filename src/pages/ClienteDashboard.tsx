@@ -117,6 +117,7 @@ const getOptimizedStorageImageUrl = (
 
 const historyFilterPeriods: readonly HistoryFilterPeriod[] = ['all', 'today', 'week', 'month', 'year'];
 const historyFilterStatuses: readonly HistoryFilterStatus[] = ['all', 'completed', 'cancelled', 'confirmed', 'pending'];
+const CLIENT_HISTORY_PAGE_SIZE = 30;
 
 const getUserMetadata = (user: User | null | undefined): UserMetadata =>
   (user?.user_metadata ?? {}) as UserMetadata;
@@ -170,7 +171,24 @@ const ClienteDashboard = () => {
   const [historyFilterPeriod, setHistoryFilterPeriod] = useState<HistoryFilterPeriod>('all');
   const [historyFilterStatus, setHistoryFilterStatus] = useState<HistoryFilterStatus>('all');
   const [historyFilterService, setHistoryFilterService] = useState<string>('all');
+  const [historyTab, setHistoryTab] = useState<'services' | 'products'>('services');
+  const [historyAppointments, setHistoryAppointments] = useState<AppointmentHistoryItem[]>([]);
+  const [historyAppointmentsTotalCount, setHistoryAppointmentsTotalCount] = useState(0);
+  const [historyAppointmentsPage, setHistoryAppointmentsPage] = useState(1);
+  const [loadingHistoryAppointments, setLoadingHistoryAppointments] = useState(false);
+  const [productHistoryTotalCount, setProductHistoryTotalCount] = useState(0);
+  const [productHistoryPage, setProductHistoryPage] = useState(1);
   const [serviceSearch, setServiceSearch] = useState('');
+
+  const historyTotalPages = Math.max(1, Math.ceil(historyAppointmentsTotalCount / CLIENT_HISTORY_PAGE_SIZE));
+  const currentHistoryPage = Math.min(historyAppointmentsPage, historyTotalPages);
+  const historyStartIndex = historyAppointmentsTotalCount === 0 ? 0 : (currentHistoryPage - 1) * CLIENT_HISTORY_PAGE_SIZE + 1;
+  const historyEndIndex = Math.min(currentHistoryPage * CLIENT_HISTORY_PAGE_SIZE, historyAppointmentsTotalCount);
+
+  const productHistoryTotalPages = Math.max(1, Math.ceil(productHistoryTotalCount / CLIENT_HISTORY_PAGE_SIZE));
+  const currentProductHistoryPage = Math.min(productHistoryPage, productHistoryTotalPages);
+  const productHistoryStartIndex = productHistoryTotalCount === 0 ? 0 : (currentProductHistoryPage - 1) * CLIENT_HISTORY_PAGE_SIZE + 1;
+  const productHistoryEndIndex = Math.min(currentProductHistoryPage * CLIENT_HISTORY_PAGE_SIZE, productHistoryTotalCount);
 
   const loadDisplayName = useCallback(async () => {
     if (!user) return;
@@ -242,28 +260,123 @@ const ClienteDashboard = () => {
     }
   }, [user]);
 
-  const loadProductSales = useCallback(async () => {
+  const loadProductSales = useCallback(async (page: number = 1) => {
     if (!user) return;
     try {
-      const { data, error } = await supabase
+      const safePage = Math.max(1, page);
+      const rangeFrom = (safePage - 1) * CLIENT_HISTORY_PAGE_SIZE;
+      const rangeTo = rangeFrom + CLIENT_HISTORY_PAGE_SIZE - 1;
+
+      const { data, error, count } = await supabase
         .from('product_sales')
         .select(`
           *,
           product:products(name, image_url),
           barber:barbers(name)
-        `)
+        `, { count: 'exact' })
         .eq('client_id', user.id)
-        .order('sale_date', { ascending: false });
+        .order('sale_date', { ascending: false })
+        .order('sale_time', { ascending: false })
+        .range(rangeFrom, rangeTo);
 
       if (error) {
         console.log('Error loading product sales (column might not exist yet):', error);
       } else {
         setProductSales((data || []) as ProductSaleWithRelations[]);
+        setProductHistoryTotalCount(count ?? 0);
       }
     } catch (e) {
       console.error('Exception loading product sales:', e);
     }
   }, [user]);
+
+  const loadHistoryAppointments = useCallback(async (page: number = 1) => {
+    if (!user) return;
+
+    setLoadingHistoryAppointments(true);
+    try {
+      const safePage = Math.max(1, page);
+      const rangeFrom = (safePage - 1) * CLIENT_HISTORY_PAGE_SIZE;
+      const rangeTo = rangeFrom + CLIENT_HISTORY_PAGE_SIZE - 1;
+
+      let query = supabase
+        .from('appointments')
+        .select(`
+          id,
+          appointment_date,
+          appointment_time,
+          booking_type,
+          status,
+          notes,
+          client_id,
+          barber_id,
+          service_id,
+          payment_method,
+          photo_url,
+          service:services(title, price),
+          barber:barbers(name)
+        `, { count: 'exact' })
+        .eq('client_id', user.id);
+
+      if (historyFilterService !== 'all') {
+        query = query.eq('service_id', historyFilterService);
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (historyFilterPeriod !== 'all') {
+        if (historyFilterPeriod === 'today') {
+          const todayStr = format(today, 'yyyy-MM-dd');
+          query = query.eq('appointment_date', todayStr);
+        } else {
+          const fromDate = new Date(today);
+          if (historyFilterPeriod === 'week') {
+            fromDate.setDate(fromDate.getDate() - 7);
+          } else if (historyFilterPeriod === 'month') {
+            fromDate.setMonth(fromDate.getMonth() - 1);
+          } else if (historyFilterPeriod === 'year') {
+            fromDate.setFullYear(fromDate.getFullYear() - 1);
+          }
+          query = query.gte('appointment_date', format(fromDate, 'yyyy-MM-dd'));
+        }
+      }
+
+      if (historyFilterStatus !== 'all') {
+        if (historyFilterStatus === 'completed') {
+          query = query.or('status.eq.completed,payment_method.not.is.null,photo_url.not.is.null');
+        } else {
+          query = query.eq('status', historyFilterStatus);
+        }
+      }
+
+      const { data, error, count } = await query
+        .order('appointment_date', { ascending: false })
+        .order('appointment_time', { ascending: false })
+        .range(rangeFrom, rangeTo);
+
+      if (error) {
+        console.error('Error loading history appointments:', error);
+        toast.error('Erro ao carregar histórico de serviços');
+        setHistoryAppointments([]);
+        setHistoryAppointmentsTotalCount(0);
+        return;
+      }
+
+      const withDerived = ((data || []) as AppointmentWithRelations[]).map((appointment) => ({
+        ...appointment,
+        _derivedStatus: getDerivedAppointmentStatus(appointment),
+      }));
+
+      setHistoryAppointments(withDerived);
+      setHistoryAppointmentsTotalCount(count ?? 0);
+    } catch (error) {
+      console.error('Unexpected error loading history appointments:', error);
+      setHistoryAppointments([]);
+      setHistoryAppointmentsTotalCount(0);
+    } finally {
+      setLoadingHistoryAppointments(false);
+    }
+  }, [user, historyFilterPeriod, historyFilterService, historyFilterStatus]);
 
   const loadServiceStats = useCallback(async () => {
     if (!user) return;
@@ -327,10 +440,36 @@ const ClienteDashboard = () => {
     }
     loadDisplayName();
     loadAppointments();
-    loadProductSales();
     loadServiceStats();
     loadServices();
-  }, [user, role, navigate, supabaseAnonKey, supabaseUrl, loadAppointments, loadDisplayName, loadProductSales, loadServiceStats, loadServices]);
+  }, [user, role, navigate, supabaseAnonKey, supabaseUrl, loadAppointments, loadDisplayName, loadServiceStats, loadServices]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    if (historyTab === 'services') {
+      loadHistoryAppointments(historyAppointmentsPage);
+      return;
+    }
+
+    loadProductSales(productHistoryPage);
+  }, [user, historyTab, historyAppointmentsPage, productHistoryPage, loadHistoryAppointments, loadProductSales]);
+
+  useEffect(() => {
+    setHistoryAppointmentsPage(1);
+  }, [historyFilterPeriod, historyFilterStatus, historyFilterService]);
+
+  useEffect(() => {
+    if (historyAppointmentsPage > historyTotalPages) {
+      setHistoryAppointmentsPage(historyTotalPages);
+    }
+  }, [historyAppointmentsPage, historyTotalPages]);
+
+  useEffect(() => {
+    if (productHistoryPage > productHistoryTotalPages) {
+      setProductHistoryPage(productHistoryTotalPages);
+    }
+  }, [productHistoryPage, productHistoryTotalPages]);
 
   useEffect(() => {
     if (!user) return;
@@ -360,6 +499,7 @@ const ClienteDashboard = () => {
             });
           }
           loadAppointments();
+          loadHistoryAppointments(historyAppointmentsPage);
           loadServiceStats();
         }
       )
@@ -377,60 +517,7 @@ const ClienteDashboard = () => {
         // ignore
       }
     };
-  }, [user, loadAppointments, loadServiceStats]);
-
-  // Função para filtrar agendamentos do histórico
-  const getFilteredHistoryAppointments = () => {
-    const withDerived: AppointmentHistoryItem[] = appointments.map((appointment) => {
-      return { ...appointment, _derivedStatus: getDerivedAppointmentStatus(appointment) };
-    });
-    let filtered = [...withDerived];
-
-    // Filtro por período
-    if (historyFilterPeriod !== 'all') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      filtered = filtered.filter((appointment) => {
-        const aptDate = new Date(appointment.appointment_date + 'T00:00:00');
-        aptDate.setHours(0, 0, 0, 0);
-        
-        switch (historyFilterPeriod) {
-          case 'today':
-            return aptDate.getTime() === today.getTime();
-          case 'week': {
-            const weekAgo = new Date(today);
-            weekAgo.setDate(weekAgo.getDate() - 7);
-            return aptDate >= weekAgo;
-          }
-          case 'month': {
-            const monthAgo = new Date(today);
-            monthAgo.setMonth(monthAgo.getMonth() - 1);
-            return aptDate >= monthAgo;
-          }
-          case 'year': {
-            const yearAgo = new Date(today);
-            yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-            return aptDate >= yearAgo;
-          }
-          default:
-            return true;
-        }
-      });
-    }
-
-    // Filtro por status
-    if (historyFilterStatus !== 'all') {
-      filtered = filtered.filter((appointment) => appointment._derivedStatus === historyFilterStatus);
-    }
-
-    // Filtro por serviço
-    if (historyFilterService !== 'all') {
-      filtered = filtered.filter((appointment) => appointment.service_id === historyFilterService);
-    }
-
-    return filtered;
-  };
+  }, [user, loadAppointments, loadHistoryAppointments, historyAppointmentsPage, loadServiceStats]);
 
   const handleCancelClick = (id: string) => {
     setAppointmentToCancel(id);
@@ -799,7 +886,7 @@ const ClienteDashboard = () => {
           </TabsContent>
 
           <TabsContent value="historico" className="space-y-6">
-            <Tabs defaultValue="services" className="w-full">
+            <Tabs value={historyTab} onValueChange={(value) => setHistoryTab(value as 'services' | 'products')} className="w-full">
               <TabsList className="grid w-full grid-cols-2 mb-4">
                 <TabsTrigger value="services" className="flex items-center gap-2">
                   <Scissors className="h-4 w-4" />
@@ -900,10 +987,12 @@ const ClienteDashboard = () => {
                     </div>
 
                     <div className="space-y-3">
-                      {(() => {
-                        const filteredAppointments = getFilteredHistoryAppointments();
-                        return filteredAppointments.length > 0 ? (
-                          filteredAppointments.map((appointment) => {
+                      {loadingHistoryAppointments ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Clock className="h-6 w-6 animate-spin text-primary" />
+                        </div>
+                      ) : historyAppointments.length > 0 ? (
+                        historyAppointments.map((appointment) => {
                             const derivedStatus = getDerivedAppointmentStatus(appointment);
                             return (
                           <div key={appointment.id} className="p-4 bg-secondary rounded-lg">
@@ -951,14 +1040,43 @@ const ClienteDashboard = () => {
                             )}
                           </div>
                           )})
-                        ) : (
-                          <div className="text-center py-8 text-muted-foreground">
-                            <History className="h-12 w-12 mx-auto mb-3 opacity-20" />
-                            <p>Nenhum serviço encontrado no histórico</p>
-                          </div>
-                        );
-                      })()}
+                      ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <History className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                          <p>Nenhum serviço encontrado no histórico</p>
+                        </div>
+                      )}
                     </div>
+                    {historyAppointments.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 mt-4 pt-3 border-t border-border/60">
+                        <span className="text-xs text-muted-foreground">
+                          Mostrando {historyStartIndex}-{historyEndIndex} de {historyAppointmentsTotalCount}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            disabled={currentHistoryPage <= 1}
+                            onClick={() => setHistoryAppointmentsPage((prev) => Math.max(1, prev - 1))}
+                          >
+                            Anterior
+                          </Button>
+                          <span className="text-xs text-muted-foreground min-w-[68px] text-center">
+                            {currentHistoryPage} / {historyTotalPages}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            disabled={currentHistoryPage >= historyTotalPages}
+                            onClick={() => setHistoryAppointmentsPage((prev) => Math.min(historyTotalPages, prev + 1))}
+                          >
+                            Próxima
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1050,6 +1168,36 @@ const ClienteDashboard = () => {
                         </div>
                       )}
                     </div>
+                    {productSales.length > 0 && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 mt-4 pt-3 border-t border-border/60">
+                        <span className="text-xs text-muted-foreground">
+                          Mostrando {productHistoryStartIndex}-{productHistoryEndIndex} de {productHistoryTotalCount}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            disabled={currentProductHistoryPage <= 1}
+                            onClick={() => setProductHistoryPage((prev) => Math.max(1, prev - 1))}
+                          >
+                            Anterior
+                          </Button>
+                          <span className="text-xs text-muted-foreground min-w-[68px] text-center">
+                            {currentProductHistoryPage} / {productHistoryTotalPages}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            disabled={currentProductHistoryPage >= productHistoryTotalPages}
+                            onClick={() => setProductHistoryPage((prev) => Math.min(productHistoryTotalPages, prev + 1))}
+                          >
+                            Próxima
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
