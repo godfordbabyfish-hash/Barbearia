@@ -25,9 +25,10 @@ interface Appointment {
   status: string;
   client_name?: string;
   notes?: string;
-  profiles: { name: string; phone: string };
+  photo_url?: string | null;
+  profiles: { name: string; phone: string; photo_url?: string | null };
   services: { title: string; duration: number };
-  barbers: { name: string };
+  barbers: { name: string; image_url?: string | null };
 }
 
 type FilaProps = {
@@ -242,7 +243,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       .select(`
         *,
         services(title, duration),
-        barbers(name)
+        barbers(name, image_url)
       `)
       .eq("appointment_date", today)
       .neq("status", "completed")
@@ -260,7 +261,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       
       const { data: profiles, error: profilesError } = await supabase
         .from("profiles")
-        .select("id, name, phone")
+        .select("id, name, phone, photo_url")
         .in("id", clientIds);
 
       if (profilesError) {
@@ -300,7 +301,8 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
           ...apt,
           profiles: { 
             name: fallbackName, 
-            phone
+            phone,
+            photo_url: profile?.photo_url || null
           }
         };
       });
@@ -794,8 +796,11 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                     <div className="flex flex-col items-center gap-3">
                       <Avatar className="h-16 w-16 border-2 border-primary/20">
                         <AvatarImage
-                          src={getOptimizedStorageAvatarUrl(barber.photo_url || barber.image_url || '')}
+                          src={(barber as any).image_url || ''}
                           alt={barber.name}
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = '';
+                          }}
                         />
                         <AvatarFallback className="bg-primary/20 text-primary font-bold text-xl">
                           <span>{barber.name.charAt(0).toUpperCase()}</span>
@@ -925,6 +930,8 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                             const bookingTypeColor = apt.booking_type === 'local' ? 'bg-success/20 text-success border-success/30' : 
                                                    apt.booking_type === 'online' ? 'bg-info/20 text-info border-info/30' : 
                                                    'bg-orange-500/20 text-orange-400 border-orange-500/30';
+                            const clientAvatar = (apt.photo_url || apt.profiles?.photo_url || '') as string;
+                            const barberAvatar = ((apt as any).barbers?.image_url || '') as string;
 
                             return (
                               <div key={apt.id} className="flex items-center gap-2 p-2 bg-secondary/40 hover:bg-secondary/60 rounded-lg transition-all duration-200 border border-border/50">
@@ -947,8 +954,30 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                                   </span>
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <div className="text-foreground text-xs font-semibold mb-0.5 break-words line-clamp-1">
-                                    {apt.client_name || apt.profiles.name}
+                                  <div className="flex items-center gap-1 mb-0.5">
+                                    <Avatar className="h-5 w-5 border border-border/50">
+                                      <AvatarImage 
+                                        src={clientAvatar} 
+                                        alt={(apt.client_name || apt.profiles.name) ?? 'Cliente'}
+                                        onError={(e) => { (e.currentTarget as HTMLImageElement).src = ''; }}
+                                      />
+                                      <AvatarFallback className="text-[10px] font-bold">
+                                        {(apt.client_name || apt.profiles.name || 'C').charAt(0).toUpperCase()}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <span className="text-foreground text-xs font-semibold break-words line-clamp-1">
+                                      {apt.client_name || apt.profiles.name}
+                                    </span>
+                                    <Avatar className="h-5 w-5 ml-auto border border-border/50">
+                                      <AvatarImage 
+                                        src={barberAvatar} 
+                                        alt={(apt as any).barbers?.name || 'Barbeiro'}
+                                        onError={(e) => { (e.currentTarget as HTMLImageElement).src = ''; }}
+                                      />
+                                      <AvatarFallback className="text-[10px] font-bold">
+                                        {(((apt as any).barbers?.name) || 'B').charAt(0).toUpperCase()}
+                                      </AvatarFallback>
+                                    </Avatar>
                                   </div>
                                   <div className="text-muted-foreground text-[9px] break-words line-clamp-1">
                                     {apt.services.title} ({apt.services.duration}min)

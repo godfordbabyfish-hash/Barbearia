@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import barber1Img from "@/assets/barber-1.jpg";
 import barber2Img from "@/assets/barber-2.jpg";
 import barber3Img from "@/assets/barber-3.jpg";
+import { getOptimizedStorageImageUrl } from "@/utils/images";
 
 const defaultBarberImages: Record<number, any> = {
   0: barber1Img,
@@ -56,11 +57,25 @@ const Barbers = () => {
               onClick={() => setSelectedBarber(barber)}
             >
               <div className="relative h-48 md:h-56 lg:h-64 overflow-hidden">
-                <img 
-                  src={barber.image_url || defaultBarberImages[index] || barber1Img} 
-                  alt={barber.name}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                />
+                {(() => {
+                  const baseUrl = barber.image_url || defaultBarberImages[index] || barber1Img;
+                  const thumb400 = getOptimizedStorageImageUrl(baseUrl, { width: 400, quality: 60, resize: 'cover' }) || baseUrl;
+                  const thumb800 = getOptimizedStorageImageUrl(baseUrl, { width: 800, quality: 60, resize: 'cover' }) || baseUrl;
+                  return (
+                    <img
+                      src={thumb400}
+                      srcSet={`${thumb400} 400w, ${thumb800} 800w`}
+                      sizes="(max-width: 640px) 33vw, (max-width: 1024px) 33vw, 33vw"
+                      alt={barber.name}
+                      loading="lazy"
+                      decoding="async"
+                      fetchPriority="low"
+                      width={800}
+                      height={600}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    />
+                  );
+                })()}
                 <div className="absolute inset-0 bg-gradient-to-t from-card to-transparent"></div>
               </div>
               <CardContent className="p-3 md:p-6 lg:p-8 text-center">
@@ -85,11 +100,24 @@ const Barbers = () => {
             <>
               <div className="flex flex-col items-center gap-4 mb-4">
                 <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-primary/30">
-                  <img 
-                    src={selectedBarber.image_url || barber1Img} 
-                    alt={selectedBarber.name}
-                    className="w-full h-full object-cover"
-                  />
+                  {(() => {
+                    const baseUrl = selectedBarber.image_url || barber1Img;
+                    const avatar256 = getOptimizedStorageImageUrl(baseUrl, { width: 256, quality: 65, resize: 'cover' }) || baseUrl;
+                    const avatar512 = getOptimizedStorageImageUrl(baseUrl, { width: 512, quality: 65, resize: 'cover' }) || baseUrl;
+                    return (
+                      <img
+                        src={avatar256}
+                        srcSet={`${avatar256} 256w, ${avatar512} 512w`}
+                        sizes="128px"
+                        alt={selectedBarber.name}
+                        loading="lazy"
+                        decoding="async"
+                        width={512}
+                        height={512}
+                        className="w-full h-full object-cover"
+                      />
+                    );
+                  })()}
                 </div>
                 <DialogHeader className="text-center">
                   <DialogTitle className="text-3xl font-bold mb-1">{selectedBarber.name}</DialogTitle>

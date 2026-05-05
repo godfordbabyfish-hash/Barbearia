@@ -29,7 +29,7 @@ import SiteConfigEditor from '@/components/admin/SiteConfigEditor';
 import ImageManager from '@/components/admin/ImageManager';
 import OperatingHoursEditor from '@/components/admin/OperatingHoursEditor';
 import { UserManager } from '@/components/admin/UserManager';
-import { uploadPublicImage } from '@/utils/storage';
+import { uploadPublicImage, uploadPublicImageVariants } from '@/utils/storage';
 import { WhatsAppManager } from '@/components/admin/WhatsAppManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
@@ -557,7 +557,10 @@ const AdminDashboard = () => {
   const handleImageUpload = async (file: File, path: string) => {
     setUploading(true);
     try {
-      const url = await uploadPublicImage(file, { bucket: 'site-images', category: path });
+      const useVariants = path === 'services' || path === 'products' || path === 'barbers';
+      const url = useVariants
+        ? (await uploadPublicImageVariants(file, { bucket: 'site-images', category: path })).mainUrl
+        : await uploadPublicImage(file, { bucket: 'site-images', category: path });
       setUploading(false);
       return url;
     } catch (error: any) {
@@ -962,7 +965,17 @@ const AdminDashboard = () => {
                             className="flex-1"
                           />
                           {editingService.image_url && (
-                            <img src={editingService.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                            <div className="flex items-center gap-2">
+                              <img src={editingService.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => setEditingService({ ...editingService, image_url: null })}
+                              >
+                                Remover imagem
+                              </Button>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1202,7 +1215,17 @@ const AdminDashboard = () => {
                             className="flex-1"
                           />
                           {editingProduct.image_url && (
-                            <img src={editingProduct.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                            <div className="flex items-center gap-2">
+                              <img src={editingProduct.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => setEditingProduct({ ...editingProduct, image_url: null })}
+                              >
+                                Remover imagem
+                              </Button>
+                            </div>
                           )}
                         </div>
                       </div>

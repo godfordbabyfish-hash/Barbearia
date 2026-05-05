@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Upload, Image as ImageIcon, Loader2 } from 'lucide-react';
-import { uploadPublicImage } from '@/utils/storage';
+import { uploadPublicImage, uploadPublicImageVariants } from '@/utils/storage';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
 interface ImageItem {
@@ -117,7 +117,11 @@ const ImageManager = () => {
   const handleImageUpload = async (imageItem: ImageItem, file: File) => {
     setUploading(imageItem.id);
     try {
-      const publicUrl = await uploadPublicImage(file, { bucket: 'site-images', category: imageItem.category });
+      // For services and barbers/products, generate smaller variants for egress reduction
+      const useVariants = imageItem.category === 'services' || imageItem.category === 'barbers' || imageItem.category === 'products';
+      const publicUrl = useVariants
+        ? (await uploadPublicImageVariants(file, { bucket: 'site-images', category: imageItem.category })).mainUrl
+        : await uploadPublicImage(file, { bucket: 'site-images', category: imageItem.category });
 
       // Update database based on category
       if (imageItem.category === 'hero') {
