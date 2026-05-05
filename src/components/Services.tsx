@@ -6,6 +6,8 @@ import { useNavigate } from "react-router-dom";
 import haircutImg from "@/assets/service-haircut.jpg";
 import beardImg from "@/assets/service-beard.jpg";
 import stylingImg from "@/assets/service-styling.jpg";
+import { Input } from "@/components/ui/input";
+import { getOptimizedStorageImageUrl } from "@/utils/images";
 
 interface Service {
   id: string;
@@ -32,6 +34,7 @@ const Services = () => {
   const [services, setServices] = useState<Service[]>([]);
   const [search, setSearch] = useState("");
   const navigate = useNavigate();
+  const [visibleCount, setVisibleCount] = useState<number>(9);
 
   useEffect(() => {
     loadServices();
@@ -74,6 +77,8 @@ const Services = () => {
     service.title.toLowerCase().includes(search.toLowerCase())
   );
 
+  const displayedServices = filteredServices.slice(0, visibleCount);
+
   if (services.length === 0) {
     return null;
   }
@@ -100,9 +105,11 @@ const Services = () => {
         </div>
 
         <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6 lg:gap-8">
-          {filteredServices.map((service) => {
+          {displayedServices.map((service) => {
             const Icon = iconMap[service.icon] || Scissors;
             const imageUrl = service.image_url || defaultImages[service.title] || haircutImg;
+            const thumb400 = getOptimizedStorageImageUrl(imageUrl, { width: 400, quality: 60, resize: 'cover' }) || imageUrl;
+            const thumb800 = getOptimizedStorageImageUrl(imageUrl, { width: 800, quality: 60, resize: 'cover' }) || imageUrl;
             
             return (
               <Card 
@@ -112,8 +119,15 @@ const Services = () => {
               >
                 <div className="relative h-24 md:h-56 lg:h-64 overflow-hidden">
                   <img
-                    src={imageUrl}
+                    src={thumb400}
+                    srcSet={`${thumb400} 400w, ${thumb800} 800w`}
+                    sizes="(max-width: 640px) 33vw, (max-width: 1024px) 33vw, 33vw"
                     alt={service.title}
+                    loading="lazy"
+                    decoding="async"
+                    fetchPriority="low"
+                    width={800}
+                    height={600}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-background/90 to-transparent"></div>
@@ -141,6 +155,17 @@ const Services = () => {
             </p>
           )}
         </div>
+        {filteredServices.length > visibleCount && (
+          <div className="mt-6 flex justify-center">
+            <button
+              type="button"
+              className="px-4 py-2 text-sm md:text-base rounded-md border border-border hover:border-primary transition-colors"
+              onClick={() => setVisibleCount((c) => c + 9)}
+            >
+              Mostrar mais
+            </button>
+          </div>
+        )}
       </div>
     </section>
   );

@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { getOptimizedStorageImageUrl } from "@/utils/images";
 
 interface Product {
   id: string;
@@ -66,38 +67,7 @@ interface CheckoutError {
   hint?: string;
 }
 
-const getOptimizedStorageImageUrl = (
-  imageUrl?: string | null,
-  options?: { width?: number; height?: number; quality?: number; resize?: 'cover' | 'contain' }
-) => {
-  if (!imageUrl) return '';
-
-  try {
-    const parsed = new URL(imageUrl);
-    const objectPathMarker = '/storage/v1/object/public/';
-    const markerIndex = parsed.pathname.indexOf(objectPathMarker);
-
-    if (markerIndex === -1) {
-      return imageUrl;
-    }
-
-    const objectPath = parsed.pathname.slice(markerIndex + objectPathMarker.length);
-    const prefix = parsed.pathname.slice(0, markerIndex);
-    parsed.pathname = `${prefix}/storage/v1/render/image/public/${objectPath}`;
-
-    parsed.searchParams.set('width', String(options?.width ?? 480));
-    if (options?.height) {
-      parsed.searchParams.set('height', String(options.height));
-    } else {
-      parsed.searchParams.delete('height');
-    }
-    parsed.searchParams.set('quality', String(options?.quality ?? 60));
-    parsed.searchParams.set('resize', options?.resize ?? 'cover');
-    return parsed.toString();
-  } catch {
-    return imageUrl;
-  }
-};
+// using shared getOptimizedStorageImageUrl from utils/images
 
 const Shop = () => {
   const navigate = useNavigate();
@@ -461,6 +431,10 @@ const Shop = () => {
                           alt={item.product.name}
                           loading="lazy"
                           decoding="async"
+                          onError={(e) => {
+                            const fallback = item.product.image_url || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop";
+                            (e.currentTarget as HTMLImageElement).src = fallback;
+                          }}
                           className="w-full h-full object-cover"
                         />
                       </div>
@@ -569,6 +543,10 @@ const Shop = () => {
                     alt={product.name}
                     loading="lazy"
                     decoding="async"
+                    onError={(e) => {
+                      const fallback = product.image_url || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop";
+                      (e.currentTarget as HTMLImageElement).src = fallback;
+                    }}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-card via-card/50 to-transparent"></div>
@@ -648,6 +626,10 @@ const Shop = () => {
                     }
                     alt={selectedProduct.name}
                     decoding="async"
+                    onError={(e) => {
+                      const fallback = selectedProduct.image_url || "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=500&h=500&fit=crop";
+                      (e.currentTarget as HTMLImageElement).src = fallback;
+                    }}
                     className="w-full h-full object-cover"
                   />
                   {(selectedProduct.stock ?? 0) <= 0 && (
