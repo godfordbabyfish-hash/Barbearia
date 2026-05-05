@@ -3030,6 +3030,85 @@ const BarbeiroDashboard = () => {
                 Painel do <span className="bg-gradient-gold bg-clip-text text-transparent">Barbeiro</span>
               </h1>
             </div>
+
+          {/* Dialog: Pendências de finalização */}
+          <Dialog open={pendingDialogOpen} onOpenChange={setPendingDialogOpen}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Pendências de finalização</DialogTitle>
+                <DialogDescription>
+                  Agendamentos que passaram do horário e ainda estão ativos para o barbeiro atual.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+                {pastPendingList.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhuma pendência vencida encontrada.</p>
+                ) : (
+                  pastPendingList.map((appointment) => {
+                    const clientName = appointment.client_name || appointment.client?.name || 'Local';
+                    const appointmentTime = (appointment.appointment_time || '').slice(0, 5);
+                    const appointmentDate = new Date(appointment.appointment_date + 'T00:00:00');
+                    const bookingTypeLabel =
+                      (appointment as any).booking_type === 'local'
+                        ? 'Local'
+                        : (appointment as any).booking_type === 'manual'
+                        ? 'Manual'
+                        : 'Online';
+                    const bookingTypeColor =
+                      (appointment as any).booking_type === 'local'
+                        ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                        : (appointment as any).booking_type === 'manual'
+                        ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                        : 'bg-green-500/20 text-green-400 border-green-500/30';
+                    return (
+                      <div
+                        key={appointment.id}
+                        className="p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-red-500/5 border-red-500/30"
+                        onClick={() => {
+                          setPendingDialogOpen(false);
+                          handleAppointmentClick(appointment as any);
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-9 w-9 border border-border">
+                              <AvatarImage src={(appointment as any).client?.photo_url || ''} alt={clientName} />
+                              <AvatarFallback className="bg-secondary text-foreground font-semibold text-xs">
+                                {(clientName || 'C').charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                              <p className="font-semibold text-sm">{appointment.service?.title || 'Serviço'}</p>
+                              <p className="text-xs text-muted-foreground">Cliente: {clientName}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-1 rounded text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30">
+                              {format(appointmentDate, 'dd/MM', { locale: ptBR })} às {appointmentTime}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
+                              {bookingTypeLabel}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setPendingDialogOpen(false)}>Fechar</Button>
+                <Button
+                  onClick={() => {
+                    const target = selectedBarber || currentUserBarber?.id || '';
+                    if (target) sendBarberPendingWhatsApp(target);
+                  }}
+                >
+                  Enviar no WhatsApp
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
             {userRole === 'admin' && (
               <div className="mt-4">
                 <Label>Selecione o barbeiro:</Label>
@@ -3050,47 +3129,53 @@ const BarbeiroDashboard = () => {
           </div>
           <div className="flex flex-col gap-2 md:items-end">
             {user && (
-              <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-secondary/30">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={currentUserBarber?.image_url || ''} alt={displayName || 'Usuário'} />
-                  <AvatarFallback className="bg-primary/20 text-primary text-sm font-bold">
-                    {(displayName || user.email || 'U').charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="text-sm font-medium text-foreground">
-                  {displayName || 'Usuário'}
-                </div>
-                <div className="flex items-center gap-1 ml-2">
-                  <Button
-                    onClick={() => navigate('/configuracoes')}
-                    variant="ghost"
-                    className="h-8 w-8 p-0"
-                    aria-label="Configurações"
-                    title="Configurações"
-                  >
-                    <Settings className="h-4 w-4" />
-                  </Button>
-                {pastPendingCount > 0 && (
-                  <span
-                    title="Pendências vencidas"
-                    className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
-                  >
-                    <Clock className="h-3 w-3" />
-                    {pastPendingCount}
-                  </span>
-                )}
-                  <Button
-                    onClick={async () => {
-                      await signOut();
-                      navigate('/');
-                    }}
-                    variant="ghost"
-                    className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                    aria-label="Sair"
-                    title="Sair"
-                  >
-                    <LogOut className="h-4 w-4" />
-                  </Button>
+              <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-background/60 via-background/40 to-background/20 backdrop-blur supports-[backdrop-filter]:bg-background/30 shadow-elegant pl-3 pr-2 py-2">
+                <div className="absolute inset-0 pointer-events-none [mask-image:radial-gradient(200px_120px_at_10%_10%,black,transparent)] bg-[radial-gradient(ellipse_at_top_left,rgba(255,215,0,0.2),transparent_35%),radial-gradient(ellipse_at_bottom_right,rgba(255,215,0,0.1),transparent_35%)]"></div>
+                <div className="relative flex items-center gap-2">
+                  <Avatar className="h-8 w-8 ring-2 ring-primary/30">
+                    <AvatarImage src={currentUserBarber?.image_url || ''} alt={displayName || 'Usuário'} />
+                    <AvatarFallback className="bg-primary/20 text-primary text-sm font-bold">
+                      {(displayName || user.email || 'U').charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold leading-tight truncate" translate="no">{displayName || 'Usuário'}</div>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      {pastPendingCount > 0 && (
+                        <span
+                          onClick={() => setPendingDialogOpen(true)}
+                          title="Pendências vencidas"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border border-yellow-500/30 text-yellow-400 bg-yellow-500/10 cursor-pointer hover:bg-yellow-500/20 hover:border-yellow-500/50"
+                        >
+                          <Clock className="h-3 w-3" />
+                          {pastPendingCount}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="ml-2 flex items-center gap-1">
+                    <Button
+                      onClick={() => navigate('/configuracoes')}
+                      variant="ghost"
+                      className="h-8 w-8 p-0"
+                      aria-label="Configurações"
+                      title="Configurações"
+                    >
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        await signOut();
+                        navigate('/');
+                      }}
+                      variant="ghost"
+                      className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                      aria-label="Sair"
+                      title="Sair"
+                    >
+                      <LogOut className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
@@ -3110,28 +3195,38 @@ const BarbeiroDashboard = () => {
               <TabsContent value="agendamentos" className="space-y-6">
               <div className="mb-8">
                 <Card className="bg-card border-border" translate="no">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-lg">
+                  <CardHeader className="py-2">
+                    <CardTitle className="flex items-center gap-2 text-base md:text-lg">
                       <Calendar className="h-5 w-5 text-primary" />
                       Resumo de Agendamentos
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <div className="grid grid-cols-3 text-center text-xs uppercase tracking-wide text-muted-foreground">
-                        <div>Hoje</div>
-                        <div>Semana</div>
-                        <div>Mês</div>
+                  <CardContent className="pt-2 pb-3 px-3">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <div className="flex-1 min-w-0">
+                        {pastPendingCount > 0 && (
+                          <span
+                            onClick={() => setPendingDialogOpen(true)}
+                            title="Pendências de finalização"
+                            className="inline-flex items-center gap-1 px-1 py-0 rounded-full text-[10px] font-semibold border border-yellow-500/30 text-yellow-400 bg-yellow-500/10 cursor-pointer hover:bg-yellow-500/20 hover:border-yellow-500/50"
+                          >
+                            <Clock className="h-3 w-3" />
+                            {pastPendingCount}
+                          </span>
+                        )}
                       </div>
-                      <div className="grid grid-cols-3 text-center">
-                        <div className="text-3xl font-bold text-primary">
-                          {todayCompleted.length}
+                      <div className="ml-auto grid grid-cols-3 gap-2 sm:gap-3">
+                        <div className="px-2 py-1 rounded-lg border border-primary/30 bg-primary/5 text-center">
+                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Hoje</div>
+                          <div className="text-xl font-extrabold text-primary leading-tight">{todayCompleted.length}</div>
                         </div>
-                        <div className="text-3xl font-bold text-green-500">
-                          {weekCompleted.length}
+                        <div className="px-2 py-1 rounded-lg border border-emerald-400/30 bg-emerald-400/5 text-center">
+                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Semana</div>
+                          <div className="text-xl font-extrabold text-emerald-400 leading-tight">{weekCompleted.length}</div>
                         </div>
-                        <div className="text-3xl font-bold text-green-500">
-                          {monthCompleted.length}
+                        <div className="px-2 py-1 rounded-lg border border-emerald-400/30 bg-emerald-400/5 text-center">
+                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Mês</div>
+                          <div className="text-xl font-extrabold text-emerald-400 leading-tight">{monthCompleted.length}</div>
                         </div>
                       </div>
                     </div>
@@ -3627,16 +3722,16 @@ const BarbeiroDashboard = () => {
                           const list = appointments.filter(a => a.appointment_date === today);
                           debugLog('[DEBUG] Rendering barber:', barber.name, 'today:', today, 'appointments:', appointments.length, 'list:', list.length, list.map(a => ({ date: a.appointment_date, time: a.appointment_time, status: a.status })));
                           return (
-                            <div key={barber.id} className="border border-border rounded-lg p-3 bg-secondary/30">
-                              <div className="flex items-center gap-3 mb-3 pb-2 border-b border-border">
-                                <Avatar className="h-10 w-10 border-2 border-primary/20">
+                            <div key={barber.id} className="border border-border/60 rounded-lg p-2 bg-secondary/20">
+                              <div className="flex items-center gap-2 mb-2 pb-1 border-b border-border/60">
+                                <Avatar className="h-8 w-8 border-2 border-primary/20">
                                   <AvatarImage src={barber.image_url || ''} alt={barber.name} />
                                   <AvatarFallback className="bg-primary/20 text-primary font-bold text-base">
                                     <span>{barber.name.charAt(0).toUpperCase()}</span>
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1">
-                                  <h3 className="font-bold text-base"><span>{barber.name}</span></h3>
+                                  <h3 className="font-bold text-sm md:text-base"><span>{barber.name}</span></h3>
                                   <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                     <span className="flex items-center gap-1">
                                       <Calendar className="h-3 w-3" />
@@ -3655,7 +3750,7 @@ const BarbeiroDashboard = () => {
                               </div>
 
                               {list.length > 0 ? (
-                                <div className="space-y-3">
+                                <div className="space-y-2">
                                   {list.map((appointment) => {
                                     const isFit = (() => {
                                       try {
@@ -3680,8 +3775,8 @@ const BarbeiroDashboard = () => {
                                                            : 'bg-green-500/20 text-green-400 border-green-500/30';
 
                                     const cardClasses = isBreak
-                                      ? 'p-3 rounded-lg border cursor-default bg-red-500/10 border-red-400'
-                                      : 'p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-primary/5 border-primary/30';
+                                      ? 'p-2 rounded-lg border cursor-default bg-red-500/10 border-red-400'
+                                      : 'p-2 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-primary/5 border-primary/30';
 
                                     const isLunchBreak = isBreak && (appointment.break_type === 'lunch' || appointment.client_name === 'Almoço' || appointment.service?.title === 'Almoço');
 
@@ -3707,8 +3802,8 @@ const BarbeiroDashboard = () => {
                                           }
                                         }}
                                       >
-                                        <div className="flex items-center gap-3">
-                                          <Avatar className={`h-10 w-10 border ${isBreak ? 'border-red-400 bg-red-500/10' : 'border-border'}`}>
+                                        <div className="flex items-center gap-2">
+                                          <Avatar className={`h-8 w-8 border ${isBreak ? 'border-red-400 bg-red-500/10' : 'border-border/60'}`}>
                                             <AvatarImage src={isBreak ? '' : (appointment.client?.photo_url || '')} alt={clientName} />
                                             <AvatarFallback className={isBreak ? 'bg-red-500/20 text-red-500 font-semibold' : 'bg-secondary text-foreground font-semibold'}>
                                               {clientInitial}
