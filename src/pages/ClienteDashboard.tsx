@@ -162,6 +162,7 @@ const ClienteDashboard = () => {
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
   const [displayName, setDisplayName] = useState<string>('');
   const [appointments, setAppointments] = useState<AppointmentWithRelations[]>([]);
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [productSales, setProductSales] = useState<ProductSaleWithRelations[]>([]);
   const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
   const [services, setServices] = useState<ServiceRecord[]>([]);
@@ -179,6 +180,8 @@ const ClienteDashboard = () => {
   const [productHistoryTotalCount, setProductHistoryTotalCount] = useState(0);
   const [productHistoryPage, setProductHistoryPage] = useState(1);
   const [serviceSearch, setServiceSearch] = useState('');
+  const [appointmentsLoaded, setAppointmentsLoaded] = useState(false);
+  const [serviceStatsLoaded, setServiceStatsLoaded] = useState(false);
 
   const historyTotalPages = Math.max(1, Math.ceil(historyAppointmentsTotalCount / CLIENT_HISTORY_PAGE_SIZE));
   const currentHistoryPage = Math.min(historyAppointmentsPage, historyTotalPages);
@@ -190,12 +193,35 @@ const ClienteDashboard = () => {
   const productHistoryStartIndex = productHistoryTotalCount === 0 ? 0 : (currentProductHistoryPage - 1) * CLIENT_HISTORY_PAGE_SIZE + 1;
   const productHistoryEndIndex = Math.min(currentProductHistoryPage * CLIENT_HISTORY_PAGE_SIZE, productHistoryTotalCount);
 
+  const completedCount = appointments.filter((a) => getDerivedAppointmentStatus(a) === 'completed').length;
+  const upcomingCount = appointments.filter((a) => {
+    const st = getDerivedAppointmentStatus(a);
+    return st === 'pending' || st === 'confirmed';
+  }).length;
+
+  const handleQuickBookForService = (serviceTitle: string) => {
+    const svc = services.find((s) => s.title === serviceTitle);
+    if (svc) {
+      navigate('/', { state: { preSelectedService: { id: svc.id, title: svc.title, price: svc.price } } });
+      setTimeout(() => {
+        const bookingSection = document.getElementById('agendamento');
+        if (bookingSection) bookingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+    } else {
+      navigate('/');
+      setTimeout(() => {
+        const bookingSection = document.getElementById('agendamento');
+        if (bookingSection) bookingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+    }
+  };
+
   const loadDisplayName = useCallback(async () => {
     if (!user) return;
     try {
       const { data } = await supabase
         .from('profiles')
-        .select('name, cpf')
+        .select('name, cpf, photo_url')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -212,8 +238,10 @@ const ClienteDashboard = () => {
           ? (nameFromMeta || fallbackName)
           : (nameFromProfile || nameFromMeta || fallbackName)
       );
+      setProfilePhotoUrl((data?.photo_url as string) || null);
     } catch (error) {
       setDisplayName(user.email?.split('@')[0] || 'Usuário');
+      setProfilePhotoUrl(null);
     }
   }, [user]);
 
@@ -258,6 +286,7 @@ const ClienteDashboard = () => {
         setAppointments(data || []);
       }
     }
+    setAppointmentsLoaded(true);
   }, [user]);
 
   const loadProductSales = useCallback(async (page: number = 1) => {
@@ -411,6 +440,7 @@ const ClienteDashboard = () => {
       
       setServiceStats(statsArray);
     }
+    setServiceStatsLoaded(true);
   }, [user]);
 
   const loadServices = useCallback(async () => {
@@ -592,7 +622,7 @@ const ClienteDashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background py-6 px-4 overflow-x-hidden">
+    <div className="min-h-screen bg-background py-4 px-3 overflow-x-hidden">
       <div className="max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-3">
           <h1 className="text-2xl font-bold">
@@ -600,72 +630,65 @@ const ClienteDashboard = () => {
           </h1>
         </div>
 
-        <div className="hidden md:flex items-center justify-between mb-2">
-          {user && (
-            <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-secondary/30">
-              <Avatar className="h-8 w-8">
-                <AvatarImage src={getUserMetadata(user).avatar_url || ''} alt={displayName || 'Usuário'} />
-                <AvatarFallback className="bg-primary/20 text-primary text-sm font-bold">
-                  {(displayName || user.email || 'U').charAt(0).toUpperCase()}
-                </AvatarFallback>
+        <div className="mb-4">
+          <div className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-background/60 via-background/40 to-background/20 backdrop-blur supports-[backdrop-filter]:bg-background/30 shadow-elegant">
+            <div className="absolute inset-0 pointer-events-none [mask-image:radial-gradient(250px_150px_at_10%_10%,black,transparent)] bg-[radial-gradient(ellipse_at_top_left,rgba(255,215,0,0.25),transparent_35%),radial-gradient(ellipse_at_bottom_right,rgba(255,215,0,0.12),transparent_35%)]"></div>
+            <div className="relative p-4 sm:p-6 flex items-center gap-3 sm:gap-4">
+              <Avatar className="h-10 w-10 sm:h-12 sm:w-12 ring-2 ring-primary/30">
+                <AvatarImage src={profilePhotoUrl || getUserMetadata(user).avatar_url || ''} alt={displayName || 'Usuário'} onError={(e) => { (e.currentTarget as HTMLImageElement).src = ''; }} />
+                <AvatarFallback className="bg-primary/20 text-primary font-semibold">{(displayName || user?.email || 'U').charAt(0).toUpperCase()}</AvatarFallback>
               </Avatar>
-              <div className="text-sm font-medium text-foreground">{displayName || 'Usuário'}</div>
-              <div className="flex items-center gap-1 ml-2">
-                <Button
-                  onClick={() => navigate('/configuracoes')}
-                  variant="ghost"
-                  className="h-8 w-8 p-0"
-                  aria-label="Configurações"
-                  title="Configurações"
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
+              <div className="flex-1 min-w-0">
+                <div className="font-bold text-lg sm:text-xl truncate" translate="no">{displayName || 'Usuário'}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs sm:text-sm text-muted-foreground">
+                  <span className="px-2 py-0.5 rounded-full border border-primary/30 text-primary bg-primary/10">Próx./Ativos: {upcomingCount}</span>
+                  <span className="px-2 py-0.5 rounded-full border border-emerald-400/30 text-emerald-400 bg-emerald-400/10">Concluídos: {completedCount}</span>
+                </div>
+              </div>
+              {/* Mobile logout inside hero card */}
+              <div className="flex sm:hidden items-center gap-2 ml-auto">
                 <Button
                   onClick={signOut}
                   variant="ghost"
-                  className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  size="icon"
+                  className="h-9 w-9 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                   aria-label="Sair"
                   title="Sair"
                 >
                   <LogOut className="h-4 w-4" />
                 </Button>
               </div>
-            </div>
-          )}
-        </div>
-
-        <div className="md:hidden flex items-center justify-between mb-3">
-          {user && (
-            <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-secondary/30">
-              <Avatar className="h-8 w-8">
-                <AvatarImage src={getUserMetadata(user).avatar_url || ''} alt={displayName || 'Usuário'} />
-                <AvatarFallback className="bg-primary/20 text-primary text-sm font-bold">
-                  {(displayName || user.email || 'U').charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="text-sm font-medium text-foreground">{displayName || 'Usuário'}</div>
-              <div className="flex items-center gap-1 ml-2">
+              <div className="hidden sm:flex items-center gap-2">
                 <Button
-                  onClick={() => navigate('/configuracoes')}
-                  variant="ghost"
-                  className="h-8 w-8 p-0"
-                  aria-label="Configurações"
-                  title="Configurações"
+                  onClick={() => {
+                    if (blocked) return;
+                    navigate('/');
+                    setTimeout(() => {
+                      const bookingSection = document.getElementById('agendamento');
+                      if (bookingSection) {
+                        const yOffset = -80;
+                        const y = bookingSection.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                        window.scrollTo({ top: y, behavior: 'smooth' });
+                      }
+                    }, 300);
+                  }}
+                  disabled={blocked}
+                  variant={blocked ? 'outline' : 'default'}
                 >
+                  {blocked ? 'Usuário bloqueado' : 'Novo Agendamento'}
+                </Button>
+                <Button variant="outline" onClick={() => navigate('/shop')}>
+                  <ShoppingBag className="h-4 w-4 mr-2" /> Shop
+                </Button>
+                <Button onClick={() => navigate('/configuracoes')} variant="ghost" className="h-9 w-9 p-0" aria-label="Configurações" title="Configurações">
                   <Settings className="h-4 w-4" />
                 </Button>
-                <Button
-                  onClick={signOut}
-                  variant="ghost"
-                  className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                  aria-label="Sair"
-                  title="Sair"
-                >
+                <Button onClick={signOut} variant="ghost" className="h-9 w-9 p-0 text-destructive hover:text-destructive hover:bg-destructive/10" aria-label="Sair" title="Sair">
                   <LogOut className="h-4 w-4" />
                 </Button>
               </div>
             </div>
-          )}
+          </div>
         </div>
 
         <Tabs defaultValue="agendamentos" className="w-full">
@@ -697,51 +720,36 @@ const ClienteDashboard = () => {
                 }}
                 disabled={blocked}
                 variant={blocked ? 'outline' : 'default'}
+                size="sm"
               >
                 {blocked ? 'Usuário bloqueado' : 'Novo Agendamento'}
               </Button>
 
-              <Button variant="outline" onClick={() => navigate('/shop')}>
+              <Button variant="outline" size="sm" onClick={() => navigate('/shop')}>
                 <ShoppingBag className="h-4 w-4 mr-2" />
                 Shop
               </Button>
+
             </div>
           </div>
 
-          <TabsContent value="agendamentos" className="space-y-6">
-            <div className="grid md:grid-cols-2 gap-6 mb-8">
-              <Card className="bg-card border-border">
-                <CardHeader className="py-3">
-                  <CardTitle className="flex items-center gap-2 text-base md:text-lg">
-                    <Scissors className="h-5 w-5 text-primary" />
-                    Serviços Mais Usados
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-2">
-                  {serviceStats.length > 0 ? (
-                    <div className="space-y-3">
-                      {serviceStats.map((stat) => (
-                        <div key={stat.title} className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-                          <span className="font-medium">{stat.title}</span>
-                          <span className="text-primary font-bold">{stat.count}x</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground">Nenhum serviço concluído ainda</p>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card className="bg-card border-border">
-                <CardHeader className="py-3">
+          <TabsContent value="agendamentos" className="space-y-5">
+            <div className="grid gap-4 mb-6">
+              <Card className="bg-card border-border overflow-hidden relative">
+                <CardHeader className="py-2">
                   <CardTitle className="flex items-center gap-2 text-base md:text-lg">
                     <Calendar className="h-5 w-5 text-primary" />
                     Próximo Agendamento
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="pt-2">
-                  {(() => {
+                  {!appointmentsLoaded ? (
+                    <div className="space-y-2">
+                      <div className="h-4 w-40 bg-secondary/60 rounded animate-pulse" />
+                      <div className="h-5 w-3/4 bg-secondary/60 rounded animate-pulse" />
+                      <div className="h-4 w-1/2 bg-secondary/60 rounded animate-pulse" />
+                    </div>
+                  ) : (() => {
                     const now = new Date();
                     const activeAppointments: ActiveAppointmentItem[] = appointments
                       .map((appointment) => ({
@@ -757,14 +765,14 @@ const ClienteDashboard = () => {
                       activeAppointments[0];
 
                     return upcoming ? (
-                    <div className="space-y-2">
-                      <p className="font-bold text-lg">
+                    <div className="space-y-1.5">
+                      <p className="font-bold text-base">
                         {upcoming.service.title}
                       </p>
-                      <p className="text-muted-foreground">
+                      <p className="text-muted-foreground text-sm">
                         {format(new Date(upcoming.appointment_date + 'T00:00:00'), "dd 'de' MMMM", { locale: ptBR })} às {upcoming.appointment_time.slice(0, 5)}
                       </p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         Com {upcoming.barber.name}
                       </p>
                       {upcoming._dateTime < now && (
@@ -816,6 +824,74 @@ const ClienteDashboard = () => {
             {/* Services Section */}
             {services.length > 0 && (
               <div className="mb-8">
+                {/* Serviços mais usados (3 cards) */}
+                {(() => {
+                  // Seleciona top 3 por uso do cliente; se vazio, sugere pelo order_index (já aplicado no loadServices)
+                  const sortedStats = [...serviceStats].sort((a, b) => b.count - a.count);
+                  const countByTitle = new Map(sortedStats.map((s) => [s.title, s.count]));
+                  const topByClient = sortedStats
+                    .map((stat) => services.find((s) => s.title === stat.title) || null)
+                    .filter((s): s is ServiceRecord => Boolean(s));
+                  let topUsed: ServiceRecord[] = topByClient.slice(0, 3);
+                  if (topUsed.length < 3) {
+                    const extras = services.filter((s) => !topUsed.some((t) => t.id === s.id)).slice(0, 3 - topUsed.length);
+                    topUsed = [...topUsed, ...extras];
+                  }
+                  if (topUsed.length === 0) return null;
+                  return (
+                    <div className="mb-6">
+                      <h2 className="text-xl md:text-2xl font-bold mb-4">Serviços mais usados</h2>
+                      <div className="grid grid-cols-3 gap-2 md:gap-6">
+                        {topUsed.slice(0, 3).map((service) => {
+                          const Icon = iconMap[service.icon] || Scissors;
+                          const imageUrl = service.image_url || defaultImages[service.title] || haircutImg;
+                          const usage = countByTitle.get(service.title);
+                          return (
+                            <Card
+                              key={`top-${service.id}`}
+                              className="group overflow-hidden border-border hover:border-primary transition-all duration-300 hover:shadow-gold cursor-pointer"
+                              onClick={() => {
+                                if (blocked) return;
+                                navigate('/', { state: { preSelectedService: service, scrollToBooking: true } });
+                              }}
+                            >
+                              <div className="relative h-24 md:h-48 overflow-hidden">
+                                <img
+                                  src={imageUrl}
+                                  alt={service.title}
+                                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                />
+                                {typeof usage === 'number' && usage > 0 && (
+                                  <div className="absolute bottom-2 right-2 md:bottom-3 md:right-3 z-10">
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border border-primary/30 text-primary bg-primary/10">
+                                      {usage}x
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="absolute inset-0 bg-gradient-to-t from-background/90 to-transparent"></div>
+                                <div className="absolute bottom-2 left-2 md:bottom-3 md:left-3">
+                                  <Icon className="w-4 h-4 md:w-6 md:h-6 text-primary" />
+                                </div>
+                              </div>
+                              <CardContent className="p-2 md:p-4">
+                                <h3 className="text-base md:text-xl font-bold mb-1 group-hover:text-primary transition-colors flex items-center gap-2 whitespace-normal break-words leading-tight">
+                                  <Icon className="w-5 h-5" />
+                                  {service.title}
+                                </h3>
+                                <p className="text-muted-foreground text-xs md:text-sm mb-2">
+                                  {service.description}
+                                </p>
+                                <p className="text-sm md:text-2xl font-bold text-primary">
+                                  R$ {service.price.toFixed(2)}
+                                </p>
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <h2 className="text-xl md:text-2xl font-bold mb-4">
                   Nossos <span className="bg-gradient-gold bg-clip-text text-transparent">Serviços</span>
                 </h2>

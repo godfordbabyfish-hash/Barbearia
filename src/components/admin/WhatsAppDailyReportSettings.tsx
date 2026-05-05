@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Save, Send, Target, Clock, Phone } from 'lucide-react';
+import { Loader2, Save, Send, Target, Clock, Phone, Bell } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -31,6 +31,12 @@ type DailyReportConfig = {
   last_sent?: string;
   last_sent_weekly?: string;
   last_sent_monthly?: string;
+};
+
+type OverdueBarberConfig = {
+  enabled: boolean;
+  schedule_time: string; // HH:mm local
+  last_sent?: string;
 };
 
 const DEFAULT_CONFIG: DailyReportConfig = {
@@ -65,6 +71,9 @@ const WhatsAppDailyReportSettings = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sendingType, setSendingType] = useState<'daily' | 'weekly' | 'monthly' | null>(null);
+  const [overdueCfg, setOverdueCfg] = useState<OverdueBarberConfig>({ enabled: false, schedule_time: '07:00' });
+  const [savingOverdue, setSavingOverdue] = useState(false);
+  const [sendingOverdue, setSendingOverdue] = useState(false);
 
   const cleanedPhonePreview = useMemo(
     () => (config.phone_number || '').replace(/\D/g, ''),
@@ -78,15 +87,22 @@ const WhatsAppDailyReportSettings = () => {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('site_config')
-        .select('config_value')
-        .eq('config_key', 'whatsapp_daily_report')
-        .maybeSingle();
+      const [daily, overdue] = await Promise.all([
+        supabase
+          .from('site_config')
+          .select('config_value')
+          .eq('config_key', 'whatsapp_daily_report')
+          .maybeSingle(),
+        supabase
+          .from('site_config')
+          .select('config_value')
+          .eq('config_key', 'whatsapp_overdue_barber')
+          .maybeSingle(),
+      ]);
 
-      if (error) throw error;
+      if (daily.error) throw daily.error;
 
-      const cfg = (data?.config_value as Partial<DailyReportConfig>) || {};
+      const cfg = (daily.data?.config_value as Partial<DailyReportConfig>) || {};
       const merged: DailyReportConfig = {
         ...DEFAULT_CONFIG,
         ...cfg,
@@ -98,10 +114,13 @@ const WhatsAppDailyReportSettings = () => {
       };
 
       setConfig(merged);
+      const ocfg = (overdue.data?.config_value as Partial<OverdueBarberConfig>) || {};
+      setOverdueCfg({ enabled: Boolean(ocfg.enabled), schedule_time: ocfg.schedule_time || '07:00', last_sent: ocfg.last_sent });
     } catch (err: any) {
       console.error('Erro ao carregar configuração de relatório diário:', err);
       toast.error('Erro ao carregar configuração: ' + (err?.message || 'desconhecido'));
       setConfig(DEFAULT_CONFIG);
+      setOverdueCfg({ enabled: false, schedule_time: '07:00' });
     } finally {
       setLoading(false);
     }
@@ -180,6 +199,56 @@ const WhatsAppDailyReportSettings = () => {
     }
   };
 
+  const saveOverdueConfig = async () => {
+    if (!overdueCfg.schedule_time) {
+      toast.error('Defina o horário do lembrete de atrasados');
+      return;
+    }
+    setSavingOverdue(true);
+    try {
+      const payload: OverdueBarberConfig = {
+        enabled: Boolean(overdueCfg.enabled),
+        schedule_time: overdueCfg.schedule_time,
+        last_sent: overdueCfg.last_sent,
+      };
+      const { error } = await supabase
+        .from('site_config')
+        .upsert(
+          { config_key: 'whatsapp_overdue_barber', config_value: payload as any },
+          { onConflict: 'config_key' }
+        );
+      if (error) throw error;
+      setOverdueCfg(payload);
+      toast.success('Configuração do lembrete de atrasados salva!');
+    } catch (err: any) {
+      console.error('Erro ao salvar overdue barber config:', err);
+      toast.error('Erro ao salvar: ' + (err?.message || 'desconhecido'));
+    } finally {
+      setSavingOverdue(false);
+    }
+  };
+
+  const sendOverdueNow = async () => {
+    setSendingOverdue(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('whatsapp-overdue-barber', {
+        body: { action: 'send-now' },
+      });
+      if (error) throw error;
+      if (data?.success) {
+        toast.success('Lembrete de atrasados enviado!');
+      } else {
+        toast.error(data?.error || 'Falha ao enviar lembrete');
+      }
+      await loadConfig();
+    } catch (err: any) {
+      console.error('Erro ao enviar lembrete agora:', err);
+      toast.error('Erro ao enviar: ' + (err?.message || 'desconhecido'));
+    } finally {
+      setSendingOverdue(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -202,31 +271,31 @@ const WhatsAppDailyReportSettings = () => {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="flex items-center justify-between rounded-md border p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
+            <div className="flex items-center justify-between rounded-md border p-3 min-w-0">
               <div>
-                <p className="text-sm font-medium">Relatório diário</p>
-                <p className="text-xs text-muted-foreground">Enviado todos os dias.</p>
+                <p className="text-xs sm:text-sm font-medium">Relatório diário</p>
+                <p className="text-[11px] sm:text-xs text-muted-foreground">Enviado todos os dias.</p>
               </div>
               <Switch
                 checked={config.enabled}
                 onCheckedChange={(checked) => setConfig((prev) => ({ ...prev, enabled: checked }))}
               />
             </div>
-            <div className="flex items-center justify-between rounded-md border p-3">
+            <div className="flex items-center justify-between rounded-md border p-2 sm:p-3 min-w-0">
               <div>
-                <p className="text-sm font-medium">Relatório semanal</p>
-                <p className="text-xs text-muted-foreground">Enviado no dia da semana escolhido.</p>
+                <p className="text-xs sm:text-sm font-medium">Relatório semanal</p>
+                <p className="text-[11px] sm:text-xs text-muted-foreground">Enviado no dia da semana escolhido.</p>
               </div>
               <Switch
                 checked={config.weekly_enabled}
                 onCheckedChange={(checked) => setConfig((prev) => ({ ...prev, weekly_enabled: checked }))}
               />
             </div>
-            <div className="flex items-center justify-between rounded-md border p-3">
+            <div className="flex items-center justify-between rounded-md border p-2 sm:p-3 min-w-0">
               <div>
-                <p className="text-sm font-medium">Relatório mensal</p>
-                <p className="text-xs text-muted-foreground">Enviado no dia do mês escolhido.</p>
+                <p className="text-xs sm:text-sm font-medium">Relatório mensal</p>
+                <p className="text-[11px] sm:text-xs text-muted-foreground">Enviado no dia do mês escolhido.</p>
               </div>
               <Switch
                 checked={config.monthly_enabled}
@@ -235,7 +304,7 @@ const WhatsAppDailyReportSettings = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
             <div>
               <Label className="text-xs">Horário diário</Label>
               <Input
@@ -297,6 +366,71 @@ const WhatsAppDailyReportSettings = () => {
 
           <Separator />
 
+          {/* Overdue barber daily reminder */}
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Bell className="h-4 w-4" />
+                Lembrete diário de atrasados (barbeiro)
+              </CardTitle>
+              <CardDescription>
+                Envia todo dia às {overdueCfg.schedule_time || '07:00'} um lembrete para cada barbeiro com atendimentos que passaram do horário e continuam ativos.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+                <div className="flex items-center justify-between rounded-md border p-2 sm:p-3">
+                  <div>
+                    <p className="text-xs sm:text-sm font-medium">Ativar lembrete diário</p>
+                    <p className="text-[11px] sm:text-xs text-muted-foreground">Envio automático por WhatsApp</p>
+                  </div>
+                  <Switch checked={overdueCfg.enabled} onCheckedChange={(checked) => setOverdueCfg((p) => ({ ...p, enabled: checked }))} />
+                </div>
+                <div>
+                  <Label className="text-xs">Horário</Label>
+                  <Input
+                    type="time"
+                    value={overdueCfg.schedule_time}
+                    onChange={(e) => setOverdueCfg((p) => ({ ...p, schedule_time: e.target.value }))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="flex items-end justify-end gap-2">
+                  <Button variant="outline" onClick={sendOverdueNow} disabled={sendingOverdue}>
+                    {sendingOverdue ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Enviando...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4 mr-2" />
+                        Testar agora
+                      </>
+                    )}
+                  </Button>
+                  <Button onClick={saveOverdueConfig} disabled={savingOverdue}>
+                    {savingOverdue ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        Salvar
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="text-xs text-muted-foreground text-right">
+                {overdueCfg.last_sent ? <p>Último envio: {new Date(overdueCfg.last_sent).toLocaleString('pt-BR')}</p> : null}
+              </div>
+            </CardContent>
+          </Card>
+
           <div>
             <div className="flex items-center gap-2 mb-2">
               <Target className="h-4 w-4" />
@@ -305,7 +439,7 @@ const WhatsAppDailyReportSettings = () => {
             <p className="text-xs text-muted-foreground mb-3">
               Semana calculada de segunda a domingo.
             </p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
               <div>
                 <Label className="text-xs">Meta diária (R$)</Label>
                 <Input
@@ -350,11 +484,11 @@ const WhatsAppDailyReportSettings = () => {
 
           <Separator />
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="flex items-center justify-between rounded-md border p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
+            <div className="flex items-center justify-between rounded-md border p-2 sm:p-3 min-w-0">
               <div>
-                <p className="text-sm font-medium">Incluir ROI</p>
-                <p className="text-xs text-muted-foreground">Mostra ROI no relatório.</p>
+                <p className="text-xs sm:text-sm font-medium">Incluir ROI</p>
+                <p className="text-[11px] sm:text-xs text-muted-foreground">Mostra ROI no relatório.</p>
               </div>
               <Switch
                 checked={config.include_roi}
@@ -362,10 +496,10 @@ const WhatsAppDailyReportSettings = () => {
               />
             </div>
 
-            <div className="flex items-center justify-between rounded-md border p-3">
+            <div className="flex items-center justify-between rounded-md border p-2 sm:p-3 min-w-0">
               <div>
-                <p className="text-sm font-medium">Incluir metas</p>
-                <p className="text-xs text-muted-foreground">Exibe diária/semanal/mensal.</p>
+                <p className="text-xs sm:text-sm font-medium">Incluir metas</p>
+                <p className="text-[11px] sm:text-xs text-muted-foreground">Exibe diária/semanal/mensal.</p>
               </div>
               <Switch
                 checked={config.include_goals}
@@ -373,10 +507,10 @@ const WhatsAppDailyReportSettings = () => {
               />
             </div>
 
-            <div className="flex items-center justify-between rounded-md border p-3">
+            <div className="flex items-center justify-between rounded-md border p-2 sm:p-3 min-w-0">
               <div>
-                <p className="text-sm font-medium">Insights automáticos</p>
-                <p className="text-xs text-muted-foreground">Comparativos automáticos.</p>
+                <p className="text-xs sm:text-sm font-medium">Insights automáticos</p>
+                <p className="text-[11px] sm:text-xs text-muted-foreground">Comparativos automáticos.</p>
               </div>
               <Switch
                 checked={config.include_insights}

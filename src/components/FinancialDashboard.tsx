@@ -1026,7 +1026,54 @@ const FinancialDashboard = () => {
                 <TabsTrigger value="products" className="text-xs sm:text-sm">Produtos</TabsTrigger>
               </TabsList>
               <TabsContent value="appointments">
-                <div className="overflow-x-auto">
+                {/* Mobile cards */}
+                <div className="sm:hidden space-y-2">
+                  {appointments.slice(0, 10).map((apt) => (
+                    <div key={apt.id} className="rounded-md border border-border p-3 bg-secondary/20">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-xs text-muted-foreground">
+                            {format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM/yyyy')} • {apt.appointment_time}
+                          </div>
+                          <div className="font-semibold text-sm truncate" title={(apt.service as any)?.title || '-' }>
+                            {(apt.service as any)?.title || '-'}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            {(apt.barber as any)?.name || '-'}
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${apt.booking_type === 'local' ? 'bg-primary/20 text-primary' : apt.booking_type === 'manual' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-blue-500/20 text-blue-400'}`}>
+                              {apt.booking_type === 'local' ? 'Local' : apt.booking_type === 'manual' ? 'Manual' : 'Online'}
+                            </span>
+                            <span className={`ml-1 px-2 py-0.5 rounded text-[11px] font-medium ${apt.status === 'confirmed' ? 'bg-green-500/20 text-green-400' : apt.status === 'completed' ? 'bg-primary/20 text-primary' : apt.status === 'cancelled' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                              {apt.status === 'confirmed' ? 'Confirmado' : apt.status === 'completed' ? 'Concluído' : apt.status === 'cancelled' ? 'Cancelado' : 'Pendente'}
+                            </span>
+                          </div>
+                          <div className="mt-1 text-[11px] text-muted-foreground">
+                            {apt.appointment_payments && apt.appointment_payments.length > 0 ? (
+                              apt.appointment_payments.map((p, idx) => (
+                                <span key={idx} className="inline-block mr-2">
+                                  {(p.payment_method === 'pix' ? 'Pix' : p.payment_method === 'cartao' ? 'Cartão' : p.payment_method === 'dinheiro' ? 'Dinheiro' : 'Outro')}:
+                                  {' '}R$ {Number(p.amount).toFixed(2)}
+                                </span>
+                              ))
+                            ) : (
+                              <>{apt.payment_method ? (apt.payment_method === 'pix' ? 'Pix' : apt.payment_method === 'cartao' ? 'Cartão' : apt.payment_method === 'dinheiro' ? 'Dinheiro' : apt.payment_method) : '-'}</>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-sm font-bold text-primary">R$ {((apt.service as any)?.price || 0).toFixed(2)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {appointments.length === 0 && (
+                    <div className="text-center text-sm text-muted-foreground py-4">Nenhum agendamento encontrado</div>
+                  )}
+                </div>
+                {/* Desktop table */}
+                <div className="hidden sm:block overflow-x-auto">
                   <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '600px' }}>
                     <thead>
                       <tr className="border-b border-border">
@@ -1143,7 +1190,35 @@ const FinancialDashboard = () => {
                 </div>
               </TabsContent>
               <TabsContent value="products">
-                <div className="overflow-x-auto">
+                {/* Mobile cards */}
+                <div className="sm:hidden space-y-2">
+                  {productSales.slice(0, 10).map((sale) => (
+                    <div key={sale.id} className="rounded-md border border-border p-3 bg-secondary/20">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-xs text-muted-foreground">
+                            {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy')} • {sale.sale_time}
+                          </div>
+                          <div className="font-semibold text-sm truncate" title={(sale.product as any)?.name || '-' }>
+                            {(sale.product as any)?.name || '-'}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            {(sale.barber as any)?.name || '-'}
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-sm font-bold text-primary">R$ {Number(sale.total_price || 0).toFixed(2)}</div>
+                          <div className="text-[11px] text-muted-foreground">Comissão: R$ {Number(sale.commission_value || 0).toFixed(2)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {productSales.length === 0 && (
+                    <div className="text-center text-sm text-muted-foreground py-4">Nenhuma venda de produto encontrada</div>
+                  )}
+                </div>
+                {/* Desktop table */}
+                <div className="hidden sm:block overflow-x-auto">
                   <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '600px' }}>
                     <thead>
                       <tr className="border-b border-border">

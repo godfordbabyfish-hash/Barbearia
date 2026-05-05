@@ -282,45 +282,80 @@ const OperationalExpensesManager = () => {
               Nenhuma despesa registrada no período selecionado.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Descrição</TableHead>
-                    <TableHead>Categoria</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
-                    <TableHead className="w-[80px] text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {expenses.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{format(new Date(item.expense_date + 'T00:00:00'), 'dd/MM/yyyy')}</TableCell>
-                      <TableCell>
-                        <div className="font-medium text-sm">{item.description}</div>
-                        {item.notes ? <div className="text-xs text-muted-foreground">{item.notes}</div> : null}
-                      </TableCell>
-                      <TableCell>{item.category}</TableCell>
-                      <TableCell className="text-right font-semibold text-red-500">
-                        R$ {Number(item.amount || 0).toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-right">
+            <>
+              {/* Mobile list */}
+              <div className="sm:hidden space-y-2">
+                {expenses.map((item) => (
+                  <div key={item.id} className="rounded-md border border-border p-3 bg-secondary/20">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-xs text-muted-foreground">
+                          {format(new Date(item.expense_date + 'T00:00:00'), 'dd/MM/yyyy')} • {item.category}
+                        </div>
+                        <div className="font-semibold text-sm truncate" title={item.description}>{item.description}</div>
+                        {item.notes ? (
+                          <div className="text-[11px] text-muted-foreground line-clamp-2">{item.notes}</div>
+                        ) : null}
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-sm font-bold text-red-500">R$ {Number(item.amount || 0).toFixed(2)}</div>
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => handleDeleteExpense(item.id)}
                           disabled={deletingId === item.id}
                           title="Excluir despesa"
+                          className="h-8 w-8 mt-1"
                         >
                           {deletingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                         </Button>
-                      </TableCell>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead>Categoria</TableHead>
+                      <TableHead className="text-right">Valor</TableHead>
+                      <TableHead className="w-[80px] text-right">Ações</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {expenses.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>{format(new Date(item.expense_date + 'T00:00:00'), 'dd/MM/yyyy')}</TableCell>
+                        <TableCell>
+                          <div className="font-medium text-sm">{item.description}</div>
+                          {item.notes ? <div className="text-xs text-muted-foreground">{item.notes}</div> : null}
+                        </TableCell>
+                        <TableCell>{item.category}</TableCell>
+                        <TableCell className="text-right font-semibold text-red-500">
+                          R$ {Number(item.amount || 0).toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteExpense(item.id)}
+                            disabled={deletingId === item.id}
+                            title="Excluir despesa"
+                          >
+                            {deletingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
