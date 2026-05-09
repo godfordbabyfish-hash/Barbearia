@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors, Filter } from 'lucide-react';
 import { format, addMinutes as addMinutesDate } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogClose } from '@/components/ui/dialog';
 import { Label } from "@/components/ui/label";
 import { 
   DropdownMenu, 
@@ -5155,9 +5155,18 @@ const BarbeiroDashboard = () => {
             }
           }}
         >
-          <DialogContent className="max-w-md">
-            <DialogHeader>
+          <DialogContent className="max-w-md" hideClose>
+            <DialogHeader className="relative">
               <DialogTitle>O que deseja fazer?</DialogTitle>
+              <DialogClose asChild>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="absolute right-0 top-0 h-8 px-2 text-xs hover:bg-accent"
+                >
+                  Fechar
+                </Button>
+              </DialogClose>
               {selectedAppointmentForAction && (
                 <DialogDescription>
                   Serviço: <span className="font-semibold">{selectedAppointmentForAction.service?.title || 'Serviço'}</span><br />
