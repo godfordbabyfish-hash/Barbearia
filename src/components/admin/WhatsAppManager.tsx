@@ -17,6 +17,7 @@ import {
   Copy,
   Mail,
   Clock,
+  Database,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { 
@@ -27,6 +28,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import WhatsAppMessages from '@/components/admin/WhatsAppMessages';
 import WhatsAppDailyReportSettings from '@/components/admin/WhatsAppDailyReportSettings';
+import WhatsAppSupabaseUsageSettings from '@/components/admin/WhatsAppSupabaseUsageSettings';
 
 // Componente refatorado para controle manual - sem polling automático
 export const WhatsAppManager = () => {
@@ -220,6 +222,10 @@ export const WhatsAppManager = () => {
             <Clock className="h-4 w-4" />
             Relatório automático
           </TabsTrigger>
+          <TabsTrigger value="supabase-usage" className="gap-2">
+            <Database className="h-4 w-4" />
+            Uso Supabase
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="messages">
@@ -228,6 +234,10 @@ export const WhatsAppManager = () => {
 
         <TabsContent value="daily-report">
           <WhatsAppDailyReportSettings />
+        </TabsContent>
+
+        <TabsContent value="supabase-usage">
+          <WhatsAppSupabaseUsageSettings />
         </TabsContent>
 
         <TabsContent value="connection">
