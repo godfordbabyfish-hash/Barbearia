@@ -91,7 +91,10 @@ const sendEvolutionMessage = async (
     const body = await res.text();
     throw new Error(`Evolution API error ${res.status}: ${body}`);
   }
-  return await res.json().catch(() => ({}));
+  const payload = await res.json().catch(() => ({}));
+  if (!payload?.messageId) throw new Error("Servidor Baileys não devolveu o ID da mensagem");
+  if (Number(payload?.status || 0) < 2) throw new Error("Mensagem permaneceu pendente no Baileys");
+  return payload;
 };
 
 const LIST_MAX_ITEMS = 20; // se exceder, envia só o resumo
@@ -124,6 +127,32 @@ const buildMessageForBarber = (barberName: string, items: any[]) => {
   }
   lines.push("");
   lines.push("Obrigado! 💈");
+  return lines.join("\n");
+};
+
+const buildCleanMessageForBarber = (barberName: string, items: any[]) => {
+  const lines: string[] = ["⏰ *Lembrete diário*", `Olá, *${barberName || "Barbeiro"}*!`];
+  if (items.length > LIST_MAX_ITEMS) {
+    lines.push(
+      `Você tem *${items.length}* atendimento(s) que passaram do horário e ainda estão ativos. ` +
+      "Conclua ou cancele no sistema para manter sua agenda organizada.",
+      "",
+      "Obrigado! 💈",
+    );
+    return lines.join("\n");
+  }
+  lines.push(
+    "Você tem atendimento(s) que passaram do horário e ainda estão ativos. Conclua ou cancele para manter sua agenda organizada:",
+    "",
+  );
+  for (const apt of items) {
+    const date = new Date(`${apt.appointment_date}T00:00:00`).toLocaleDateString("pt-BR");
+    const time = String(apt.appointment_time || "").slice(0, 5);
+    const client = apt.profiles?.name || "Cliente";
+    const service = apt.services?.title || "Serviço";
+    lines.push(`• ${date} às ${time} — ${client} (${service})`);
+  }
+  lines.push("", "Obrigado! 💈");
   return lines.join("\n");
 };
 
@@ -251,7 +280,7 @@ Deno.serve(async (req: Request) => {
 
     for (const [phone, grp] of groups.entries()) {
       try {
-        const text = buildMessageForBarber(grp.barberName, grp.items);
+        const text = buildCleanMessageForBarber(grp.barberName, grp.items);
         await sendEvolutionMessage(waCfg, phone, text);
         sent++;
         // small delay to avoid throttling

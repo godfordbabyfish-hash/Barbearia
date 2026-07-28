@@ -22,6 +22,7 @@ import stylingImg from "@/assets/service-styling.jpg";
 import barber1Img from "@/assets/barber-1.jpg";
 import barber2Img from "@/assets/barber-2.jpg";
 import barber3Img from "@/assets/barber-3.jpg";
+import ReferralPromotionBanner from "@/components/ReferralPromotionBanner";
 
 type ServiceRecord = Tables<"services">;
 type BarberRecord = Tables<"barbers">;
@@ -1662,6 +1663,7 @@ const Booking = () => {
                   <p><strong>Barbeiro:</strong> {normalizeText(successBooking.barberName) || "Barbeiro"}</p>
                   <p><strong>Data:</strong> {formatBookingDate(successBooking.date)} às {successBooking.time}</p>
                 </div>
+                <ReferralPromotionBanner />
                 <Button onClick={() => { setFormData({ name: "", phone: "", service: "", serviceTitle: "", servicePrice: "", barber: "", barberName: "", date: "", time: "" }); setConfirmedBooking(null); setStep("service"); navigate('/cliente'); }} className="w-full">Ir para meu Painel</Button>
               </CardContent>
             </Card>

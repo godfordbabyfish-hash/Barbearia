@@ -41,6 +41,10 @@ interface Appointment {
   service: { price: number; title: string } | null;
   barber: { name: string } | null;
   appointment_payments?: { amount: number; payment_method: string }[];
+  original_price?: number | null;
+  final_price?: number | null;
+  discount_amount?: number;
+  commission_basis?: 'original' | 'final' | null;
 }
 
 interface Barber {
@@ -233,6 +237,10 @@ const FinancialDashboard = () => {
         status,
         created_at,
         payment_method,
+        original_price,
+        final_price,
+        discount_amount,
+        commission_basis,
         barber_id,
         service_id,
         service:services(price, title),
@@ -309,13 +317,15 @@ const FinancialDashboard = () => {
   // Helper to calculate appointment revenue considering split payments
   const getAppointmentRevenue = (apt: Appointment) => {
     const paymentsTotal = apt.appointment_payments?.reduce((pSum, p) => pSum + Number(p.amount), 0) || 0;
-    return paymentsTotal > 0 ? paymentsTotal : ((apt.service as any)?.price || 0);
+    return Number(apt.final_price ?? (paymentsTotal > 0 ? paymentsTotal : ((apt.service as any)?.price || 0)));
   };
 
   const getServiceCommissionValue = (apt: Appointment): number => {
     if (!apt.service || !apt.service_id || !apt.barber_id) return 0;
     const paymentsTotal = apt.appointment_payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-    const servicePrice = paymentsTotal > 0 ? paymentsTotal : (apt.service.price || 0);
+    const servicePrice = apt.commission_basis === 'original'
+      ? Number(apt.original_price ?? apt.service.price ?? 0)
+      : Number(apt.final_price ?? (paymentsTotal > 0 ? paymentsTotal : apt.service.price || 0));
     const individual = calculateIndividualCommission(apt.barber_id, apt.service_id, servicePrice);
     if (individual > 0) return individual;
     return calculateFixedServiceCommission(apt.barber_id, servicePrice);

@@ -34,6 +34,7 @@ import { WhatsAppManager } from '@/components/admin/WhatsAppManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import FilaDaBarbearia from '@/pages/FilaDaBarbearia';
+import ReferralPanel from '@/components/ReferralPanel';
 
 const EGRESs_INCLUDED_GB_FREE_PLAN = 5;
 const EGRESS_TARGET_DAILY_MB = 160;
@@ -1409,6 +1410,13 @@ const AdminDashboard = () => {
               <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
                 <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Fila da Barbearia</h2>
                 <FilaDaBarbearia />
+              </div>
+            )}
+
+            {activeTab === 'referrals' && (
+              <div className="space-y-4 sm:space-y-6 w-full">
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Programa de Indicações</h2>
+                <ReferralPanel mode="admin" />
               </div>
             )}
 

@@ -20,8 +20,11 @@ BEGIN
     action_type := 'created';
     appointment_data := NEW;
   ELSIF TG_OP = 'UPDATE' THEN
-    -- Only notify if status changed to cancelled
-    IF NEW.status = 'cancelled' AND OLD.status != 'cancelled' THEN
+    IF NEW.status = 'completed' AND OLD.status IS DISTINCT FROM 'completed' THEN
+      action_type := 'completed';
+      appointment_data := NEW;
+    -- Notify if status changed to cancelled
+    ELSIF NEW.status = 'cancelled' AND OLD.status IS DISTINCT FROM 'cancelled' THEN
       action_type := 'cancelled';
       appointment_data := NEW;
     -- Or if date/time changed (remarcação)
@@ -125,7 +128,7 @@ BEGIN
   END IF;
 
   -- 3.2) Enqueue notification for barber (if has WhatsApp configured)
-  IF barber_whatsapp IS NOT NULL AND barber_whatsapp <> '' AND barber_whatsapp <> '00000000000' THEN
+  IF action_type = 'created' AND barber_whatsapp IS NOT NULL AND barber_whatsapp <> '' AND barber_whatsapp <> '00000000000' THEN
     INSERT INTO public.whatsapp_notifications_queue (
       appointment_id,
       client_phone,
@@ -164,4 +167,8 @@ EXCEPTION
     RAISE WARNING 'Error queueing WhatsApp notification: %', SQLERRM;
     RETURN COALESCE(NEW, OLD);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
+
+-- A fila tem RLS restrita ao service_role. O trigger precisa inserir nela sem
+-- conceder acesso direto aos clientes, e não deve ser chamável via Data API.
+REVOKE EXECUTE ON FUNCTION public.queue_whatsapp_notification() FROM PUBLIC, anon, authenticated;

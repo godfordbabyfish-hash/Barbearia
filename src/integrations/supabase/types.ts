@@ -27,6 +27,11 @@ export type Database = {
           notes: string | null
           payment_method: string | null
           photo_url: string | null
+          referral_coupon_id: string | null
+          original_price: number | null
+          discount_amount: number
+          final_price: number | null
+          commission_basis: string | null
           service_id: string
           status: string | null
           updated_at: string | null
@@ -43,6 +48,11 @@ export type Database = {
           notes?: string | null
           payment_method?: string | null
           photo_url?: string | null
+          referral_coupon_id?: string | null
+          original_price?: number | null
+          discount_amount?: number
+          final_price?: number | null
+          commission_basis?: string | null
           service_id: string
           status?: string | null
           updated_at?: string | null
@@ -59,6 +69,11 @@ export type Database = {
           notes?: string | null
           payment_method?: string | null
           photo_url?: string | null
+          referral_coupon_id?: string | null
+          original_price?: number | null
+          discount_amount?: number
+          final_price?: number | null
+          commission_basis?: string | null
           service_id?: string
           status?: string | null
           updated_at?: string | null
@@ -444,6 +459,7 @@ export type Database = {
           name: string
           phone: string | null
           photo_url: string | null
+          referral_code: string | null
           updated_at: string | null
           whatsapp: string | null
         }
@@ -457,6 +473,7 @@ export type Database = {
           name: string
           phone?: string | null
           photo_url?: string | null
+          referral_code?: string | null
           updated_at?: string | null
           whatsapp?: string | null
         }
@@ -470,6 +487,7 @@ export type Database = {
           name?: string
           phone?: string | null
           photo_url?: string | null
+          referral_code?: string | null
           updated_at?: string | null
           whatsapp?: string | null
         }
@@ -556,6 +574,18 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      referrals: {
+        Row: { id:string; referrer_id:string; referred_id:string; referral_code:string; status:string; qualifying_appointment_id:string|null; created_at:string; qualified_at:string|null }
+        Insert: { id?:string; referrer_id:string; referred_id:string; referral_code:string; status?:string; qualifying_appointment_id?:string|null; created_at?:string; qualified_at?:string|null }
+        Update: { id?:string; referrer_id?:string; referred_id?:string; referral_code?:string; status?:string; qualifying_appointment_id?:string|null; created_at?:string; qualified_at?:string|null }
+        Relationships: []
+      }
+      referral_coupons: {
+        Row: { id:string; owner_id:string; referral_id:string|null; discount_percent:number; status:string; expires_at:string; used_appointment_id:string|null; created_at:string; used_at:string|null }
+        Insert: { id?:string; owner_id:string; referral_id?:string|null; discount_percent:number; status?:string; expires_at:string; used_appointment_id?:string|null; created_at?:string; used_at?:string|null }
+        Update: { id?:string; owner_id?:string; referral_id?:string|null; discount_percent?:number; status?:string; expires_at?:string; used_appointment_id?:string|null; created_at?:string; used_at?:string|null }
+        Relationships: []
       }
       push_subscriptions: {
         Row: {
@@ -690,6 +720,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      claim_referral: { Args: { p_code: string }; Returns: Database["public"]["Tables"]["referrals"]["Row"] }
+      complete_appointment_with_referral: { Args: { p_appointment_id:string; p_payments:Json; p_photo_url?:string|null; p_coupon_id?:string|null }; Returns: Json }
+      expire_referral_coupons: { Args: Record<PropertyKey, never>; Returns: number }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

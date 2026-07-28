@@ -24,6 +24,7 @@ import stylingImg from "@/assets/service-styling.jpg";
 import FilaDaBarbearia from '@/pages/FilaDaBarbearia';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
+import ReferralPanel from '@/components/ReferralPanel';
 
 type HistoryFilterPeriod = 'all' | 'today' | 'week' | 'month' | 'year';
 type HistoryFilterStatus = 'all' | 'completed' | 'cancelled' | 'confirmed' | 'pending';
@@ -158,6 +159,54 @@ const getDerivedAppointmentStatus = (
 const ClienteDashboard = () => {
   const { user, role, blocked, signOut } = useAuth();
   const navigate = useNavigate();
+  const [activeDashboardTab, setActiveDashboardTab] = useState('agendamentos');
+  const [referralCampaignEnabled, setReferralCampaignEnabled] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const loadReferralCampaign = async () => {
+      const { data, error } = await supabase
+        .from('site_config')
+        .select('config_value')
+        .eq('config_key', 'referral_program')
+        .maybeSingle();
+      if (!active) return;
+      const config = (data?.config_value || {}) as { enabled?: boolean };
+      const isEnabled = !error && config.enabled === true;
+      setReferralCampaignEnabled(isEnabled);
+      if (!isEnabled) {
+        setActiveDashboardTab((current) => current === 'indicacoes' ? 'agendamentos' : current);
+      }
+    };
+
+    void loadReferralCampaign();
+    const channel = supabase
+      .channel('client-referral-campaign-config')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'site_config', filter: 'config_key=eq.referral_program' },
+        () => { void loadReferralCampaign(); },
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+
+  useEffect(() => {
+    const code = localStorage.getItem('pending_referral_code');
+    if (!user || !code) return;
+    (supabase as any).rpc('claim_referral', { p_code: code }).then(({ error }: any) => {
+      if (!error) {
+        localStorage.removeItem('pending_referral_code');
+        toast.success('Indicação registrada com sucesso!');
+      } else {
+        toast.error(error.message);
+      }
+    });
+  }, [user]);
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
   const [displayName, setDisplayName] = useState<string>('');
@@ -691,11 +740,12 @@ const ClienteDashboard = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="agendamentos" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6">
+        <Tabs value={activeDashboardTab} onValueChange={setActiveDashboardTab} className="w-full">
+          <TabsList className={`grid w-full ${referralCampaignEnabled ? 'grid-cols-4' : 'grid-cols-3'} mb-6`}>
             <TabsTrigger value="agendamentos">Agendamentos</TabsTrigger>
             <TabsTrigger value="historico">Histórico</TabsTrigger>
             <TabsTrigger value="fila">Fila</TabsTrigger>
+            {referralCampaignEnabled && <TabsTrigger value="indicacoes">Indique e Ganhe</TabsTrigger>}
           </TabsList>
           
           <div className="mb-6">
@@ -1280,6 +1330,12 @@ const ClienteDashboard = () => {
             </Tabs>
           </TabsContent>
           
+          {referralCampaignEnabled && (
+            <TabsContent value="indicacoes" className="space-y-6">
+              <ReferralPanel mode="client" />
+            </TabsContent>
+          )}
+
           <TabsContent value="fila" className="space-y-6">
             <Card className="bg-card border-border">
               <CardHeader>

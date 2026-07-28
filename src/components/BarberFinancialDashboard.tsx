@@ -35,6 +35,10 @@ interface Appointment {
   service_id: string;
   service: { price: number; title: string } | null;
   appointment_payments?: { amount: number; payment_method?: string }[];
+  original_price?: number | null;
+  final_price?: number | null;
+  discount_amount?: number;
+  commission_basis?: 'original' | 'final' | null;
 }
 
 interface Service {
@@ -104,7 +108,9 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
     
     // Determine the base value for commission: sum of payments or service price
     const paymentsTotal = apt.appointment_payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-    const servicePrice = paymentsTotal > 0 ? paymentsTotal : (apt.service.price || 0);
+    const servicePrice = apt.commission_basis === 'original'
+      ? Number(apt.original_price ?? apt.service.price ?? 0)
+      : Number(apt.final_price ?? (paymentsTotal > 0 ? paymentsTotal : apt.service.price || 0));
     
     // Try individual commission first
     const individualCommission = calculateIndividualCommission(barberId, apt.service_id, servicePrice);
@@ -257,6 +263,10 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
         status,
         created_at,
         service_id,
+        original_price,
+        final_price,
+        discount_amount,
+        commission_basis,
         service:services(price, title),
         appointment_payments(amount, payment_method)
       `)

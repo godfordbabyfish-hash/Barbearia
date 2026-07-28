@@ -11,12 +11,13 @@ interface WhatsAppMessage {
   appointmentId: string;
   clientName: string;
   phone: string;
-  action: 'created' | 'updated' | 'cancelled' | 'completed' | 'reminder' | 'barber_new_appointment';
+  action: 'created' | 'updated' | 'cancelled' | 'completed' | 'reminder' | 'barber_new_appointment' | 'referral_earned' | 'referral_expiring' | 'inactive_client';
   appointmentDate?: string;
   appointmentTime?: string;
   serviceName?: string;
   barberName?: string;
   targetType?: 'client' | 'barber';
+  inactivityDays?: string;
 }
 
 const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL')!;
@@ -129,6 +130,12 @@ const DEFAULT_TEMPLATES: Record<string, string> = {
     '⏰ *Lembrete de Agendamento!*\n\nOlá, *{{clientName}}*! Lembramos que você tem um agendamento amanhã.\n\n� *Detalhes:*\n• Serviço: {{serviceName}}\n• Barbeiro: {{barberName}}\n• Data: {{appointmentDate}}\n• Horário: {{appointmentTime}}\n\nTe esperamos! 💈',
   whatsapp_msg_barber_new_appointment:
     '📅 *Novo Agendamento!*\n\nVocê tem um novo agendamento, *{{barberName}}*!\n\n👤 Cliente: {{clientName}}\n� Serviço: {{serviceName}}\n📆 Data: {{appointmentDate}}\n🕐 Horário: {{appointmentTime}}',
+  whatsapp_msg_referral_earned:
+    '🎁 *Você ganhou um cupom!*\n\nOlá, *{{clientName}}*! Seu amigo concluiu o primeiro atendimento. Seu cupom de {{serviceName}} de desconto já está disponível no painel.',
+  whatsapp_msg_referral_expiring:
+    '⏳ *Seu cupom está perto de vencer!*\n\nOlá, *{{clientName}}*! Seu cupom de {{serviceName}} de desconto vence em {{appointmentDate}}. Agende seu corte e aproveite.',
+  whatsapp_msg_inactive_client:
+    '💈 *Sentimos sua falta!*\n\nOlá, *{{clientName}}*! Já faz {{inactivityDays}} dias desde sua última visita à Barbearia Raimundos.\n\nQue tal reservar um horário e renovar o visual? Estamos esperando por você! ✂️',
 };
 
 // Interpolate template variables
@@ -156,9 +163,31 @@ const loadTemplates = async (supabase: any): Promise<Record<string, string>> => 
   }
 };
 
+const getTemplateKey = (data: WhatsAppMessage): string => {
+  if (data.action === 'referral_earned') return 'whatsapp_msg_referral_earned';
+  if (data.action === 'referral_expiring') return 'whatsapp_msg_referral_expiring';
+  if (data.action === 'inactive_client') return 'whatsapp_msg_inactive_client';
+  if (data.targetType === 'barber' || data.action === 'barber_new_appointment') return 'whatsapp_msg_barber_new_appointment';
+  if (data.action === 'completed') return 'whatsapp_msg_completed';
+  if (data.action === 'reminder') return 'whatsapp_msg_reminder';
+  if (data.action === 'updated') return 'whatsapp_msg_updated';
+  if (data.action === 'cancelled') return 'whatsapp_msg_cancelled';
+  return 'whatsapp_msg_created';
+};
+
+const isMessageEnabled = async (data: WhatsAppMessage, supabase: any): Promise<boolean> => {
+  const { data: row, error } = await supabase
+    .from('site_config')
+    .select('config_value')
+    .eq('config_key', getTemplateKey(data))
+    .maybeSingle();
+  if (error) return false;
+  return (row?.config_value as { enabled?: boolean } | null)?.enabled !== false;
+};
+
 // Generate message based on action and target type using admin-configured templates
 const generateMessage = async (data: WhatsAppMessage, supabase: any, mapsLink?: string | null): Promise<string> => {
-  const { action, clientName, appointmentDate, appointmentTime, serviceName, barberName, targetType = 'client' } = data;
+  const { action, clientName, appointmentDate, appointmentTime, serviceName, barberName, targetType = 'client', inactivityDays } = data;
 
   const formattedDate = appointmentDate
     ? new Date(appointmentDate + 'T12:00:00').toLocaleDateString('pt-BR')
@@ -173,10 +202,17 @@ const generateMessage = async (data: WhatsAppMessage, supabase: any, mapsLink?: 
     barberName: barberName || '',
     appointmentDate: formattedDate,
     appointmentTime: formattedTime,
+    inactivityDays: inactivityDays || '30',
   };
 
   let templateKey: string;
-  if (targetType === 'barber' || action === 'barber_new_appointment') {
+  if (action === 'referral_earned') {
+    templateKey = 'whatsapp_msg_referral_earned';
+  } else if (action === 'referral_expiring') {
+    templateKey = 'whatsapp_msg_referral_expiring';
+  } else if (action === 'inactive_client') {
+    templateKey = 'whatsapp_msg_inactive_client';
+  } else if (targetType === 'barber' || action === 'barber_new_appointment') {
     templateKey = 'whatsapp_msg_barber_new_appointment';
   } else if (action === 'completed') {
     templateKey = 'whatsapp_msg_completed';
@@ -365,6 +401,20 @@ const processQueue = async (supabase: any) => {
       // Garantir que o payload saiba para quem é a mensagem
       payload.targetType = targetType;
 
+      if (!(await isMessageEnabled(payload, supabase))) {
+        await supabase
+          .from('whatsapp_notifications_queue')
+          .update({
+            status: 'sent',
+            processed_at: new Date().toISOString(),
+            attempts: item.attempts,
+            error_message: 'Envio desativado pelo administrador',
+          })
+          .eq('id', item.id);
+        console.log(`[Queue] Item ${item.id} ignorado: modelo desativado pelo administrador`);
+        continue;
+      }
+
       console.log(`[Queue] Processando item ${item.id} para ${targetPhone} (targetType=${targetType}, appointmentId=${payload.appointmentId})`);
       console.log(`[Queue] Payload:`, JSON.stringify(payload, null, 2));
 
@@ -488,6 +538,31 @@ serve(async (req) => {
         JSON.stringify({ success: false, error: 'Campos obrigatórios faltando: phone, clientName, action' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    if (!(await isMessageEnabled(payload, supabase))) {
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: 'message_disabled_by_admin' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Referral messages must stop immediately when the campaign or WhatsApp
+    // notifications are disabled, even if this endpoint is called directly.
+    if (payload.action === 'referral_earned' || payload.action === 'referral_expiring') {
+      const { data: campaignRow, error: campaignError } = await supabase
+        .from('site_config')
+        .select('config_value')
+        .eq('config_key', 'referral_program')
+        .maybeSingle();
+      const campaign = campaignRow?.config_value as { enabled?: boolean; whatsapp_enabled?: boolean } | null;
+
+      if (campaignError || campaign?.enabled !== true || campaign?.whatsapp_enabled !== true) {
+        return new Response(
+          JSON.stringify({ success: true, skipped: true, reason: 'referral_campaign_disabled' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     // Get barbershop maps link if message is for client

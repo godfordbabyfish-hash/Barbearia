@@ -9,480 +9,454 @@ const corsHeaders = {
 };
 
 const SNAPSHOT_CONFIG_KEY = "supabase_cached_egress_snapshot";
+const REPORT_CONFIG_KEY = "whatsapp_egress_report";
+const DELIVERY_CONFIG_KEY = "whatsapp_egress_last_delivery";
 const BILLING_PERIOD_DAYS = 30;
-const EGRESS_WHATSAPP_CONFIG_KEY = "whatsapp_egress_report";
+const DEFAULT_ORGANIZATION_ID = "uzfkotnamftzmsaidlnb";
 
-const evolutionApiUrlEnv = (Deno.env.get("EVOLUTION_API_URL") ?? "").replace(/\/$/, "");
-const evolutionApiKeyEnv = Deno.env.get("EVOLUTION_API_KEY") ?? "";
-const evolutionInstanceNameEnv = Deno.env.get("EVOLUTION_INSTANCE_NAME") ?? "";
-
-function normalizeAuthToken(value: string | null | undefined): string {
-  const raw = String(value || "").trim();
-  const withoutBearer = raw.replace(/^Bearer\s+/i, "");
-  return withoutBearer.replace(/^['\"]|['\"]$/g, "").trim();
-}
-
-const normalizePhone = (value: string) => (value || "").replace(/\D/g, "");
-
-const formatNumber = (value: number, digits = 2) =>
-  new Intl.NumberFormat("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value || 0);
-
-const getActiveWhatsAppConfig = async (supabase: any) => {
-  let instanceName = "";
-
-  try {
-    const { data: activeInstanceData } = await supabase
-      .from("site_config")
-      .select("config_value")
-      .eq("config_key", "whatsapp_active_instance")
-      .maybeSingle();
-
-    const activeCfg = (activeInstanceData?.config_value || {}) as any;
-    if (activeCfg?.instanceName) {
-      instanceName = String(activeCfg.instanceName);
-    }
-  } catch {
-    // fallback abaixo
-  }
-
-  if (!instanceName) {
-    try {
-      const { data: legacyData } = await supabase
-        .from("site_config")
-        .select("config_value")
-        .eq("config_key", "whatsapp_instance")
-        .maybeSingle();
-
-      const legacyCfg = (legacyData?.config_value || {}) as any;
-      if (legacyCfg?.active === false) return null;
-      if (legacyCfg?.instanceName) {
-        instanceName = String(legacyCfg.instanceName);
-      }
-    } catch {
-      // fallback abaixo
-    }
-  }
-
-  if (!instanceName) {
-    instanceName = evolutionInstanceNameEnv;
-  }
-
-  if (!instanceName || !evolutionApiUrlEnv || !evolutionApiKeyEnv) {
-    return null;
-  }
-
-  return {
-    instanceName,
-    evolutionApiUrl: evolutionApiUrlEnv,
-    apiKey: evolutionApiKeyEnv,
-  };
+const QUOTAS = {
+  egress_gb: 5,
+  database_size_gb: 0.5,
+  storage_size_gb: 1,
+  cached_egress_gb: 5,
+  edge_function_invocations: 500_000,
+  realtime_peak_connections: 200,
+  monthly_active_users: 50_000,
+  realtime_messages: 2_000_000,
+  monthly_active_third_party_users: 50_000,
 };
 
-const sendEvolutionMessage = async (
-  cfg: { evolutionApiUrl: string; apiKey: string; instanceName: string },
-  phone: string,
-  text: string
-) => {
-  const url = `${cfg.evolutionApiUrl}/message/sendText/${cfg.instanceName}`;
+const evolutionApiUrl = (Deno.env.get("EVOLUTION_API_URL") ?? "").replace(/\/$/, "");
+const evolutionApiKey = Deno.env.get("EVOLUTION_API_KEY") ?? "";
+const fallbackInstanceName = Deno.env.get("EVOLUTION_INSTANCE_NAME") ?? "";
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: cfg.apiKey,
-    },
-    body: JSON.stringify({
-      number: phone,
-      text,
-      options: {
-        delay: 900,
-        presence: "composing",
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`Erro Evolution API (${response.status}): ${body}`);
-  }
-};
-
-const buildEgressWhatsappMessage = (snapshot: any) => {
-  const usedGb = Number(snapshot?.used_gb || 0);
-  const daysElapsed = Math.max(1, Number(snapshot?.days_elapsed || BILLING_PERIOD_DAYS));
-  const periodDays = Math.max(1, Number(snapshot?.period_days || BILLING_PERIOD_DAYS));
-  const dailyMb = (usedGb * 1024) / daysElapsed;
-  const projectedGb = (dailyMb * periodDays) / 1024;
-
-  const now = new Date();
-  const dayOfMonth = now.getDate();
-  const accumulatedMonthGb = (dailyMb * dayOfMonth) / 1024;
-
-  const lines = [
-    "🌐 *Report Diário de Egress*",
-    `🗓️ ${now.toLocaleDateString("pt-BR")}`,
-    "",
-    `📦 Acumulado do ciclo: ${formatNumber(usedGb, 3)} GB`,
-    `📅 Dias no ciclo: ${Math.round(daysElapsed)}/${Math.round(periodDays)}`,
-    `📉 Consumo diário médio: ${formatNumber(dailyMb, 1)} MB/dia`,
-    `📆 Acumulado estimado no mês: ${formatNumber(accumulatedMonthGb, 3)} GB`,
-    `🔮 Projeção para ${Math.round(periodDays)} dias: ${formatNumber(projectedGb, 3)} GB`,
-  ];
-
-  return lines.join("\n");
-};
-
-const bytesToGb = (bytes: number) => bytes / (1024 ** 3);
-
-const parseProjectRefFromUrl = (supabaseUrl: string) => {
-  try {
-    const hostname = new URL(supabaseUrl).hostname;
-    return hostname.split(".")[0] || "";
-  } catch {
-    return "";
-  }
-};
-
+const normalizeToken = (value: unknown) => String(value ?? "")
+  .trim().replace(/^Bearer\s+/i, "").replace(/^['\"]|['\"]$/g, "").trim();
+const normalizePhone = (value: unknown) => String(value ?? "").replace(/\D/g, "");
 const asNumber = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
+const bytesToGb = (value: number) => value / (1024 ** 3);
+const formatDecimal = (value: number, digits = 3) => new Intl.NumberFormat("pt-BR", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: digits,
+}).format(value);
+const formatInteger = (value: number) => new Intl.NumberFormat("pt-BR", {
+  maximumFractionDigits: 0,
+}).format(value);
 
-const getLastDaysRange = (days: number) => {
-  const end = new Date();
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - Math.max(1, days));
-
-  return {
-    start: start.toISOString().split("T")[0],
-    end: end.toISOString().split("T")[0],
-  };
+type MetricKey = keyof typeof QUOTAS;
+type UsageMetrics = Partial<Record<MetricKey, number>>;
+type OperationalMetrics = {
+  appointmentsCreated: number;
+  newClients: number;
+  queuePending: number;
+  queueFailed: number;
+  completedServices: number;
 };
 
-const walkForCandidate = (
-  node: any,
-  path = ""
-): { usedGb: number | null; daysElapsed: number | null; metricType: "cached_egress" | "egress" } | null => {
-  const pathKey = path.toLowerCase();
+const ANOMALY_THRESHOLD = 0.20;
+const BASELINE_DAYS = 7;
+const MIN_BASELINE_DAYS = 3;
 
-  if (typeof node === "number") {
-    if (pathKey.includes("egress")) {
-      const asGb = pathKey.includes("byte") ? bytesToGb(node) : node;
-      return {
-        usedGb: Math.max(0, asGb),
-        daysElapsed: null,
-        metricType: pathKey.includes("cached") || pathKey.includes("cache") ? "cached_egress" : "egress",
-      };
-    }
-    return null;
-  }
-
-  if (!node || typeof node !== "object") return null;
-
-  const usedGb =
-    asNumber(node.cached_egress_gb) ??
-    asNumber(node.cachedEgressGb) ??
-    asNumber(node.cached_egress) ??
-    asNumber(node.cachedEgress) ??
-    asNumber(node.cached_egress_total_gb) ??
-    asNumber(node.cachedEgressTotalGb) ??
-    asNumber(node.cached_egress_usage_gb) ??
-    asNumber(node.cachedEgressUsageGb) ??
-    asNumber(node.cache_egress_gb) ??
-    asNumber(node.cacheEgressGb);
-
-  const egressGb =
-    asNumber(node.egress_gb) ??
-    asNumber(node.egressGb) ??
-    asNumber(node.total_egress_gb) ??
-    asNumber(node.totalEgressGb) ??
-    asNumber(node.egress_usage_gb) ??
-    asNumber(node.egressUsageGb);
-
-  const usedBytes =
-    asNumber(node.cached_egress_bytes) ??
-    asNumber(node.cachedEgressBytes) ??
-    asNumber(node.cached_egress_total_bytes) ??
-    asNumber(node.cachedEgressTotalBytes) ??
-    asNumber(node.cached_egress_usage_bytes) ??
-    asNumber(node.cachedEgressUsageBytes) ??
-    asNumber(node.cache_egress_bytes) ??
-    asNumber(node.cacheEgressBytes);
-
-  const egressBytes =
-    asNumber(node.egress_bytes) ??
-    asNumber(node.egressBytes) ??
-    asNumber(node.total_egress_bytes) ??
-    asNumber(node.totalEgressBytes) ??
-    asNumber(node.egress_usage_bytes) ??
-    asNumber(node.egressUsageBytes);
-
-  const daysElapsed =
-    asNumber(node.days_elapsed) ??
-    asNumber(node.daysElapsed) ??
-    asNumber(node.period_days) ??
-    asNumber(node.periodDays);
-
-  const metricKey = String(
-    node.metric ??
-      node.meter ??
-      node.name ??
-      node.slug ??
-      node.key ??
-      node.label ??
-      node.title ??
-      node.metric_name ??
-      node.metricName ??
-      ""
-  ).toLowerCase();
-  const metricContext = `${pathKey} ${metricKey}`;
-
-  const metricValue =
-    asNumber(node.used) ??
-    asNumber(node.usage) ??
-    asNumber(node.value) ??
-    asNumber(node.total) ??
-    asNumber(node.current) ??
-    asNumber(node.amount) ??
-    asNumber(node.sum);
-
-  const metricUnit = String(
-    node.unit ?? node.usage_unit ?? node.usageUnit ?? node.value_unit ?? ""
-  ).toLowerCase();
-
-  const metricLooksLikeCachedEgress =
-    (metricContext.includes("cached") || metricContext.includes("cache")) && metricContext.includes("egress");
-  const metricLooksLikeEgress = metricContext.includes("egress");
-
-  const inferredCachedGb =
-    usedGb ??
-    (usedBytes !== null ? bytesToGb(usedBytes) : null) ??
-    (metricLooksLikeCachedEgress && metricValue !== null
-      ? metricUnit.includes("byte")
-        ? bytesToGb(metricValue)
-        : metricValue
-      : null);
-
-  const inferredEgressGb =
-    egressGb ??
-    (egressBytes !== null ? bytesToGb(egressBytes) : null) ??
-    (metricLooksLikeEgress && metricValue !== null
-      ? metricUnit.includes("byte")
-        ? bytesToGb(metricValue)
-        : metricValue
-      : null);
-
-  const inferredGb = inferredCachedGb ?? inferredEgressGb;
-
-  if (inferredGb !== null) {
-    return {
-      usedGb: Math.max(0, inferredGb),
-      daysElapsed: daysElapsed !== null ? Math.max(1, Math.round(daysElapsed)) : null,
-      metricType: inferredCachedGb !== null ? "cached_egress" : "egress",
-    };
-  }
-
-  if (Array.isArray(node)) {
-    for (let index = 0; index < node.length; index += 1) {
-      const item = node[index];
-      const found = walkForCandidate(item, `${path}[${index}]`);
-      if (found?.usedGb !== null) return found;
-    }
-    return null;
-  }
-
-  for (const [key, value] of Object.entries(node)) {
-    const nextPath = path ? `${path}.${String(key)}` : String(key);
-    const found = walkForCandidate(value, nextPath);
-    if (found?.usedGb !== null) return found;
-  }
-
-  return null;
+const aliases: Record<MetricKey, string[]> = {
+  egress_gb: ["egress", "total_egress", "unified_egress"],
+  database_size_gb: ["database_size", "db_size", "disk_size"],
+  storage_size_gb: ["storage_size", "storage"],
+  cached_egress_gb: ["cached_egress", "cache_egress"],
+  edge_function_invocations: ["edge_function_invocations", "function_invocations", "edge_functions_invocations"],
+  realtime_peak_connections: ["realtime_peak_connections", "realtime_concurrent_peak_connections", "peak_connections"],
+  monthly_active_users: ["monthly_active_users", "mau"],
+  realtime_messages: ["realtime_messages", "realtime_message_count"],
+  monthly_active_third_party_users: ["monthly_active_third_party_users", "third_party_mau", "third_party_users"],
 };
 
-const getPayloadCandidates = (projectRef: string, organizationId: string) => {
-  const range = getLastDaysRange(BILLING_PERIOD_DAYS);
+const normalizeKey = (value: unknown) => String(value ?? "")
+  .toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 
-  const candidates = [
-    {
-      path: `/platform/projects/${projectRef}/usage`,
-      query: "",
-    },
-    {
-      path: `/platform/projects/${projectRef}/usage/daily`,
-      query: `?start=${range.start}T00:00:00Z&end=${range.end}T23:59:59Z`,
-    },
-    {
-      path: `/v1/projects/${projectRef}/usage`,
-      query: "?interval=30d",
-    },
-    {
-      path: `/v1/projects/${projectRef}/usage`,
-      query: "",
-    },
-    {
-      path: `/v1/projects/${projectRef}/analytics/endpoints/usage.api-counts`,
-      query: "?interval=1d",
-    },
-  ];
+const convertMetricValue = (key: MetricKey, value: number, unit: string) => {
+  if (!key.endsWith("_gb")) return value;
+  const normalizedUnit = unit.toLowerCase();
+  if (normalizedUnit.includes("byte") || value > 1024 * 1024) return bytesToGb(value);
+  if (normalizedUnit === "mb" || normalizedUnit.includes("megabyte")) return value / 1024;
+  if (normalizedUnit === "kb" || normalizedUnit.includes("kilobyte")) return value / (1024 ** 2);
+  return value;
+};
 
-  if (organizationId) {
-    candidates.unshift(
-      {
-        path: `/platform/organizations/${organizationId}/usage`,
-        query: "",
-      },
-      {
-        path: `/platform/organizations/${organizationId}/usage/daily`,
-        query: `?start=${range.start}T00:00:00Z&end=${range.end}T23:59:59Z`,
+const extractMetrics = (payload: unknown): UsageMetrics => {
+  const metrics: UsageMetrics = {};
+  const visit = (node: any, path = "") => {
+    if (node == null) return;
+    if (Array.isArray(node)) {
+      node.forEach((item, index) => visit(item, `${path}_${index}`));
+      return;
+    }
+    if (typeof node !== "object") return;
+
+    const identity = normalizeKey(node.metric ?? node.meter ?? node.name ?? node.slug ?? node.key ?? node.label ?? node.title ?? path);
+    const rawValue = asNumber(node.used ?? node.usage ?? node.value ?? node.total ?? node.current ?? node.amount ?? node.sum);
+    const unit = String(node.unit ?? node.usage_unit ?? node.value_unit ?? "");
+
+    for (const [metricKey, metricAliases] of Object.entries(aliases) as [MetricKey, string[]][]) {
+      const exactProperty = metricAliases.find((alias) => asNumber(node[alias]) !== null);
+      if (exactProperty && metrics[metricKey] == null) {
+        metrics[metricKey] = convertMetricValue(metricKey, Number(node[exactProperty]), exactProperty.includes("byte") ? "bytes" : unit);
       }
-    );
-  }
+      const matchingAlias = metricAliases.find((alias) => identity === alias || identity.endsWith(`_${alias}`));
+      if (matchingAlias && rawValue !== null && metrics[metricKey] == null) {
+        metrics[metricKey] = convertMetricValue(metricKey, rawValue, unit);
+      }
+    }
 
-  return candidates;
+    for (const [childKey, child] of Object.entries(node)) {
+      const childPath = path ? `${path}_${childKey}` : childKey;
+      const childNumber = asNumber(child);
+      if (childNumber !== null) {
+        const normalizedChild = normalizeKey(childPath);
+        for (const [metricKey, metricAliases] of Object.entries(aliases) as [MetricKey, string[]][]) {
+          if (metrics[metricKey] != null) continue;
+          const alias = metricAliases.find((candidate) => normalizedChild === candidate || normalizedChild.endsWith(`_${candidate}`));
+          if (alias) metrics[metricKey] = convertMetricValue(metricKey, childNumber, normalizedChild.includes("byte") ? "bytes" : "");
+        }
+      } else {
+        visit(child, childPath);
+      }
+    }
+  };
+  visit(payload);
+  return metrics;
+};
+
+const fetchOfficialUsage = async (token: string, projectRef: string, organizationId: string) => {
+  if (!token) return { metrics: {}, source: "no_management_token", attempts: [] };
+  const urls = [
+    `https://api.supabase.com/platform/organizations/${organizationId}/usage`,
+    `https://api.supabase.com/v1/organizations/${organizationId}/usage`,
+    `https://api.supabase.com/platform/projects/${projectRef}/usage`,
+    `https://api.supabase.com/v1/projects/${projectRef}/usage`,
+  ];
+  const attempts: Array<{ endpoint: string; status: number; keys?: string[] }> = [];
+  let best: { metrics: UsageMetrics; source: string } = { metrics: {}, source: "unavailable" };
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+      const payload = await response.json().catch(() => null);
+      const keys = payload && typeof payload === "object" ? Object.keys(payload).slice(0, 30) : [];
+      attempts.push({ endpoint: new URL(url).pathname, status: response.status, keys });
+      if (!response.ok || !payload) continue;
+      const metrics = extractMetrics(payload);
+      if (Object.keys(metrics).length > Object.keys(best.metrics).length) best = { metrics, source: new URL(url).pathname };
+      if (Object.keys(metrics).length >= 7) break;
+    } catch {
+      attempts.push({ endpoint: new URL(url).pathname, status: 0 });
+    }
+  }
+  return { ...best, attempts };
+};
+
+const percent = (value: number, quota: number) => Math.round((value / quota) * 100);
+const metricLine = (icon: string, label: string, value: number | undefined, quota: number, unit = "") => {
+  if (value == null) return `${icon} ${label}: indisponível`;
+  const format = unit === "GB" ? formatDecimal : formatInteger;
+  return `${icon} ${label}: ${format(value)}${unit ? ` ${unit}` : ""} / ${format(quota)}${unit ? ` ${unit}` : ""} (${percent(value, quota)}%)`;
+};
+
+const buildConsumptionObservations = (current: OperationalMetrics, history: any[]) => {
+  if (history.length < MIN_BASELINE_DAYS) {
+    return [`ℹ️ Histórico em formação: ${history.length}/${MIN_BASELINE_DAYS} dias para ativar alertas acima de 20%.`];
+  }
+  const definitions = [
+    { key: "appointmentsCreated", column: "appointments_created", label: "Agendamentos criados" },
+    { key: "newClients", column: "new_clients", label: "Novos clientes" },
+    { key: "queuePending", column: "whatsapp_pending", label: "Fila pendente do WhatsApp" },
+    { key: "queueFailed", column: "whatsapp_failed", label: "Falhas de WhatsApp" },
+    { key: "completedServices", column: "completed_services", label: "Serviços concluídos" },
+  ] as const;
+  const alerts: string[] = [];
+  for (const item of definitions) {
+    const average = history.reduce((sum, row) => sum + Number(row?.[item.column] || 0), 0) / history.length;
+    const currentValue = current[item.key];
+    if (average > 0 && currentValue > average * (1 + ANOMALY_THRESHOLD)) {
+      const increase = Math.round(((currentValue - average) / average) * 100);
+      alerts.push(`🚨 ${item.label}: ${currentValue} — ${increase}% acima da média de ${average.toFixed(1)}/dia.`);
+    }
+  }
+  return alerts.length ? alerts : ["✅ Consumo dentro do padrão diário — nenhuma métrica acima de 20% da média."];
+};
+
+const buildUsageMessage = (metrics: UsageMetrics, source: string, operational: OperationalMetrics, observations: string[], baselineDays: number) => {
+  const now = new Date();
+  return [
+    "📊 *Resumo diário do Supabase*",
+    `🗓️ ${now.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} às ${now.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}`,
+    "",
+    metricLine("🌐", "Egress", metrics.egress_gb, QUOTAS.egress_gb, "GB"),
+    metricLine("🗄️", "Banco de dados", metrics.database_size_gb, QUOTAS.database_size_gb, "GB"),
+    metricLine("📦", "Storage", metrics.storage_size_gb, QUOTAS.storage_size_gb, "GB"),
+    metricLine("⚡", "Cached Egress", metrics.cached_egress_gb, QUOTAS.cached_egress_gb, "GB"),
+    metricLine("🧩", "Edge Functions", metrics.edge_function_invocations, QUOTAS.edge_function_invocations),
+    metricLine("🔌", "Pico Realtime", metrics.realtime_peak_connections, QUOTAS.realtime_peak_connections),
+    metricLine("👤", "Usuários ativos", metrics.monthly_active_users, QUOTAS.monthly_active_users),
+    metricLine("💬", "Mensagens Realtime", metrics.realtime_messages, QUOTAS.realtime_messages),
+    metricLine("👥", "Usuários terceiros", metrics.monthly_active_third_party_users, QUOTAS.monthly_active_third_party_users),
+    "",
+    "*Atividade operacional*",
+    `📅 Agendamentos criados: ${operational.appointmentsCreated}`,
+    `👤 Novos clientes: ${operational.newClients}`,
+    `✂️ Serviços concluídos: ${operational.completedServices}`,
+    `⏳ WhatsApp pendentes: ${operational.queuePending}`,
+    `❌ WhatsApp com falha: ${operational.queueFailed}`,
+    "",
+    `*Observações de consumo* — base de ${baselineDays} dia(s)`,
+    ...observations,
+    "",
+    source === "official_api" ? "✅ Cotas oficiais sincronizadas." : "ℹ️ Cotas oficiais: consulte o Dashboard do Supabase.",
+  ].join("\n");
+};
+
+const buildCleanConsumptionObservations = (current: OperationalMetrics, history: any[]) => {
+  if (history.length < MIN_BASELINE_DAYS) {
+    return [`ℹ️ Histórico em formação: ${history.length}/${MIN_BASELINE_DAYS} dias para ativar alertas acima de 20%.`];
+  }
+  const definitions = [
+    { key: "appointmentsCreated", column: "appointments_created", label: "Agendamentos criados" },
+    { key: "newClients", column: "new_clients", label: "Novos clientes" },
+    { key: "queuePending", column: "whatsapp_pending", label: "Fila pendente do WhatsApp" },
+    { key: "queueFailed", column: "whatsapp_failed", label: "Falhas de WhatsApp" },
+    { key: "completedServices", column: "completed_services", label: "Serviços concluídos" },
+  ] as const;
+  const alerts: string[] = [];
+  for (const item of definitions) {
+    const average = history.reduce((sum, row) => sum + Number(row?.[item.column] || 0), 0) / history.length;
+    const currentValue = current[item.key];
+    if (average > 0 && currentValue > average * (1 + ANOMALY_THRESHOLD)) {
+      const increase = Math.round(((currentValue - average) / average) * 100);
+      alerts.push(`🚨 ${item.label}: ${currentValue} — ${increase}% acima da média de ${average.toFixed(1)}/dia.`);
+    }
+  }
+  return alerts.length ? alerts : ["✅ Consumo dentro do padrão diário — nenhuma métrica acima de 20% da média."];
+};
+
+const buildCleanUsageMessage = (metrics: UsageMetrics, source: string, operational: OperationalMetrics, observations: string[], baselineDays: number) => {
+  const now = new Date();
+  return [
+    "📊 *Resumo diário do Supabase*",
+    `🗓️ ${now.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })} às ${now.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}`,
+    "",
+    metricLine("🌐", "Egress", metrics.egress_gb, QUOTAS.egress_gb, "GB"),
+    metricLine("🗄️", "Banco de dados", metrics.database_size_gb, QUOTAS.database_size_gb, "GB"),
+    metricLine("📦", "Storage", metrics.storage_size_gb, QUOTAS.storage_size_gb, "GB"),
+    metricLine("⚡", "Cached Egress", metrics.cached_egress_gb, QUOTAS.cached_egress_gb, "GB"),
+    metricLine("🧩", "Edge Functions", metrics.edge_function_invocations, QUOTAS.edge_function_invocations),
+    metricLine("🔌", "Pico Realtime", metrics.realtime_peak_connections, QUOTAS.realtime_peak_connections),
+    metricLine("👤", "Usuários ativos", metrics.monthly_active_users, QUOTAS.monthly_active_users),
+    metricLine("💬", "Mensagens Realtime", metrics.realtime_messages, QUOTAS.realtime_messages),
+    metricLine("👥", "Usuários terceiros", metrics.monthly_active_third_party_users, QUOTAS.monthly_active_third_party_users),
+    "",
+    "*Atividade operacional*",
+    `📅 Agendamentos criados: ${operational.appointmentsCreated}`,
+    `👤 Novos clientes: ${operational.newClients}`,
+    `✂️ Serviços concluídos: ${operational.completedServices}`,
+    `⏳ WhatsApp pendentes: ${operational.queuePending}`,
+    `❌ WhatsApp com falha: ${operational.queueFailed}`,
+    "",
+    `*Observações de consumo* — base de ${baselineDays} dia(s)`,
+    ...observations,
+    "",
+    source === "official_api" ? "✅ Cotas oficiais sincronizadas." : "ℹ️ Cotas oficiais: consulte o Dashboard do Supabase.",
+  ].join("\n");
+};
+
+const readEvolutionPayload = async (response: Response) => {
+  const text = await response.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return { raw: text.slice(0, 500) }; }
+};
+
+const findProviderMessageId = (payload: any) => String(
+  payload?.key?.id ?? payload?.message?.key?.id ?? payload?.messageId ?? payload?.id ?? "",
+).trim();
+
+const checkWhatsappNumber = async (instanceName: string, phone: string) => {
+  const response = await fetch(`${evolutionApiUrl}/chat/whatsappNumbers/${instanceName}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: evolutionApiKey },
+    body: JSON.stringify({ numbers: [phone] }),
+  });
+  const payload = await readEvolutionPayload(response);
+  if (response.status === 404) {
+    return { normalizedNumber: phone, jid: "", provider: null, validation: "unsupported" };
+  }
+  if (!response.ok) throw new Error(`Falha ao validar o número no WhatsApp (Evolution ${response.status})`);
+  const result = Array.isArray(payload) ? payload[0] : payload?.data?.[0] ?? payload?.[0] ?? payload;
+  const exists = result?.exists === true || result?.isWhatsapp === true || result?.isWhatsApp === true;
+  if (!exists) throw new Error("O número configurado não foi encontrado no WhatsApp");
+  const normalizedNumber = normalizePhone(result?.jid ?? result?.number ?? phone) || phone;
+  return { normalizedNumber, jid: String(result?.jid ?? ""), provider: result, validation: "confirmed" };
 };
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders });
-  }
-
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
   try {
     const body = await req.json().catch(() => ({}));
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-    const managementToken = normalizeAuthToken(
-      Deno.env.get("MANAGEMENT_ACCESS_TOKEN") ||
-      Deno.env.get("SUPABASE_MANAGEMENT_ACCESS_TOKEN") ||
-      ""
-    );
-    const dashboardJwt = normalizeAuthToken(
-      Deno.env.get("DASHBOARD_JWT") ||
-      Deno.env.get("SUPABASE_DASHBOARD_JWT") ||
-      body?.dashboard_jwt
-    );
-    const configuredProjectRef = Deno.env.get("SUPABASE_PROJECT_REF") || "";
-    const internalSyncKey = Deno.env.get("USAGE_SYNC_INTERNAL_KEY") || "";
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const internalKey = Deno.env.get("USAGE_SYNC_INTERNAL_KEY") ?? "";
+    const isInternal = body?.internal === true;
+    if (isInternal && (!internalKey || String(body?.internal_key ?? "") !== internalKey)) {
+      return new Response(JSON.stringify({ success: false, error: "Não autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
-    // Auth check
-    const isInternalSync = body?.internal === true;
-    if (isInternalSync) {
-      if (String(body?.internal_key || "") !== internalSyncKey) {
-        return new Response(
-          JSON.stringify({ success: false, error: "Chave interna inválida" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+    const service = createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
+    if (!isInternal) {
+      const accessToken = normalizeToken(req.headers.get("Authorization"));
+      if (!accessToken) {
+        return new Response(JSON.stringify({ success: false, error: "Não autorizado" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
-    } else {
-      const authHeader = req.headers.get("Authorization") || "";
-      if (!authHeader) {
-        return new Response(
-          JSON.stringify({ success: false, error: "Token não fornecido" }),
-          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+      const { data: authData, error: authError } = await service.auth.getUser(accessToken);
+      if (authError || !authData.user) {
+        return new Response(JSON.stringify({ success: false, error: "Sessão inválida" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const { data: roles } = await service.from("user_roles").select("role").eq("user_id", authData.user.id).in("role", ["admin", "gestor"]);
+      if (!roles?.length) {
+        return new Response(JSON.stringify({ success: false, error: "Acesso restrito ao admin/gestor" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
+    const projectRef = Deno.env.get("SUPABASE_PROJECT_REF") || new URL(supabaseUrl).hostname.split(".")[0];
+    const organizationId = Deno.env.get("SUPABASE_ORGANIZATION_ID") || DEFAULT_ORGANIZATION_ID;
+    const managementToken = normalizeToken(Deno.env.get("MANAGEMENT_ACCESS_TOKEN") || Deno.env.get("SUPABASE_MANAGEMENT_ACCESS_TOKEN"));
+    const official = await fetchOfficialUsage(managementToken, projectRef, organizationId);
 
-    const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    const projectRef = configuredProjectRef || parseProjectRefFromUrl(supabaseUrl);
-    if (!projectRef) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Project ref não determinado" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Try to get usage data
-    const authToken = managementToken || dashboardJwt;
-    const url = `https://api.supabase.com/platform/projects/${projectRef}/usage`;
-    
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    const rawText = await response.text().catch(() => "{}");
-    let payload: any = null;
-    try {
-      payload = JSON.parse(rawText);
-    } catch {
-      payload = null;
-    }
-
-    const found = walkForCandidate(payload);
-    
-    if (!found || found.usedGb === null) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: "Não foi possível extrair dados de egress",
-          api_status: response.status,
-          has_payload: !!payload
-        }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const snapshot = {
-      used_gb: found.usedGb,
-      days_elapsed: found.daysElapsed || BILLING_PERIOD_DAYS,
-      period_days: BILLING_PERIOD_DAYS,
-      updated_at: new Date().toISOString(),
+    const localDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const todayStart = `${localDate}T00:00:00-03:00`;
+    const todayEnd = `${localDate}T23:59:59-03:00`;
+    const [appointments, newClients, pending, failed, completed, historyResult] = await Promise.all([
+      service.from("appointments").select("id", { count: "exact", head: true }).gte("created_at", todayStart).lte("created_at", todayEnd),
+      service.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", todayStart).lte("created_at", todayEnd),
+      service.from("whatsapp_notifications_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      service.from("whatsapp_notifications_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
+      service.from("appointments").select("id", { count: "exact", head: true }).eq("appointment_date", localDate).eq("status", "completed"),
+      service.from("operational_usage_snapshots")
+        .select("snapshot_date,appointments_created,new_clients,whatsapp_pending,whatsapp_failed,completed_services")
+        .lt("snapshot_date", localDate)
+        .order("snapshot_date", { ascending: false })
+        .limit(BASELINE_DAYS),
+    ]);
+    const operational: OperationalMetrics = {
+      appointmentsCreated: appointments.count || 0,
+      newClients: newClients.count || 0,
+      queuePending: pending.count || 0,
+      queueFailed: failed.count || 0,
+      completedServices: completed.count || 0,
     };
+    const history = historyResult.data || [];
+    const observations = buildCleanConsumptionObservations(operational, history);
+    await service.from("operational_usage_snapshots").upsert({
+      snapshot_date: localDate,
+      appointments_created: operational.appointmentsCreated,
+      new_clients: operational.newClients,
+      whatsapp_pending: operational.queuePending,
+      whatsapp_failed: operational.queueFailed,
+      completed_services: operational.completedServices,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "snapshot_date" });
 
-    // Save snapshot
-    await serviceClient
-      .from("site_config")
-      .upsert(
-        { config_key: SNAPSHOT_CONFIG_KEY, config_value: snapshot },
-        { onConflict: "config_key" }
-      );
+    const { data: previousRow } = await service.from("site_config").select("config_value").eq("config_key", SNAPSHOT_CONFIG_KEY).maybeSingle();
+    const previous = (previousRow?.config_value ?? {}) as any;
+    const metrics: UsageMetrics = { ...(previous.metrics ?? {}), ...official.metrics };
+    if (typeof body?.manual_used_gb === "number" && body.manual_used_gb >= 0 && metrics.cached_egress_gb == null) {
+      metrics.cached_egress_gb = body.manual_used_gb;
+    }
+    const now = new Date();
+    const snapshot = {
+      used_gb: metrics.cached_egress_gb ?? Number(previous.used_gb ?? 0),
+      days_elapsed: now.getUTCDate(),
+      period_days: BILLING_PERIOD_DAYS,
+      updated_at: now.toISOString(),
+      metrics,
+      source: { method: Object.keys(official.metrics).length ? "official_api" : "cached_snapshot", endpoint: official.source },
+    };
+    await service.from("site_config").upsert({ config_key: SNAPSHOT_CONFIG_KEY, config_value: snapshot }, { onConflict: "config_key" });
 
-    // Send WhatsApp if requested
     let whatsappReportSent = false;
     let whatsappReportError: string | null = null;
-
-    if (body?.send_whatsapp === true) {
+    let whatsappDelivery: any = null;
+    if (isInternal || body?.send_whatsapp === true) {
       try {
-        const { data: waData } = await serviceClient
-          .from("site_config")
-          .select("config_value")
-          .eq("config_key", EGRESS_WHATSAPP_CONFIG_KEY)
-          .maybeSingle();
-
-        const waConfig = (waData?.config_value || {}) as any;
-        if (waConfig?.enabled && waConfig?.phone_number) {
-          const wa = await getActiveWhatsAppConfig(serviceClient);
-          if (wa) {
-            const msg = buildEgressWhatsappMessage(snapshot);
-            await sendEvolutionMessage(wa, normalizePhone(waConfig.phone_number), msg);
-            whatsappReportSent = true;
-          }
+        const { data: cfgRow } = await service.from("site_config").select("config_value").eq("config_key", REPORT_CONFIG_KEY).maybeSingle();
+        const cfg = (cfgRow?.config_value ?? {}) as any;
+        if (!cfg.enabled) throw new Error("Envio do relatório está desativado");
+        const phone = normalizePhone(cfg.phone_number);
+        if (!phone) throw new Error("Número do relatório não configurado");
+        const { data: instanceRow } = await service.from("site_config").select("config_value").eq("config_key", "whatsapp_active_instance").maybeSingle();
+        const instanceName = (instanceRow?.config_value as any)?.instanceName || fallbackInstanceName;
+        if (!instanceName || !evolutionApiUrl || !evolutionApiKey) throw new Error("Conexão do WhatsApp incompleta");
+        const numberCheck = await checkWhatsappNumber(instanceName, phone);
+        const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: evolutionApiKey },
+          body: JSON.stringify({ number: numberCheck.normalizedNumber, text: buildCleanUsageMessage(metrics, snapshot.source.method, operational, observations, history.length), options: { delay: 900, presence: "composing" } }),
+        });
+        const providerPayload = await readEvolutionPayload(response);
+        if (!response.ok) throw new Error(`Evolution API recusou o envio (${response.status})`);
+        const providerMessageId = findProviderMessageId(providerPayload);
+        if (!providerMessageId) {
+          const diagnostic = {
+            accepted: false,
+            error: "Evolution aceitou a chamada, mas não devolveu comprovante da mensagem",
+            http_status: response.status,
+            response_type: Array.isArray(providerPayload) ? "array" : typeof providerPayload,
+            response_keys: providerPayload && typeof providerPayload === "object" ? Object.keys(providerPayload).slice(0, 20) : [],
+            key_fields: providerPayload?.key && typeof providerPayload.key === "object" ? Object.keys(providerPayload.key).slice(0, 20) : [],
+            destination_suffix: phone.slice(-4),
+            failed_at: new Date().toISOString(),
+          };
+          await service.from("site_config").upsert({ config_key: DELIVERY_CONFIG_KEY, config_value: diagnostic }, { onConflict: "config_key" });
+          throw new Error(diagnostic.error);
         }
-      } catch (err: any) {
-        whatsappReportError = err?.message || "Erro WhatsApp";
+        whatsappDelivery = {
+          accepted: true,
+          provider_message_id: providerMessageId,
+          provider_status: String(providerPayload?.status ?? providerPayload?.message?.status ?? "accepted"),
+          destination_suffix: phone.slice(-4),
+          destination_jid: numberCheck.jid || null,
+          number_validation: numberCheck.validation,
+          instance_name: instanceName,
+          accepted_at: new Date().toISOString(),
+        };
+        await service.from("site_config").upsert({ config_key: DELIVERY_CONFIG_KEY, config_value: whatsappDelivery }, { onConflict: "config_key" });
+        whatsappReportSent = true;
+      } catch (error: any) {
+        whatsappReportError = error?.message || "Erro no envio do WhatsApp";
+        whatsappDelivery = {
+          accepted: false,
+          error: whatsappReportError,
+          failed_at: new Date().toISOString(),
+        };
+        await service.from("site_config").upsert({ config_key: DELIVERY_CONFIG_KEY, config_value: whatsappDelivery }, { onConflict: "config_key" });
       }
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        snapshot,
-        whatsapp_report_sent: whatsappReportSent,
-        whatsapp_report_error: whatsappReportError,
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({
+      success: true,
+      snapshot,
+      operational,
+      observations,
+      metrics_found: Object.keys(official.metrics),
+      source: official.source,
+      attempts: official.attempts,
+      whatsapp_report_sent: whatsappReportSent,
+      whatsapp_report_error: whatsappReportError,
+      whatsapp_delivery: whatsappDelivery,
+    }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error: any) {
-    return new Response(
-      JSON.stringify({ success: false, error: error?.message || "Erro interno" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ success: false, error: error?.message || "Erro interno" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });

@@ -37,6 +37,7 @@ import { listAdvancesByBarber, approveAdvance, rejectAdvance } from '@/integrati
 import type { BarberAdvance } from '@/integrations/supabase/barberAdvances';
 import { generateUUID } from '@/utils/uuid';
 import { useOperatingHours, getDayKey } from '@/hooks/useOperatingHours';
+import { calculateReferralPrice } from '@/utils/referrals';
 
 type BarberRecord = Tables<'barbers'>;
 type ServiceRecord = Tables<'services'>;
@@ -234,6 +235,9 @@ const BarbeiroDashboard = () => {
   const [payments, setPayments] = useState<{method: string, amount: number}[]>([]);
   const [currentPaymentAmount, setCurrentPaymentAmount] = useState<string>('');
   const [currentPaymentMethod, setCurrentPaymentMethod] = useState<string>('pix');
+  const [availableReferralCoupons, setAvailableReferralCoupons] = useState<any[]>([]);
+  const [selectedReferralCoupon, setSelectedReferralCoupon] = useState<string>('none');
+  const [referralConfig, setReferralConfig] = useState<any>(null);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
   const [cancellationReason, setCancellationReason] = useState('');
@@ -2342,7 +2346,7 @@ const BarbeiroDashboard = () => {
     // Sugerir saldo restante para o próximo pagamento
     if (appointmentToComplete) {
       const appointment = appointments.find(a => a.id === appointmentToComplete);
-      const servicePrice = appointment?.service?.price || 0;
+      const servicePrice = getCompletionPricing().final;
       const totalPaid = newPayments.reduce((acc, curr) => acc + curr.amount, 0);
       const remaining = Math.max(0, servicePrice - totalPaid);
       setCurrentPaymentAmount(remaining > 0 ? remaining.toFixed(2) : '');
@@ -2359,7 +2363,7 @@ const BarbeiroDashboard = () => {
     // Recalcular saldo restante sugerido
     if (appointmentToComplete) {
       const appointment = appointments.find(a => a.id === appointmentToComplete);
-      const servicePrice = appointment?.service?.price || 0;
+      const servicePrice = getCompletionPricing().final;
       const totalPaid = newPayments.reduce((acc, curr) => acc + curr.amount, 0);
       const remaining = Math.max(0, servicePrice - totalPaid);
       setCurrentPaymentAmount(remaining > 0 ? remaining.toFixed(2) : '');
@@ -2370,11 +2374,30 @@ const BarbeiroDashboard = () => {
     return payments.reduce((acc, curr) => acc + curr.amount, 0);
   };
 
+  const getCompletionPricing = () => {
+    const appointment = appointments.find(a => a.id === appointmentToComplete);
+    const original = Number(appointment?.service?.price || 0);
+    const coupon = availableReferralCoupons.find(c => c.id === selectedReferralCoupon);
+    return calculateReferralPrice(original, coupon ? Number(coupon.discount_percent) : 0);
+  };
+
+  const loadReferralBenefits = async (appointmentId: string) => {
+    const appointment = appointments.find(a => a.id === appointmentId);
+    setSelectedReferralCoupon('none');
+    if (!appointment?.client_id) return setAvailableReferralCoupons([]);
+    const [{ data: cfg }, { data: coupons }] = await Promise.all([
+      supabase.from('site_config').select('config_value').eq('config_key', 'referral_program').maybeSingle(),
+      (supabase as any).from('referral_coupons').select('*').eq('owner_id', appointment.client_id).eq('status', 'available').gt('expires_at', new Date().toISOString()).order('expires_at'),
+    ]);
+    setReferralConfig(cfg?.config_value || null);
+    setAvailableReferralCoupons(coupons || []);
+  };
+
   const buildFinalPaymentsForAppointment = (appointmentId: string | null) => {
     if (!appointmentId) return null;
     let finalPayments = [...payments];
     const appointment = appointments.find(a => a.id === appointmentId);
-    const servicePrice = appointment?.service?.price || 0;
+    const servicePrice = getCompletionPricing().final;
 
     if (finalPayments.length === 0) {
       const fromInput = parseFloat(currentPaymentAmount || '');
@@ -2495,54 +2518,16 @@ const BarbeiroDashboard = () => {
         throw e;
       }
 
-      // 1. Atualizar status do agendamento
-      // Para o campo payment_method no appointments, se houver múltiplos, usar 'misto' ou o primeiro.
-      // Vamos usar o de maior valor ou 'misto' se houver > 1.
-      let mainMethod = finalPayments[0].method;
-      if (finalPayments.length > 1) {
-          // Check if all are same
-          const allSame = finalPayments.every(p => p.method === finalPayments[0].method);
-          mainMethod = allSame ? finalPayments[0].method : 'misto'; // 'misto' não é um enum válido provavelmente? Checar check constraint.
-          // O check é IN ('pix', 'dinheiro', 'cartao'). Então não posso usar 'misto'.
-          // Vou usar o de maior valor.
-          const maxPayment = finalPayments.reduce((prev, current) => (prev.amount > current.amount) ? prev : current);
-          mainMethod = maxPayment.method;
-      }
-
-      const { error: updateError } = await (supabase as any)
-        .from('appointments')
-        .update({ 
-          status: 'completed',
-          photo_url: photoUrl,
-          payment_method: mainMethod
-        })
-        .eq('id', appointmentToComplete);
+      const { error: updateError } = await (supabase as any).rpc('complete_appointment_with_referral', {
+        p_appointment_id: appointmentToComplete,
+        p_payments: finalPayments,
+        p_photo_url: photoUrl,
+        p_coupon_id: selectedReferralCoupon === 'none' ? null : selectedReferralCoupon,
+      });
 
       if (updateError) throw updateError;
 
-      const { error: deletePaymentsError } = await supabase
-        .from('appointment_payments')
-        .delete()
-        .eq('appointment_id', appointmentToComplete);
-
-      if (deletePaymentsError) {
-        console.error('Error deleting existing payments:', deletePaymentsError);
-      }
-
-      const paymentInserts = finalPayments.map(p => ({
-          appointment_id: appointmentToComplete,
-          payment_method: p.method,
-          amount: p.amount
-      }));
-
-      const { error: paymentsError } = await supabase
-          .from('appointment_payments')
-          .insert(paymentInserts);
-
-      if (paymentsError) {
-          console.error('Error inserting payments:', paymentsError);
-          toast.error('Erro ao salvar detalhes do pagamento, mas o agendamento foi concluído.');
-      }
+      supabase.functions.invoke('referral-coupon-reminder', { body: { source: 'appointment-completed' } }).catch(console.error);
 
       toast.success(photoUrl ? 'Agendamento concluído com foto!' : 'Agendamento concluído!', {
         duration: 2000,
@@ -2578,6 +2563,8 @@ const BarbeiroDashboard = () => {
       setCurrentPaymentMethod('pix');
       setPayments([]);
       setCurrentPaymentAmount('');
+      setSelectedReferralCoupon('none');
+      setAvailableReferralCoupons([]);
       loadAppointments();
       await sendBarberPendingWhatsApp(selectedAppointmentForAction?.barber_id || currentUserBarber?.id || selectedBarber);
 
@@ -5190,6 +5177,7 @@ const BarbeiroDashboard = () => {
                 onClick={() => {
                   if (!selectedAppointmentForAction) return;
                   setAppointmentToComplete(selectedAppointmentForAction.id);
+                  loadReferralBenefits(selectedAppointmentForAction.id);
                   setActionDialogOpen(false);
                   setCompleteDialogOpen(true);
                 }}
@@ -5306,6 +5294,32 @@ const BarbeiroDashboard = () => {
 
               {/* Campo de forma de pagamento */}
               <div className="space-y-4">
+                {referralConfig?.enabled && referralConfig?.eligible_service_id === appointments.find(a => a.id === appointmentToComplete)?.service_id && availableReferralCoupons.length > 0 && (
+                  <div className="rounded-lg border border-primary/40 bg-primary/5 p-3 space-y-2">
+                    <Label>Cupom de indicação disponível</Label>
+                    <Select value={selectedReferralCoupon} onValueChange={(value) => {
+                      setSelectedReferralCoupon(value);
+                      setPayments([]);
+                      const appointment = appointments.find(a => a.id === appointmentToComplete);
+                      const original = Number(appointment?.service?.price || 0);
+                      const coupon = availableReferralCoupons.find(c => c.id === value);
+                      const total = coupon ? original - (original * Number(coupon.discount_percent) / 100) : original;
+                      setCurrentPaymentAmount(total.toFixed(2));
+                    }}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Não aplicar cupom</SelectItem>
+                        {availableReferralCoupons.map(c => <SelectItem key={c.id} value={c.id}>{Number(c.discount_percent)}% · vence {new Date(c.expires_at).toLocaleDateString('pt-BR')}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {selectedReferralCoupon !== 'none' && <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div>Original<br/><strong>R$ {getCompletionPricing().original.toFixed(2)}</strong></div>
+                      <div>Desconto<br/><strong className="text-primary">- R$ {getCompletionPricing().discount.toFixed(2)}</strong></div>
+                      <div>A cobrar<br/><strong className="text-green-600">R$ {getCompletionPricing().final.toFixed(2)}</strong></div>
+                      <div className="col-span-3 text-muted-foreground">Comissão sobre {referralConfig?.commission_basis === 'original' ? 'o preço integral' : 'o valor recebido'}.</div>
+                    </div>}
+                  </div>
+                )}
                 <div className="flex items-end gap-2">
                   <div className="space-y-2 flex-1">
                     <Label className="text-sm font-medium">Forma de Pagamento</Label>

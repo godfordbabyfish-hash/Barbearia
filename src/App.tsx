@@ -18,6 +18,7 @@ import Equipe from "./pages/Equipe";
 import Configuracoes from "./pages/Configuracoes";
 import ClientRegister from "./pages/ClientRegister";
 import NotFound from "./pages/NotFound";
+import ReferralLanding from "./pages/ReferralLanding";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +50,7 @@ const App = () => (
               <Route path="/servicos" element={<Servicos />} />
               <Route path="/equipe" element={<Equipe />} />
               <Route path="/configuracoes" element={<Configuracoes />} />
+              <Route path="/indicacao/:code" element={<ReferralLanding />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>

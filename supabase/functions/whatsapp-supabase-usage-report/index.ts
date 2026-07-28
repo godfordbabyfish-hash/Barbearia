@@ -141,14 +141,60 @@ const sendEvolutionMessage = async (cfg: { evolutionApiUrl: string; apiKey: stri
   return await response.json().catch(() => ({}));
 };
 
+const ANOMALY_THRESHOLD = 0.20;
+const BASELINE_DAYS = 7;
+const MIN_BASELINE_DAYS = 3;
+
+type OperationalMetrics = {
+  appointmentsCreated: number;
+  newClients: number;
+  queuePending: number;
+  queueFailed: number;
+  completedServices: number;
+};
+
+const buildConsumptionObservations = (current: OperationalMetrics, history: any[]) => {
+  if (history.length < MIN_BASELINE_DAYS) {
+    return [`ℹ️ Histórico em formação: ${history.length}/${MIN_BASELINE_DAYS} dias para ativar os alertas.`];
+  }
+
+  const definitions = [
+    { key: "appointmentsCreated", column: "appointments_created", label: "Agendamentos criados" },
+    { key: "newClients", column: "new_clients", label: "Novos clientes" },
+    { key: "queuePending", column: "whatsapp_pending", label: "Fila pendente do WhatsApp" },
+    { key: "queueFailed", column: "whatsapp_failed", label: "Falhas de WhatsApp" },
+    { key: "completedServices", column: "completed_services", label: "Serviços concluídos" },
+  ] as const;
+
+  const alerts: string[] = [];
+  for (const definition of definitions) {
+    const average = history.reduce(
+      (sum, row) => sum + Number(row?.[definition.column] || 0),
+      0,
+    ) / history.length;
+    const currentValue = current[definition.key];
+    if (average > 0 && currentValue > average * (1 + ANOMALY_THRESHOLD)) {
+      const increase = Math.round(((currentValue - average) / average) * 100);
+      alerts.push(`🚨 ${definition.label}: ${currentValue} — ${increase}% acima da média de ${average.toFixed(1)}/dia.`);
+    }
+  }
+
+  return alerts.length
+    ? alerts
+    : ["✅ Consumo dentro do padrão diário — nenhuma métrica acima de 20% da média."];
+};
+
 const generateSupabaseUsageMessage = (params: {
   now: Date;
-  appointmentsToday: number;
-  leadsToday: number;
-  queueCount: number;
+  metrics: OperationalMetrics;
+  observations: string[];
+  baselineDays: number;
   projectRef: string;
 }) => {
-  const { now, appointmentsToday, leadsToday, queueCount, projectRef } = params;
+  const { now, metrics, observations, baselineDays, projectRef } = params;
+  const appointmentsToday = metrics.appointmentsCreated;
+  const leadsToday = metrics.newClients;
+  const queueCount = metrics.queuePending;
 
   const dateStr = now.toLocaleDateString("pt-BR", {
     day: "2-digit",
@@ -166,6 +212,12 @@ const generateSupabaseUsageMessage = (params: {
   lines.push(`• Agendamentos hoje: ${appointmentsToday}`);
   lines.push(`• Leads hoje: ${leadsToday}`);
   lines.push(`• Fila WhatsApp: ${queueCount}`);
+  lines.push("");
+  lines.push(`• Serviços concluídos: ${metrics.completedServices}`);
+  lines.push(`• WhatsApp com falha: ${metrics.queueFailed}`);
+  lines.push("");
+  lines.push(`*Observações de consumo* — base de ${baselineDays} dia(s)`);
+  observations.forEach((observation) => lines.push(observation));
   lines.push("");
   lines.push("Ver Egress, Storage e Billing:");
   lines.push(`https://supabase.com/dashboard/org/${projectRef}/usage`);
@@ -195,11 +247,31 @@ Deno.serve(async (req: Request) => {
     // Check internal auth
     const isInternalSync = body?.internal === true;
     if (isInternalSync) {
-      if (String(body?.internal_key || "") !== internalKey) {
+      if (!internalKey || internalKey === "CHANGE_ME_SUPABASE_USAGE_REPORT_INTERNAL_KEY" || String(body?.internal_key || "") !== internalKey) {
         return new Response(
           JSON.stringify({ success: false, error: "Chave interna inválida" }),
           { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
+      }
+    } else {
+      const accessToken = String(req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+      const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
+      if (authError || !authData.user) {
+        return new Response(JSON.stringify({ success: false, error: "Sessão inválida" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: roles } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", authData.user.id)
+        .in("role", ["admin", "gestor"]);
+      if (!roles?.length) {
+        return new Response(JSON.stringify({ success: false, error: "Acesso restrito ao admin/gestor" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
     }
 
@@ -266,19 +338,50 @@ Deno.serve(async (req: Request) => {
     const todayStart = `${nowLocal.date}T00:00:00`;
     const todayEnd = `${nowLocal.date}T23:59:59`;
 
-    const [appointmentsCount, leadsCount, queueCount] = await Promise.all([
-      supabase.from("appointments").select("id", { count: "exact", head: true }).gte("appointment_date", todayStart).lte("appointment_date", todayEnd),
-      supabase.from("leads").select("id", { count: "exact", head: true }).gte("created_at", todayStart).lte("created_at", todayEnd),
-      supabase.from("whatsapp_notifications_queue").select("id", { count: "exact", head: true }),
+    const [appointmentsCount, newClientsCount, queuePendingCount, queueFailedCount, completedCount, historyResult] = await Promise.all([
+      supabase.from("appointments").select("id", { count: "exact", head: true }).gte("created_at", todayStart).lte("created_at", todayEnd),
+      supabase.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", todayStart).lte("created_at", todayEnd),
+      supabase.from("whatsapp_notifications_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("whatsapp_notifications_queue").select("id", { count: "exact", head: true }).eq("status", "failed"),
+      supabase.from("appointments").select("id", { count: "exact", head: true }).eq("appointment_date", nowLocal.date).eq("status", "completed"),
+      supabase
+        .from("operational_usage_snapshots")
+        .select("snapshot_date,appointments_created,new_clients,whatsapp_pending,whatsapp_failed,completed_services")
+        .lt("snapshot_date", nowLocal.date)
+        .order("snapshot_date", { ascending: false })
+        .limit(BASELINE_DAYS),
     ]);
+
+    const metrics: OperationalMetrics = {
+      appointmentsCreated: appointmentsCount.count || 0,
+      newClients: newClientsCount.count || 0,
+      queuePending: queuePendingCount.count || 0,
+      queueFailed: queueFailedCount.count || 0,
+      completedServices: completedCount.count || 0,
+    };
+    const history = historyResult.data || [];
+    const observations = buildConsumptionObservations(metrics, history);
+
+    const { error: snapshotError } = await supabase
+      .from("operational_usage_snapshots")
+      .upsert({
+        snapshot_date: nowLocal.date,
+        appointments_created: metrics.appointmentsCreated,
+        new_clients: metrics.newClients,
+        whatsapp_pending: metrics.queuePending,
+        whatsapp_failed: metrics.queueFailed,
+        completed_services: metrics.completedServices,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "snapshot_date" });
+    if (snapshotError) throw snapshotError;
 
     const projectRef = supabaseUrl.split("https://")[1].split(".")[0];
 
     const message = generateSupabaseUsageMessage({
       now: new Date(),
-      appointmentsToday: appointmentsCount.count || 0,
-      leadsToday: leadsCount.count || 0,
-      queueCount: queueCount.count || 0,
+      metrics,
+      observations,
+      baselineDays: history.length,
       projectRef,
     });
 
@@ -297,6 +400,8 @@ Deno.serve(async (req: Request) => {
         success: true,
         sent_to: targetPhone,
         date: nowLocal.date,
+        metrics,
+        observations,
         send_result: sendResult,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
