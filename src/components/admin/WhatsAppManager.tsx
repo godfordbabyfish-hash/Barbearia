@@ -39,7 +39,6 @@ export const WhatsAppManager = () => {
   const [loading, setLoading] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
-  const [restartingRailway, setRestartingRailway] = useState(false);
   const [autoAttempted, setAutoAttempted] = useState(false);
 
   // Carregar estado inicial e configurar listener
@@ -310,20 +309,18 @@ export const WhatsAppManager = () => {
                           </div>
                           <div className="text-xs text-muted-foreground mt-2 space-y-2">
                             <p>
-                              EVOLUTION_API_URL: é o link público gerado quando você publica/abre o serviço da sua Evolution API.
-                              Para servidor local, exponha via Cloudflare (Workers/Tunnel/Zero Trust) e use a URL pública gerada.
+                              EVOLUTION_API_URL é o endereço público do servidor Baileys local. O nome do Secret foi mantido por compatibilidade.
                             </p>
                             <ul className="list-disc ml-5 space-y-1">
-                              <li>Cloudflare Workers/Tunnel: <code>https://seu-servico.workers.dev</code> ou <code>https://api.seudominio.com</code></li>
-                              <li>Servidor local + Tunnel: <code>https://seu-tunnel.cloudflare.com</code> apontando para <code>http://localhost:PORTA</code></li>
-                              <li>VPS/EC2: <code>https://seu-servidor.exemplo.com</code></li>
+                              <li>Use a URL pública segura que encaminha as requisições ao computador onde o Baileys fica ligado.</li>
+                              <li>EVOLUTION_API_KEY deve conter a chave configurada no servidor Baileys local.</li>
                             </ul>
                             <p>
                               Use apenas a raiz da API (sem caminhos adicionais). O sistema adiciona os endpoints automaticamente.
-                              Exemplos corretos: <code>https://seu-servico.workers.dev</code> ou <code>https://api.seudominio.com</code> (via Cloudflare).
+                              Exemplo: <code>https://api.seudominio.com</code>.
                             </p>
                             <p>
-                              Dica: abra o painel do Cloudflare (Workers/Tunnel), copie a URL pública exibida pelo serviço/túnel e cole em <code>EVOLUTION_API_URL</code>.
+                              Se o endereço público mudar, atualize <code>EVOLUTION_API_URL</code> nos Secrets do Supabase.
                             </p>
                           </div>
                         </div>
@@ -361,9 +358,9 @@ export const WhatsAppManager = () => {
                         <div>
                           <h4 className="text-sm font-semibold">3) Servidor do WhatsApp</h4>
                           <ol className="text-sm text-muted-foreground list-decimal ml-5 mt-2 space-y-1">
-                            <li>No Windows, inicie a Evolution API local (ex.: porta <code>8081</code>)</li>
-                            <li>Abra o Cloudflare Tunnel/Workers apontando para <code>http://localhost:8081</code></li>
-                            <li>Copie a URL pública gerada e defina em <code>EVOLUTION_API_URL</code></li>
+                            <li>No computador dedicado, inicie o servidor Baileys local</li>
+                            <li>Mantenha o computador, a internet e o processo do Baileys ativos 24 horas</li>
+                            <li>Defina o endereço público do Baileys em <code>EVOLUTION_API_URL</code></li>
                             <li>Se a URL pública mudar, atualize o Secret no Supabase</li>
                           </ol>
                         </div>
@@ -439,7 +436,7 @@ export const WhatsAppManager = () => {
                           size="sm"
                           variant="default"
                           onClick={handleConnect}
-                          disabled={loading || restartingRailway}
+                          disabled={loading}
                           className="w-full sm:w-auto"
                         >
                           {loading ? (
@@ -484,7 +481,7 @@ export const WhatsAppManager = () => {
                       size="sm"
                       variant="default"
                       onClick={handleConnect}
-                      disabled={loading || restartingRailway}
+                      disabled={loading}
                       className="w-full sm:w-auto"
                     >
                       {loading ? (
@@ -592,8 +589,8 @@ export const WhatsAppManager = () => {
                       Servidor do WhatsApp
                     </p>
                     <div className="text-xs text-orange-700 dark:text-orange-300 mt-1 space-y-1">
-                      <p>• Use servidor local: inicie a Evolution API (Windows) e mantenha rodando</p>
-                      <p>• Exponha via Cloudflare Tunnel/Workers e use a URL pública gerada</p>
+                      <p>• O envio usa o servidor Baileys local no computador dedicado</p>
+                      <p>• Mantenha o computador, a internet e o processo ligados 24 horas</p>
                       <p>• Aguarde alguns segundos para o serviço estabilizar</p>
                       <p>• Use "Verificar Status" para confirmar que está online</p>
                       <p>• Se a URL pública mudar, atualize <code>EVOLUTION_API_URL</code> nos Secrets do Supabase</p>

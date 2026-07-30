@@ -1425,34 +1425,8 @@ const Booking = () => {
     currentUser: SupabaseUser
   ) => {
     try {
-      const selectedService = availableServices.find(service => service.id === bookingData.service);
-      const duration = selectedService?.duration || 30;
-      
-      // Usar formato local sem conversão para UTC para evitar discrepâncias de fuso horário no webhook
-      const localStartTime = `${bookingData.date}T${bookingData.time}:00`;
-      const startDateTime = new Date(localStartTime);
-      const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
-      const localEndTime = `${bookingData.date}T${endDateTime.getHours().toString().padStart(2, '0')}:${endDateTime.getMinutes().toString().padStart(2, '0')}:00`;
-
-      // Processar webhook e WhatsApp em paralelo
-      const [webhookResult] = await Promise.allSettled([
-        Promise.race([
-          supabase.functions.invoke('api', {
-            body: {
-              action: 'notify-webhook',
-              appointmentId,
-              clientName: customClientName || bookingData.name,
-              phone: bookingData.phone,
-              service: selectedService?.title || 'Serviço',
-              startTime: localStartTime,
-              endTime: localEndTime,
-              userId: currentUser.id,
-              notes: null,
-            }
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Webhook timeout')), 8000))
-        ]),
-        (async () => {
+      // Processar a fila do WhatsApp no servidor Baileys local.
+      await (async () => {
           const { data: { session } } = await supabase.auth.getSession();
           const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
           const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -1466,14 +1440,7 @@ const Booking = () => {
             },
             body: JSON.stringify({}),
           });
-        })()
-      ]);
-
-      if (webhookResult.status === 'fulfilled') {
-        console.log('✅ Webhook notification sent');
-      } else {
-        console.warn('⚠️ Webhook failed:', webhookResult.reason);
-      }
+        })();
     } catch (error) {
       console.warn('⚠️ Background notifications failed:', error);
     }

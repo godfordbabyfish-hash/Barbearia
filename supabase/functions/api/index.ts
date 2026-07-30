@@ -91,56 +91,6 @@ const getOperatingHours = async () => {
   return data?.config_value || null;
 };
 
-// Webhook with retry logic for UI-created appointments
-const callWebhookWithRetry = async (
-  payload: any,
-  maxRetries: number = 2,
-  delayMs: number = 2000
-): Promise<boolean> => {
-  const webhookUrl = 'https://projetomensagem-production.up.railway.app/api/webhooks/premium-shears/appointment-created';
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`Webhook attempt ${attempt}/${maxRetries} to ${webhookUrl}`);
-      
-      // Timeout de 5 segundos por tentativa
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (response.ok) {
-        console.log(`Webhook called successfully on attempt ${attempt}`);
-        return true;
-      }
-      
-      console.error(`Webhook attempt ${attempt} failed with status: ${response.status}`);
-      
-      if (attempt < maxRetries) {
-        console.log(`Waiting ${delayMs}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-      }
-    } catch (error) {
-      console.error(`Webhook attempt ${attempt} error:`, error);
-      
-      if (attempt < maxRetries) {
-        console.log(`Waiting ${delayMs}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-      }
-    }
-  }
-  
-  console.error('All webhook retry attempts failed');
-  return false;
-};
-
 // Get available time slots for a given date range
 const getAvailableSlots = async (
   from: Date, 
@@ -490,9 +440,6 @@ const createAppointment = async (data: {
     console.error('Error creating appointment:', error);
     throw new Error('Erro ao criar agendamento');
   }
-
-  // NOTE: We do NOT call the webhook here because this is an API-created appointment
-  // The webhook is only called for UI-created appointments (via notify-webhook endpoint)
 
   return {
     id: appointment.id,
@@ -950,46 +897,6 @@ serve(async (req) => {
         message: authResult.message
       }), { 
         status: 401, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      });
-    }
-
-    // POST /notify-webhook - Internal endpoint to notify external webhook (called by UI)
-    if (req.method === 'POST' && path === 'notify-webhook') {
-      // Body is already parsed above
-      console.log('Notify webhook called with:', body);
-      
-      // Validate required fields
-      if (!body.appointmentId || !body.clientName || !body.phone || !body.service || !body.startTime || !body.endTime || !body.userId) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: 'MISSING_FIELDS',
-          message: 'Campos obrigatórios: appointmentId, clientName, phone, service, startTime, endTime, userId'
-        }), { 
-          status: 400, 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-        });
-      }
-
-      // Call webhook with retry logic (non-blocking in terms of response, but we await it here)
-      const webhookPayload = {
-        appointmentId: body.appointmentId,
-        clientName: body.clientName,
-        phone: body.phone,
-        service: body.service,
-        startTime: body.startTime,
-        endTime: body.endTime,
-        userId: body.userId,
-        notes: body.notes || null,
-      };
-
-      const webhookSuccess = await callWebhookWithRetry(webhookPayload);
-
-      return new Response(JSON.stringify({
-        success: true,
-        webhookCalled: webhookSuccess,
-        message: webhookSuccess ? 'Webhook notificado com sucesso' : 'Falha ao notificar webhook (agendamento não afetado)'
-      }), { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       });
     }

@@ -119,14 +119,14 @@ const listInstances = async (): Promise<{ success: boolean; instances?: any[]; e
     if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('tempo limite')) {
       return {
         success: false,
-        error: 'Evolution API não está respondendo (timeout). A API pode estar inicializando ou indisponível. Considere migrar para Baileys + Railway para uma solução mais confiável.'
+        error: 'O servidor Baileys local não respondeu dentro do prazo. Verifique se o computador e o serviço estão ligados e se EVOLUTION_API_URL aponta para a URL pública correta.'
       };
     }
     
     if (error.message?.includes('ECONNREFUSED') || error.message?.includes('Failed to fetch')) {
       return {
         success: false,
-        error: 'Não foi possível conectar à Evolution API. Verifique se a API está rodando e se EVOLUTION_API_URL está correto. Considere migrar para Baileys + Railway.'
+        error: 'Não foi possível conectar ao servidor Baileys local. Verifique se o serviço está rodando e se EVOLUTION_API_URL está correto.'
       };
     }
     

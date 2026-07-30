@@ -48,14 +48,14 @@ const getActiveInstanceName = async (supabase: any): Promise<string> => {
 };
 
 // Format phone number (remove non-digits, add country code if needed)
-// IMPORTANTE: O bot Railway adiciona @s.whatsapp.net automaticamente,
+// IMPORTANTE: O servidor Baileys local adiciona @s.whatsapp.net automaticamente,
 // então só precisamos enviar o número limpo (sem @s.whatsapp.net)
 // NOTA: A migration SQL já formata o número com código 55, então aqui só validamos
 const formatPhoneNumber = (phone: string): string => {
   // Remove todos os caracteres não numéricos
   let cleaned = phone.replace(/\D/g, '');
   
-  // Remove @s.whatsapp.net se estiver presente (o bot Railway adiciona isso)
+  // Remove @s.whatsapp.net se estiver presente (o servidor Baileys adiciona isso)
   cleaned = cleaned.replace(/@s\.whatsapp\.net/gi, '');
   
   // Se já começar com 55, verificar se tem tamanho válido (mínimo 12: 55 + DDD + número)

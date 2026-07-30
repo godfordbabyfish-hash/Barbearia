@@ -2185,38 +2185,8 @@ const BarbeiroDashboard = () => {
   // Função assíncrona para processar notificações (como no cliente)
   const processNotificationsAsync = async (appointmentId: string, appointmentData: any, barberId: string) => {
     try {
-      const selectedService = services.find(s => s.id === appointmentData.serviceId);
-      const duration = selectedService?.duration || 30;
-      
-      // Usar formato local sem conversão para UTC para evitar discrepâncias de fuso horário no webhook
-      const localStartTime = `${appointmentData.date}T${appointmentData.time}:00`;
-      const startDateTime = new Date(localStartTime);
-      const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
-      const localEndTime = `${appointmentData.date}T${endDateTime.getHours().toString().padStart(2, '0')}:${endDateTime.getMinutes().toString().padStart(2, '0')}:00`;
-
-      // Processar webhook e WhatsApp em paralelo com timeouts
-      const [webhookResult, whatsappResult] = await Promise.allSettled([
-        // Webhook externo (com timeout)
-        Promise.race([
-          supabase.functions.invoke('api', {
-            body: {
-              action: 'notify-webhook',
-              appointmentId,
-              clientName: appointmentData.clientName,
-              phone: appointmentData.clientPhone || '00000000000',
-              service: selectedService?.title || 'Serviço',
-              startTime: localStartTime,
-              endTime: localEndTime,
-              userId: barberId,
-              notes: null,
-            }
-          }),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Webhook timeout')), 8000)
-          )
-        ]),
-
-        // WhatsApp queue (com timeout)
+      // Processar a fila do WhatsApp no servidor Baileys local com timeout.
+      const [whatsappResult] = await Promise.allSettled([
         Promise.race([
           (async () => {
             const { data: { session } } = await supabase.auth.getSession();
@@ -2244,13 +2214,6 @@ const BarbeiroDashboard = () => {
           )
         ])
       ]);
-
-      // Log dos resultados (não bloquear se falhar)
-      if (webhookResult.status === 'fulfilled') {
-        debugLog('✅ Webhook notification sent');
-      } else {
-        debugWarn('⚠️ Webhook failed:', webhookResult.reason);
-      }
 
       if (whatsappResult.status === 'fulfilled') {
         debugLog('✅ WhatsApp notification processed');

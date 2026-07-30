@@ -87,9 +87,6 @@ class WhatsAppConnectionService {
   
   private sanitizeMessage(msg?: string): string | undefined {
     if (!msg) return msg;
-    if (msg.includes('Railway')) {
-      return 'Erro na Evolution API (servidor local). Reinicie o serviço local, verifique a URL pública do Cloudflare Tunnel/Workers e gere um novo QR.';
-    }
     return msg;
   }
 

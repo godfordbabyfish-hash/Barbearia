@@ -564,39 +564,6 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
 
       // Processamento em background para não travar a UI
       const runBackgroundNotifications = async () => {
-        // Notify external webhook for UI-created appointments
-        try {
-          const selectedService = services.find(s => s.id === serviceId);
-          const duration = selectedService?.duration || 30;
-          
-          // Usar formato local sem conversão para UTC para evitar discrepâncias de fuso horário no webhook
-          const localStartTime = `${date}T${slotToUse}:00`;
-          const startDateTime = new Date(localStartTime);
-          const endDateTime = new Date(startDateTime.getTime() + duration * 60000);
-          const localEndTime = `${date}T${endDateTime.getHours().toString().padStart(2, '0')}:${endDateTime.getMinutes().toString().padStart(2, '0')}:00`;
-
-          // Get the current user (barber who created the local appointment)
-          const { data: { user: currentUser } } = await supabase.auth.getUser();
-          const userId = currentUser?.id || clientId; // Fallback to clientId if no user
-
-          await supabase.functions.invoke('api', {
-            body: {
-              action: 'notify-webhook',
-              appointmentId: newAppointment.id,
-              clientName: localName === "LOCAL" ? 'LOCAL (presencial)' : localName,
-              phone: '00000000000',
-              service: selectedService?.title || 'Serviço',
-              startTime: localStartTime,
-              endTime: localEndTime,
-              userId: userId,
-              notes: null,
-            }
-          });
-          console.log('External webhook notification sent for local booking');
-        } catch (webhookError) {
-          console.error('Error notifying external webhook:', webhookError);
-        }
-
         // Disparar processamento da fila de WhatsApp (cliente + barbeiro)
         try {
           // Obter o token de autenticação do usuário

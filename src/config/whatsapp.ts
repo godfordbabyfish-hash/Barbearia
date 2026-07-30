@@ -17,7 +17,7 @@
  * Quando você trocar de número/conta, altere este valor.
  * 
  * Exemplos:
- * - 'default' (padrão do bot Railway)
+ * - 'default' (padrão do servidor Baileys local)
  * - 'instance-1'
  * - 'barbearia-whatsapp'
  * - Qualquer nome único que você preferir
