@@ -452,6 +452,7 @@ export type Database = {
         Row: {
           birth_date: string | null
           blocked: boolean | null
+          contact_email: string | null
           created_at: string | null
           cpf: string | null
           id: string
@@ -466,6 +467,7 @@ export type Database = {
         Insert: {
           birth_date?: string | null
           blocked?: boolean | null
+          contact_email?: string | null
           created_at?: string | null
           cpf?: string | null
           id: string
@@ -480,6 +482,7 @@ export type Database = {
         Update: {
           birth_date?: string | null
           blocked?: boolean | null
+          contact_email?: string | null
           created_at?: string | null
           cpf?: string | null
           id?: string

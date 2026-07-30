@@ -39,8 +39,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Key, Pencil, Trash2, RefreshCw, Copy, Eye, EyeOff, Dice5, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Key, Pencil, Trash2, RefreshCw, Copy, Eye, EyeOff, Dice5, Loader2, ChevronLeft, ChevronRight, Users, UserCheck, UserRoundX, Repeat2, CalendarCheck, PhoneOff, MessageCircleWarning, ShieldAlert, Camera, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { uploadPublicImage } from '@/utils/storage';
+import { cleanCPF, formatCPF, validateCPF } from '@/utils/cpfValidation';
 
 interface User {
   id: string;
@@ -51,15 +53,33 @@ interface User {
   role: string;
   roles: string[];
   image_url?: string | null;
+  blocked?: boolean;
   createdAt: string;
   lastSignIn: string | null;
+  clientAnalytics?: {
+    completedCount: number;
+    completedLast90Days: number;
+    lastVisit: string | null;
+    daysSinceLastVisit: number | null;
+    hasUpcomingAppointment: boolean;
+    nextAppointment: string | null;
+    phoneValid: boolean;
+    whatsappFailureCount: number;
+    whatsappLastError: string | null;
+    whatsappLastFailureAt: string | null;
+    status: 'active' | 'at_risk' | 'inactive' | 'new';
+    recurring: boolean;
+  };
 }
+
+type ClientFilter = 'all' | 'active' | 'recurring' | 'at_risk' | 'inactive' | 'new' | 'upcoming' | 'invalid_phone' | 'whatsapp_failed' | 'blocked';
 
 export const UserManager = () => {
   const { user: currentUser, role: currentUserRole, session } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterRole, setFilterRole] = useState<string>('all');
+  const [clientFilter, setClientFilter] = useState<ClientFilter>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
@@ -92,11 +112,15 @@ export const UserManager = () => {
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [editUserData, setEditUserData] = useState({
     name: '',
+    email: '',
     phone: '',
+    cpf: '',
+    photo_url: '',
     specialty: '',
     experience: '',
     whatsapp_phone: '',
   });
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [barberData, setBarberData] = useState<any>(null);
   const [loadingBarberData, setLoadingBarberData] = useState(false);
   
@@ -113,6 +137,28 @@ export const UserManager = () => {
   // User details dialog
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
 
+  const loadAllClientAppointments = async () => {
+    const pageSize = 1000;
+    const rows: any[] = [];
+
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await (supabase as any)
+        .from('appointments')
+        .select('client_id, appointment_date, appointment_time, status')
+        .in('status', ['completed', 'pending', 'confirmed'])
+        .order('appointment_date', { ascending: false })
+        .order('appointment_time', { ascending: false })
+        .range(from, from + pageSize - 1);
+
+      if (error) throw error;
+      const page = data || [];
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+
+    return rows;
+  };
+
   const loadUsers = async () => {
     setLoading(true);
     try {
@@ -127,12 +173,12 @@ export const UserManager = () => {
 
       if (data?.success) {
         const usersList = data.users || [];
-        const { data: barbersData } = await (supabase as any)
-          .from('barbers')
-          .select('id, user_id, name, image_url, whatsapp_phone, visible');
-        const { data: profilesData } = await (supabase as any)
-          .from('profiles')
-          .select('id, name, phone, whatsapp, cpf, photo_url, is_temp_user');
+        const [{ data: barbersData }, { data: profilesData }, appointmentsData, { data: failedMessages }] = await Promise.all([
+          (supabase as any).from('barbers').select('id, user_id, name, image_url, whatsapp_phone, visible'),
+          (supabase as any).from('profiles').select('id, name, phone, whatsapp, cpf, photo_url, is_temp_user, created_at, blocked'),
+          loadAllClientAppointments(),
+          (supabase as any).from('whatsapp_notifications_queue').select('client_phone, target_phone, status, attempts, error_message, processed_at, created_at').eq('status', 'failed').or('target_type.eq.client,target_type.is.null'),
+        ]);
         const usersMap = new Map<string, User>();
         usersList.forEach((u: User) => {
           usersMap.set(u.id, u);
@@ -163,7 +209,15 @@ export const UserManager = () => {
 
         // Garantir que todos os perfis apareçam, mesmo que não venham da função admin/users
         (profilesData || []).forEach((p: any) => {
-          if (usersMap.has(p.id)) return;
+          const existingUser = enriched.find((user) => user.id === p.id);
+          if (existingUser) {
+            existingUser.name = p.name || existingUser.name;
+            existingUser.phone = p.whatsapp || p.phone || existingUser.phone;
+            existingUser.cpf = p.cpf || existingUser.cpf || null;
+            existingUser.image_url = p.photo_url || existingUser.image_url || null;
+            existingUser.blocked = p.blocked === true;
+            return;
+          }
 
           const isTempUser = p.is_temp_user === true;
           const rawCpf = p.cpf ? String(p.cpf) : '';
@@ -188,6 +242,71 @@ export const UserManager = () => {
             createdAt: '',
             lastSignIn: null,
           });
+        });
+
+        const normalizePhone = (value?: string | null) => String(value || '').replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '');
+        const profileById = new Map((profilesData || []).map((profile: any) => [profile.id, profile]));
+        const appointmentsByClient = new Map<string, any[]>();
+        (appointmentsData || []).forEach((appointment: any) => {
+          const list = appointmentsByClient.get(appointment.client_id) || [];
+          list.push(appointment);
+          appointmentsByClient.set(appointment.client_id, list);
+        });
+        const failuresByPhone = new Map<string, any[]>();
+        (failedMessages || []).forEach((message: any) => {
+          const phone = normalizePhone(message.target_phone || message.client_phone);
+          if (!phone) return;
+          const list = failuresByPhone.get(phone) || [];
+          list.push(message);
+          failuresByPhone.set(phone, list);
+        });
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        enriched.forEach((user) => {
+          const isClient = user.role === 'cliente' || user.roles?.includes('cliente');
+          if (!isClient) return;
+          const profile: any = profileById.get(user.id);
+          user.blocked = profile?.blocked === true;
+          const clientAppointments = appointmentsByClient.get(user.id) || [];
+          const completed = clientAppointments
+            .filter((appointment) => appointment.status === 'completed')
+            .sort((a, b) => String(b.appointment_date).localeCompare(String(a.appointment_date)));
+          const lastVisit = completed[0]?.appointment_date || null;
+          const lastVisitDate = lastVisit ? new Date(`${lastVisit}T00:00:00`) : null;
+          const daysSinceLastVisit = lastVisitDate ? Math.max(0, Math.floor((today.getTime() - lastVisitDate.getTime()) / 86400000)) : null;
+          const createdDate = profile?.created_at ? new Date(profile.created_at) : null;
+          const daysSinceRegistration = createdDate ? Math.max(0, Math.floor((today.getTime() - createdDate.getTime()) / 86400000)) : null;
+          const upcoming = clientAppointments
+            .filter((appointment) => ['pending', 'confirmed'].includes(appointment.status) && new Date(`${appointment.appointment_date}T00:00:00`) >= today)
+            .sort((a, b) => `${a.appointment_date} ${a.appointment_time}`.localeCompare(`${b.appointment_date} ${b.appointment_time}`));
+          const completedLast90Days = completed.filter((appointment) => {
+            const date = new Date(`${appointment.appointment_date}T00:00:00`);
+            return (today.getTime() - date.getTime()) / 86400000 <= 90;
+          }).length;
+          const phoneDigits = normalizePhone(profile?.whatsapp || profile?.phone || user.phone);
+          const failures = (failuresByPhone.get(phoneDigits) || [])
+            .sort((a, b) => String(b.processed_at || b.created_at).localeCompare(String(a.processed_at || a.created_at)));
+          const status: ClientFilter = daysSinceLastVisit === null
+            ? ((daysSinceRegistration ?? 0) > 30 ? 'inactive' : 'new')
+            : daysSinceLastVisit <= 20 ? 'active'
+            : daysSinceLastVisit <= 30 ? 'at_risk'
+            : 'inactive';
+
+          user.clientAnalytics = {
+            completedCount: completed.length,
+            completedLast90Days,
+            lastVisit,
+            daysSinceLastVisit,
+            hasUpcomingAppointment: upcoming.length > 0,
+            nextAppointment: upcoming[0]?.appointment_date || null,
+            phoneValid: phoneDigits.length === 10 || phoneDigits.length === 11,
+            whatsappFailureCount: failures.length,
+            whatsappLastError: failures[0]?.error_message || null,
+            whatsappLastFailureAt: failures[0]?.processed_at || failures[0]?.created_at || null,
+            status: status as 'active' | 'at_risk' | 'inactive' | 'new',
+            recurring: completed.length >= 2 && completedLast90Days >= 2 && (daysSinceLastVisit ?? 999) <= 30,
+          };
         });
 
         setUsers(enriched);
@@ -327,7 +446,28 @@ export const UserManager = () => {
 
     setUpdatingRole(true);
     try {
-      // 1. Atualizar role via API
+      const cleanedCpf = cleanCPF(editUserData.cpf);
+      if (!editUserData.name.trim()) throw new Error('Informe o nome do usuário.');
+      if (!editUserData.email.trim()) throw new Error('Informe o e-mail do usuário.');
+      if (cleanedCpf) {
+        const cpfValidation = validateCPF(cleanedCpf);
+        if (!cpfValidation.isValid) throw new Error(cpfValidation.errorMessage || 'CPF inválido.');
+      }
+
+      const { data: detailsResult, error: detailsError } = await supabase.functions.invoke('api', {
+        body: {
+          action: `admin/users/${selectedUser.id}/details`,
+          name: editUserData.name.trim(),
+          email: editUserData.email.trim().toLowerCase(),
+          phone: editUserData.phone.trim(),
+          cpf: cleanedCpf || null,
+          photo_url: editUserData.photo_url || null,
+        },
+      });
+      if (detailsError) throw detailsError;
+      if (!detailsResult?.success) throw new Error(detailsResult?.message || 'Não foi possível atualizar os dados pessoais.');
+
+      // Atualizar role via API
       const { data, error } = await supabase.functions.invoke('api', {
         body: {
           action: `admin/users/${selectedUser.id}/role`,
@@ -346,18 +486,7 @@ export const UserManager = () => {
         return;
       }
 
-      // 2. Atualizar perfil (nome e telefone)
-      if (editUserData.name || editUserData.phone) {
-        await (supabase as any)
-          .from('profiles')
-          .update({
-            name: editUserData.name,
-            phone: editUserData.phone,
-          })
-          .eq('id', selectedUser.id);
-      }
-
-      // 3. Se for barbeiro, atualizar dados do barbeiro
+      // Se for barbeiro, atualizar dados do barbeiro
       if (selectedRole === 'barbeiro' || barberData) {
         // Verificar se o barbeiro existe
         const { data: existingBarber } = await (supabase as any)
@@ -398,7 +527,7 @@ export const UserManager = () => {
       setRoleDialogOpen(false);
       setSelectedUser(null);
       setSelectedRole('');
-      setEditUserData({ name: '', phone: '', specialty: '', experience: '', whatsapp_phone: '' });
+      setEditUserData({ name: '', email: '', phone: '', cpf: '', photo_url: '', specialty: '', experience: '', whatsapp_phone: '' });
       setBarberData(null);
       loadUsers();
     } catch (error: any) {
@@ -457,7 +586,10 @@ export const UserManager = () => {
     setSelectedRole(user.role);
     setEditUserData({
       name: user.name || '',
+      email: user.email || '',
       phone: user.phone || '',
+      cpf: user.cpf || '',
+      photo_url: user.image_url || '',
       specialty: '',
       experience: '',
       whatsapp_phone: '',
@@ -473,12 +605,18 @@ export const UserManager = () => {
     try {
       const { data: profile } = await (supabase as any)
         .from('profiles')
-        .select('cpf, blocked')
+        .select('cpf, blocked, photo_url, phone, whatsapp')
         .eq('id', user.id)
         .maybeSingle();
       if (profile) {
         setSelectedUserCpf(profile.cpf || user.cpf || '');
         setIsBlocked(Boolean(profile.blocked));
+        setEditUserData(prev => ({
+          ...prev,
+          cpf: profile.cpf || user.cpf || '',
+          phone: profile.whatsapp || profile.phone || user.phone || '',
+          photo_url: profile.photo_url || user.image_url || '',
+        }));
       }
     } catch (e) {
       console.warn('Erro ao carregar bloqueio do perfil:', e);
@@ -552,6 +690,18 @@ export const UserManager = () => {
     
     if (!matchesRole) return false;
 
+    const analytics = user.clientAnalytics;
+    if (clientFilter !== 'all') {
+      const matchesClientFilter =
+        (clientFilter === 'blocked' && Boolean(user.blocked)) ||
+        (clientFilter === 'recurring' && analytics?.recurring) ||
+        (clientFilter === 'upcoming' && analytics?.hasUpcomingAppointment) ||
+        (clientFilter === 'invalid_phone' && analytics && !analytics.phoneValid) ||
+        (clientFilter === 'whatsapp_failed' && (analytics?.whatsappFailureCount || 0) > 0) ||
+        (['active', 'at_risk', 'inactive', 'new'].includes(clientFilter) && analytics?.status === clientFilter);
+      if (!matchesClientFilter) return false;
+    }
+
     if (!searchTerm.trim()) return true;
 
     const term = searchTerm.toLowerCase();
@@ -577,6 +727,30 @@ export const UserManager = () => {
     return cpfDigits.includes(numericTerm);
   });
 
+  const clients = users.filter((user) => user.clientAnalytics);
+  const clientMetrics = {
+    total: clients.length,
+    active: clients.filter((user) => user.clientAnalytics?.status === 'active').length,
+    recurring: clients.filter((user) => user.clientAnalytics?.recurring).length,
+    atRisk: clients.filter((user) => user.clientAnalytics?.status === 'at_risk').length,
+    inactive: clients.filter((user) => user.clientAnalytics?.status === 'inactive').length,
+    newClients: clients.filter((user) => user.clientAnalytics?.status === 'new').length,
+    upcoming: clients.filter((user) => user.clientAnalytics?.hasUpcomingAppointment).length,
+    invalidPhone: clients.filter((user) => !user.clientAnalytics?.phoneValid).length,
+    whatsappFailed: clients.filter((user) => (user.clientAnalytics?.whatsappFailureCount || 0) > 0).length,
+  };
+
+  const metricCards = [
+    { filter: 'all' as ClientFilter, label: 'Clientes cadastrados', value: clientMetrics.total, hint: 'Base total de clientes', icon: Users, tone: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
+    { filter: 'active' as ClientFilter, label: 'Ativos', value: clientMetrics.active, hint: 'Visita nos últimos 20 dias', icon: UserCheck, tone: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
+    { filter: 'recurring' as ClientFilter, label: 'Recorrentes', value: clientMetrics.recurring, hint: '2+ visitas nos últimos 90 dias', icon: Repeat2, tone: 'text-primary bg-primary/10 border-primary/20' },
+    { filter: 'at_risk' as ClientFilter, label: 'Atenção', value: clientMetrics.atRisk, hint: 'Sem visita há 21–30 dias', icon: ShieldAlert, tone: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
+    { filter: 'inactive' as ClientFilter, label: 'Inativos', value: clientMetrics.inactive, hint: 'Sem visita há mais de 30 dias', icon: UserRoundX, tone: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
+    { filter: 'upcoming' as ClientFilter, label: 'Com retorno marcado', value: clientMetrics.upcoming, hint: 'Agendamento futuro ativo', icon: CalendarCheck, tone: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' },
+    { filter: 'invalid_phone' as ClientFilter, label: 'Telefone inválido', value: clientMetrics.invalidPhone, hint: 'Cadastro ausente ou incompleto', icon: PhoneOff, tone: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
+    { filter: 'whatsapp_failed' as ClientFilter, label: 'Falha no WhatsApp', value: clientMetrics.whatsappFailed, hint: 'Clientes com envio não entregue', icon: MessageCircleWarning, tone: 'text-red-400 bg-red-500/10 border-red-500/20' },
+  ];
+
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * pageSize;
@@ -586,7 +760,10 @@ export const UserManager = () => {
   return (
     <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 w-full" style={{ maxWidth: '100%' }}>
-        <h2 className="text-xl sm:text-2xl font-bold">Gerenciamento de Usuários</h2>
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold">Clientes e Usuários</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Acompanhe recorrência, retorno e qualidade dos contatos da sua base.</p>
+        </div>
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto justify-end">
           <div className="flex flex-1 sm:flex-none gap-2">
             <Input
@@ -642,6 +819,53 @@ export const UserManager = () => {
           </div>
         </div>
       </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        {metricCards.map(({ filter, label, value, hint, icon: Icon, tone }) => (
+          <button
+            key={filter}
+            type="button"
+            onClick={() => {
+              setClientFilter(clientFilter === filter && filter !== 'all' ? 'all' : filter);
+              setFilterRole('cliente');
+              setCurrentPage(1);
+            }}
+            className={`rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-lg ${tone} ${clientFilter === filter ? 'ring-2 ring-current' : ''}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-foreground/80">{label}</p>
+                <p className="mt-1 text-3xl font-bold text-foreground">{loading ? '—' : value}</p>
+              </div>
+              <Icon className="h-5 w-5" />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">{hint}</p>
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card/60 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="font-medium">Visão selecionada:</span>
+          <Badge variant="secondary">{metricCards.find((card) => card.filter === clientFilter)?.label || 'Todos'}</Badge>
+          {clientFilter !== 'all' && (
+            <Button variant="ghost" size="sm" onClick={() => { setClientFilter('all'); setCurrentPage(1); }}>Limpar</Button>
+          )}
+        </div>
+        <Select value={clientFilter} onValueChange={(value) => { setClientFilter(value as ClientFilter); setCurrentPage(1); }}>
+          <SelectTrigger className="w-full sm:w-[240px]"><SelectValue placeholder="Situação do cliente" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas as situações</SelectItem>
+            <SelectItem value="active">Ativos</SelectItem>
+            <SelectItem value="recurring">Recorrentes</SelectItem>
+            <SelectItem value="at_risk">Atenção (21–30 dias)</SelectItem>
+            <SelectItem value="inactive">Inativos (+30 dias)</SelectItem>
+            <SelectItem value="new">Novos sem atendimento</SelectItem>
+            <SelectItem value="upcoming">Com retorno marcado</SelectItem>
+            <SelectItem value="invalid_phone">Telefone inválido</SelectItem>
+            <SelectItem value="whatsapp_failed">Falha no WhatsApp</SelectItem>
+            <SelectItem value="blocked">Bloqueados</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
     <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
         {loading ? (
@@ -655,7 +879,9 @@ export const UserManager = () => {
                 <TableRow>
                   <TableHead className="w-[50px] sm:w-[60px] px-1 sm:px-2">Foto</TableHead>
                   <TableHead className="px-1 sm:px-2">Nome</TableHead>
-                  <TableHead className="w-[80px] sm:w-[90px] px-1 sm:px-2">Role</TableHead>
+                  <TableHead className="hidden md:table-cell w-[110px] px-1 sm:px-2">Situação</TableHead>
+                  <TableHead className="hidden lg:table-cell w-[130px] px-1 sm:px-2">Última visita</TableHead>
+                  <TableHead className="w-[80px] sm:w-[90px] px-1 sm:px-2">Perfil</TableHead>
                   <TableHead className="text-right w-[110px] sm:w-[130px] px-1 sm:px-2">Ações</TableHead>
                 </TableRow>
               </TableHeader>
@@ -700,6 +926,22 @@ export const UserManager = () => {
                         {user.name || '-'}
                       </button>
                     </TableCell>
+                    <TableCell className="hidden md:table-cell px-1 sm:px-2">
+                      {user.clientAnalytics ? (
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Badge variant={user.clientAnalytics.status === 'active' ? 'default' : user.clientAnalytics.status === 'inactive' ? 'destructive' : 'secondary'}>
+                            {user.clientAnalytics.status === 'active' ? 'Ativo' : user.clientAnalytics.status === 'at_risk' ? 'Atenção' : user.clientAnalytics.status === 'inactive' ? 'Inativo' : 'Novo'}
+                          </Badge>
+                          {user.clientAnalytics.recurring && <Badge variant="outline">Recorrente</Badge>}
+                          {(user.clientAnalytics.whatsappFailureCount > 0 || !user.clientAnalytics.phoneValid) && <MessageCircleWarning className="h-4 w-4 text-red-400" aria-label="Problema de contato" />}
+                        </div>
+                      ) : <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell px-1 sm:px-2 text-xs text-muted-foreground">
+                      {user.clientAnalytics?.lastVisit
+                        ? `${new Date(`${user.clientAnalytics.lastVisit}T12:00:00`).toLocaleDateString('pt-BR')} (${user.clientAnalytics.daysSinceLastVisit}d)`
+                        : user.clientAnalytics ? 'Ainda não atendido' : '—'}
+                    </TableCell>
                     <TableCell className="w-[80px] sm:w-[90px] px-1 sm:px-2">
                       <Badge variant={getRoleBadgeVariant(user.role)} className="whitespace-nowrap text-xs px-1.5 py-0.5">
                         {getRoleLabel(user.role)}
@@ -743,7 +985,7 @@ export const UserManager = () => {
                 ))}
                 {filteredUsers.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                       Nenhum usuário encontrado
                     </TableCell>
                   </TableRow>
@@ -992,6 +1234,34 @@ export const UserManager = () => {
               {/* Informações Básicas */}
               <div className="space-y-3">
                 <h4 className="font-semibold text-sm text-muted-foreground">Informações Básicas</h4>
+                <div className="flex items-center gap-4 rounded-lg border p-3">
+                  <div className="h-20 w-20 overflow-hidden rounded-full border-2 border-primary/40 bg-muted flex items-center justify-center shrink-0">
+                    {editUserData.photo_url ? <img src={editUserData.photo_url} alt="Foto do usuário" className="h-full w-full object-cover" /> : <span className="text-2xl font-semibold text-muted-foreground">{editUserData.name.charAt(0).toUpperCase() || '?'}</span>}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" disabled={uploadingAvatar} asChild>
+                      <label className="cursor-pointer">
+                        {uploadingAvatar ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                        Alterar foto
+                        <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingAvatar} onChange={async (event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = '';
+                          if (!file || !selectedUser) return;
+                          if (file.size > 5 * 1024 * 1024) { toast.error('A foto deve ter no máximo 5 MB.'); return; }
+                          setUploadingAvatar(true);
+                          try {
+                            const url = await uploadPublicImage(file, { bucket: 'avatars', category: 'avatars', prefix: selectedUser.id });
+                            setEditUserData(prev => ({ ...prev, photo_url: url }));
+                            toast.success('Foto carregada. Clique em Salvar para confirmar.');
+                          } catch (error: any) {
+                            toast.error('Erro ao enviar foto', { description: error.message });
+                          } finally { setUploadingAvatar(false); }
+                        }} />
+                      </label>
+                    </Button>
+                    {editUserData.photo_url && <Button type="button" variant="ghost" onClick={() => setEditUserData(prev => ({ ...prev, photo_url: '' }))}><X className="mr-2 h-4 w-4" /> Remover</Button>}
+                  </div>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="w-full min-w-0">
                     <Label>Nome</Label>
@@ -1003,22 +1273,25 @@ export const UserManager = () => {
                     />
                   </div>
                   <div className="w-full min-w-0">
-                    <Label>Telefone</Label>
+                    <Label>E-mail</Label>
                     <Input
-                      value={editUserData.phone}
-                      onChange={(e) => setEditUserData(prev => ({ ...prev, phone: e.target.value }))}
-                      placeholder="(XX) XXXXX-XXXX"
+                      type="email"
+                      value={editUserData.email}
+                      onChange={(e) => setEditUserData(prev => ({ ...prev, email: e.target.value }))}
+                      placeholder="cliente@email.com"
                       className="w-full"
                     />
                   </div>
+                  <div className="w-full min-w-0">
+                    <Label>Telefone / WhatsApp</Label>
+                    <Input value={editUserData.phone} onChange={(e) => setEditUserData(prev => ({ ...prev, phone: e.target.value }))} placeholder="(XX) XXXXX-XXXX" className="w-full" />
+                  </div>
+                  <div className="w-full min-w-0">
+                    <Label>CPF</Label>
+                    <Input value={formatCPF(editUserData.cpf)} onChange={(e) => setEditUserData(prev => ({ ...prev, cpf: cleanCPF(e.target.value).slice(0, 11) }))} placeholder="000.000.000-00" inputMode="numeric" className="w-full" />
+                  </div>
+                </div>
                 <div className="w-full min-w-0">
-                  <Label>CPF</Label>
-                  <Input
-                    value={selectedUserCpf || ''}
-                    readOnly
-                    placeholder="Sem CPF"
-                    className="w-full bg-muted"
-                  />
                   <div className="flex gap-2 mt-2">
                     <Button
                       variant={isBlocked ? 'outline' : 'destructive'}
@@ -1044,7 +1317,6 @@ export const UserManager = () => {
                       {isBlocked ? 'Desbloquear' : 'Bloquear'}
                     </Button>
                   </div>
-                </div>
                 </div>
               </div>
 
@@ -1351,6 +1623,33 @@ export const UserManager = () => {
                     )}
                   </div>
                 </div>
+                {selectedUser.clientAnalytics && (
+                  <div className="rounded-lg border border-border bg-secondary/20 p-3 space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant={selectedUser.clientAnalytics.status === 'active' ? 'default' : selectedUser.clientAnalytics.status === 'inactive' ? 'destructive' : 'secondary'}>
+                        {selectedUser.clientAnalytics.status === 'active' ? 'Cliente ativo' : selectedUser.clientAnalytics.status === 'at_risk' ? 'Requer atenção' : selectedUser.clientAnalytics.status === 'inactive' ? 'Cliente inativo' : 'Cliente novo'}
+                      </Badge>
+                      {selectedUser.clientAnalytics.recurring && <Badge variant="outline">Recorrente</Badge>}
+                      {selectedUser.clientAnalytics.hasUpcomingAppointment && <Badge variant="outline">Retorno marcado</Badge>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div><p className="text-muted-foreground">Atendimentos</p><p className="font-semibold">{selectedUser.clientAnalytics.completedCount}</p></div>
+                      <div><p className="text-muted-foreground">Últimos 90 dias</p><p className="font-semibold">{selectedUser.clientAnalytics.completedLast90Days}</p></div>
+                      <div><p className="text-muted-foreground">Última visita</p><p className="font-semibold">{selectedUser.clientAnalytics.lastVisit ? new Date(`${selectedUser.clientAnalytics.lastVisit}T12:00:00`).toLocaleDateString('pt-BR') : 'Nunca'}</p></div>
+                      <div><p className="text-muted-foreground">Próximo retorno</p><p className="font-semibold">{selectedUser.clientAnalytics.nextAppointment ? new Date(`${selectedUser.clientAnalytics.nextAppointment}T12:00:00`).toLocaleDateString('pt-BR') : 'Não agendado'}</p></div>
+                    </div>
+                    {!selectedUser.clientAnalytics.phoneValid && (
+                      <div className="flex gap-2 rounded-md bg-rose-500/10 p-2 text-xs text-rose-300"><PhoneOff className="h-4 w-4 shrink-0" /> Telefone ausente ou com quantidade inválida de dígitos.</div>
+                    )}
+                    {selectedUser.clientAnalytics.whatsappFailureCount > 0 && (
+                      <div className="rounded-md bg-red-500/10 p-2 text-xs text-red-300">
+                        <div className="flex items-center gap-2 font-semibold"><MessageCircleWarning className="h-4 w-4" /> {selectedUser.clientAnalytics.whatsappFailureCount} falha(s) no WhatsApp</div>
+                        <p className="mt-1 break-words">{selectedUser.clientAnalytics.whatsappLastError || 'O provedor não informou o motivo.'}</p>
+                        {selectedUser.clientAnalytics.whatsappLastFailureAt && <p className="mt-1 text-muted-foreground">Última tentativa: {new Date(selectedUser.clientAnalytics.whatsappLastFailureAt).toLocaleString('pt-BR')}</p>}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="w-full min-w-0">
                   <Label className="text-sm text-muted-foreground">ID</Label>
                   <div className="flex items-center gap-2 mt-1 w-full min-w-0">
