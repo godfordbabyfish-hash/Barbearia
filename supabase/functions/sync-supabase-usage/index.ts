@@ -31,7 +31,7 @@ const evolutionApiKey = Deno.env.get("EVOLUTION_API_KEY") ?? "";
 const fallbackInstanceName = Deno.env.get("EVOLUTION_INSTANCE_NAME") ?? "";
 
 const normalizeToken = (value: unknown) => String(value ?? "")
-  .trim().replace(/^Bearer\s+/i, "").replace(/^['\"]|['\"]$/g, "").trim();
+  .trim().replace(/^Bearer\s+/i, "").replace(/^['"]|['"]$/g, "").trim();
 const normalizePhone = (value: unknown) => String(value ?? "").replace(/\D/g, "");
 const asNumber = (value: unknown) => {
   const parsed = Number(value);
