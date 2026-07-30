@@ -196,8 +196,18 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         }
       });
 
+    // Anonymous viewers cannot subscribe to protected appointment rows.
+    // Refresh the deliberately limited public queue periodically instead.
+    const publicRefresh = !canManageQueue && !hoursLoading
+      ? window.setInterval(() => {
+          loadAppointments();
+          calculateAvailableSlots();
+        }, 30_000)
+      : null;
+
     return () => {
       removed = true;
+      if (publicRefresh) window.clearInterval(publicRefresh);
       try { supabase.removeChannel(channel); } catch { /* ignore */ }
     };
   }, [hoursLoading, canManageQueue]);
@@ -237,18 +247,37 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
 
   const loadAppointments = async () => {
     const today = format(new Date(), "yyyy-MM-dd");
-    
-    const { data, error } = await supabase
-      .from("appointments")
-      .select(`
-        *,
-        services(title, duration),
-        barbers(name, image_url)
-      `)
-      .eq("appointment_date", today)
-      .neq("status", "completed")
-      .neq("status", "cancelled")
-      .order("appointment_time");
+
+    const result = canManageQueue
+      ? await supabase
+          .from("appointments")
+          .select(`
+            *,
+            services(title, duration),
+            barbers(name, image_url)
+          `)
+          .eq("appointment_date", today)
+          .neq("status", "completed")
+          .neq("status", "cancelled")
+          .order("appointment_time")
+      : await (supabase as any).rpc("get_public_daily_queue");
+
+    const error = result.error;
+    const data = canManageQueue
+      ? result.data
+      : (result.data || []).map((row: any) => ({
+          id: row.appointment_id,
+          client_id: '',
+          barber_id: row.barber_id,
+          appointment_date: row.appointment_date,
+          appointment_time: String(row.appointment_time).slice(0, 5),
+          booking_type: row.booking_type,
+          status: row.status,
+          client_name: row.client_display_name,
+          services: { title: row.service_title, duration: row.duration },
+          profiles: { name: row.client_display_name, phone: '', photo_url: null },
+          barbers: null,
+        }));
 
     if (error) {
       console.error("Error loading appointments:", error);
@@ -395,10 +424,11 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     }
 
     // Get all appointments for today
-    const { data: appointments } = await supabase
-      .from("appointments")
-      .select("appointment_time, services(duration)")
-      .eq("appointment_date", todayStr);
+    const { data: publicQueue } = await (supabase as any).rpc("get_public_daily_queue");
+    const appointments = (publicQueue || []).map((row: any) => ({
+      appointment_time: String(row.appointment_time).slice(0, 5),
+      services: { duration: Number(row.duration) || 30 },
+    }));
 
     // Get time slots based on operating hours
     const allSlots = getTimeSlotsForDate(today);

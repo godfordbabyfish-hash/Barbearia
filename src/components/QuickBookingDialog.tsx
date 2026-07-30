@@ -8,6 +8,7 @@ import { Loader2, X, ArrowLeft, Star, Scissors } from "lucide-react";
 import { useOperatingHours, getDayKey } from "@/hooks/useOperatingHours";
 import { useAuth } from "@/contexts/AuthContext";
 import { getAvailableSlotsForBarber } from "@/utils/availability";
+import { getBarberBusySlots, getServiceBookingCounts } from "@/services/appointmentAvailability";
 
 interface Barber {
   id: string;
@@ -144,15 +145,10 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       } catch (e) {
         console.warn("Falha ao validar disponibilidade do barbeiro no dia selecionado:", e);
       }
-      const { data: appts } = await supabase
-        .from("appointments")
-        .select("appointment_time, services(duration)")
-        .eq("barber_id", barberId)
-        .eq("appointment_date", date)
-        .neq("status", "cancelled");
+      const appts = await getBarberBusySlots(barberId, date);
       const barberAppointments = (appts ?? []).map((a: any) => ({
         appointment_time: a.appointment_time,
-        duration: a.services?.duration,
+        duration: a.service?.duration,
       }));
       const { data: breaks } = await (supabase as any)
         .from("barber_breaks")
@@ -283,26 +279,12 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       return;
     }
 
-    // Count appointments per service
-    const { data: appointmentsData, error: appointmentsError } = await supabase
-      .from("appointments")
-      .select("service_id")
-      .neq("status", "cancelled");
-
-    if (appointmentsError) {
-      console.error("Error loading appointments count:", appointmentsError);
-      // If error, just use services with default order
-      setServices(servicesData);
-      return;
+    let serviceCounts = new Map<string, number>();
+    try {
+      serviceCounts = await getServiceBookingCounts();
+    } catch (error) {
+      console.error("Error loading aggregate service counts:", error);
     }
-
-    // Count occurrences of each service
-    const serviceCounts = new Map<string, number>();
-    appointmentsData?.forEach((apt: any) => {
-      if (apt.service_id) {
-        serviceCounts.set(apt.service_id, (serviceCounts.get(apt.service_id) || 0) + 1);
-      }
-    });
 
     // Sort services by usage count (most used first), then by order_index
     const sortedServices = servicesData.sort((a: any, b: any) => {
@@ -474,15 +456,10 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       const newStart = timeToMinutes(slotToUse);
       const newEnd = newStart + newDuration;
       // 1) Conflito com agendamentos existentes (sobreposição de intervalos)
-      const { data: appts } = await supabase
-        .from('appointments')
-        .select('appointment_time, services(duration)')
-        .eq('barber_id', selectedBarberId)
-        .eq('appointment_date', date)
-        .neq('status', 'cancelled');
+      const appts = await getBarberBusySlots(selectedBarberId, date);
       const hasAppointmentOverlap = (appts || []).some((a: any) => {
         const aStart = timeToMinutes(a.appointment_time);
-        const aEnd = aStart + (a.services?.duration ?? 30);
+        const aEnd = aStart + (a.service?.duration ?? 30);
         return newStart < aEnd && newEnd > aStart;
       });
       if (hasAppointmentOverlap) {

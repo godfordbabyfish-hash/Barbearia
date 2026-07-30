@@ -612,15 +612,12 @@ const ClienteDashboard = () => {
       return;
     }
 
-    const { error } = await supabase
-      .from('appointments')
-      .update({ 
-        status: 'cancelled',
-        notes: `[Cancelado pelo cliente] ${cancellationReason.trim()}`
-      })
-      .eq('id', appointmentToCancel);
+    const { data: cancelled, error } = await (supabase as any).rpc('cancel_own_appointment', {
+      p_appointment_id: appointmentToCancel,
+      p_reason: cancellationReason.trim(),
+    });
 
-    if (error) {
+    if (error || !cancelled) {
       toast.error('Erro ao cancelar agendamento');
       return;
     }

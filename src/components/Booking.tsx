@@ -23,6 +23,7 @@ import barber1Img from "@/assets/barber-1.jpg";
 import barber2Img from "@/assets/barber-2.jpg";
 import barber3Img from "@/assets/barber-3.jpg";
 import ReferralPromotionBanner from "@/components/ReferralPromotionBanner";
+import { getBarberBusySlots, getServiceBookingCounts } from "@/services/appointmentAvailability";
 
 type ServiceRecord = Tables<"services">;
 type BarberRecord = Tables<"barbers">;
@@ -518,26 +519,12 @@ const Booking = () => {
       return;
     }
 
-    // Count appointments per service
-    const { data: appointmentsData, error: appointmentsError } = await supabase
-      .from('appointments')
-      .select('service_id')
-      .neq('status', 'cancelled');
-
-    if (appointmentsError) {
-      console.error('Error loading appointments count:', appointmentsError);
-      // If error, just use services with default order
-      setServices(servicesData);
-      return;
+    let serviceCounts = new Map<string, number>();
+    try {
+      serviceCounts = await getServiceBookingCounts();
+    } catch (error) {
+      console.error('Error loading aggregate service counts:', error);
     }
-
-    // Count occurrences of each service
-    const serviceCounts = new Map<string, number>();
-    appointmentsData?.forEach((apt: Pick<AppointmentRecord, "service_id">) => {
-      if (apt.service_id) {
-        serviceCounts.set(apt.service_id, (serviceCounts.get(apt.service_id) || 0) + 1);
-      }
-    });
 
     // Sort services by usage count (most used first), then by order_index
     const sortedServices = [...servicesData].sort((a, b) => {
@@ -614,12 +601,7 @@ const Booking = () => {
           result[barber.id] = false;
           continue;
         }
-        const { data: appointments } = await supabase
-          .from('appointments')
-          .select('appointment_time, service:services(duration)')
-          .eq('barber_id', barber.id)
-          .eq('appointment_date', todayStr)
-          .neq('status', 'cancelled');
+        const appointments = await getBarberBusySlots(barber.id, todayStr);
         const { data: breaks } = await supabase
           .from('barber_breaks')
           .select('start_time, end_time')
@@ -735,12 +717,7 @@ const Booking = () => {
       const currentTime = `${String(today.getHours()).padStart(2, '0')}:${String(today.getMinutes()).padStart(2, '0')}`;
 
       // Buscar agendamentos existentes para hoje
-      const { data: appointments } = await supabase
-        .from('appointments')
-        .select('appointment_time, service:services(duration)')
-        .eq('barber_id', barber.id)
-        .eq('appointment_date', todayStr)
-        .neq('status', 'cancelled');
+      const appointments = await getBarberBusySlots(barber.id, todayStr);
 
       // Buscar pausas do barbeiro para hoje
       const { data: breaks } = await supabase
@@ -911,12 +888,7 @@ const Booking = () => {
         continue;
       }
       
-      const { data: appointments } = await supabase
-        .from('appointments')
-        .select('appointment_time, service:services(duration)')
-        .eq('barber_id', currentFormData.barber)
-        .eq('appointment_date', dateStr)
-        .neq('status', 'cancelled');
+      const appointments = await getBarberBusySlots(currentFormData.barber, dateStr);
 
       // Query barber breaks for this date
       const { data: breaks, error: breaksError } = await supabase
@@ -1066,17 +1038,7 @@ const Booking = () => {
       
       // Check if barbershop is open on this day
       if (!isDateOpen(selectedDate)) return [];
-      const { data: appointments, error: appointmentsError } = await supabase
-        .from('appointments')
-        .select('appointment_time, service:services(duration)')
-        .eq('barber_id', formData.barber)
-        .eq('appointment_date', formData.date)
-        .neq('status', 'cancelled');
-
-      if (appointmentsError) {
-        console.error('Error loading appointments:', appointmentsError);
-        return [];
-      }
+      const appointments = await getBarberBusySlots(formData.barber, formData.date);
 
       // Query barber breaks for the selected date
       const { data: breaks, error: breaksError } = await supabase
@@ -1315,14 +1277,10 @@ const Booking = () => {
       
       // 1. Verificações rápidas em paralelo
       const [existingAppointmentResult, breaksResult, shopHoursResult] = await Promise.all([
-        supabase
-          .from('appointments')
-          .select('id')
-          .eq('barber_id', formData.barber)
-          .eq('appointment_date', formData.date)
-          .eq('appointment_time', formData.time)
-          .neq('status', 'cancelled')
-          .maybeSingle(),
+        getBarberBusySlots(formData.barber, formData.date).then((slots) => ({
+          data: slots.some((slot) => slot.appointment_time === formData.time) ? { occupied: true } : null,
+          error: null,
+        })),
         
         // Verificar pausas do barbeiro
         hasBarberBreaks
