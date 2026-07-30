@@ -302,7 +302,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const serviceRoleKey = (JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}')['edge_functions_20260730'] || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) ?? "";
     const internalKey = Deno.env.get("USAGE_SYNC_INTERNAL_KEY") ?? "";
     const isInternal = body?.internal === true;
     if (isInternal && (!internalKey || String(body?.internal_key ?? "") !== internalKey)) {

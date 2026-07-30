@@ -8,7 +8,8 @@ const corsHeaders = {
 };
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabaseServiceKey = (JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}')['edge_functions_20260730'] || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'))!;
+const legacyInvokeKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -126,8 +127,8 @@ serve(async (req) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'apikey': supabaseServiceKey,
-          'Authorization': `Bearer ${supabaseServiceKey}`,
+        'apikey': legacyInvokeKey,
+        'Authorization': `Bearer ${legacyInvokeKey}`,
         },
         body: JSON.stringify({}),
       });

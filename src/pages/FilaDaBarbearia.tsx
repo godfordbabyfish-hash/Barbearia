@@ -200,7 +200,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       removed = true;
       try { supabase.removeChannel(channel); } catch { /* ignore */ }
     };
-  }, [hoursLoading]);
+  }, [hoursLoading, canManageQueue]);
 
   const loadBreaksForToday = async () => {
     try {
@@ -255,17 +255,23 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       return;
     }
 
-    // Load profiles separately
+    // Dados pessoais completos ficam restritos à equipe autorizada. Na fila
+    // pública, os demais clientes são exibidos sem telefone, CPF ou e-mail.
     if (data && data.length > 0) {
       const clientIds = [...new Set(data.map(apt => apt.client_id))]; // Remove duplicatas
-      
-      const { data: profiles, error: profilesError } = await supabase
-        .from("profiles")
-        .select("id, name, phone, photo_url")
-        .in("id", clientIds);
 
-      if (profilesError) {
-        console.error("Error loading profiles:", profilesError);
+      let profiles: Array<{ id: string; name: string | null; phone: string | null; whatsapp?: string | null; photo_url: string | null }> = [];
+      if (canManageQueue) {
+        const { data: staffProfiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("id, name, phone, whatsapp, photo_url")
+          .in("id", clientIds);
+
+        if (profilesError) {
+          console.error("Error loading profiles:", profilesError);
+        } else {
+          profiles = staffProfiles || [];
+        }
       }
 
       debugLog("Loaded profiles:", profiles);
@@ -294,7 +300,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         }
         
         // Fallback: usa nome do perfil mesmo que vazio, ou cria um nome temporário
-        const fallbackName = profile?.name?.trim() || `Cliente ${apt.client_id.slice(0, 8)}`;
+        const fallbackName = profile?.name?.trim() || apt.client_name?.trim() || 'Cliente';
         
         const phone = profile?.phone || (profile as any)?.whatsapp || "";
         return {

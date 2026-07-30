@@ -339,21 +339,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       const cleanedCPF = cleanCPF(cpf);
       
-      // Buscar usuário pelo CPF na tabela profiles
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, cpf')
-        .eq('cpf', cleanedCPF)
-        .maybeSingle();
-
-      if (profileError) {
-        return { error: new Error('Erro ao buscar CPF: ' + profileError.message) };
-      }
-
-      if (!profile) {
-        return { error: new Error('CPF não cadastrado. Faça seu cadastro primeiro.') };
-      }
-
       // Gerar email e senha baseados no CPF
       const tempEmail = `${cleanedCPF}@cliente.com`;
       const tempPassword = cleanedCPF;
@@ -365,7 +350,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       });
 
       if (signInError) {
-        return { error: signInError };
+        // Não consulta nem revela publicamente se o CPF existe na base.
+        return { error: new Error('CPF não cadastrado ou acesso inválido. Confira os dados ou faça seu cadastro.') };
       }
 
       // Sincronizar telefone do metadata para o perfil, caso ainda não exista

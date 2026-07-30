@@ -4,7 +4,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*' } });
   const url = Deno.env.get('SUPABASE_URL')!;
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const serviceKey = (JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}')['edge_functions_20260730'] || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'))!;
+  const legacyInvokeKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const db = createClient(url, serviceKey);
   const { data: cfgRow } = await db.from('site_config').select('config_value').eq('config_key','referral_program').maybeSingle();
   const cfg = cfgRow?.config_value as any;
@@ -18,7 +19,7 @@ serve(async (req) => {
     if (!owner?.phone || logs.some(l=>l.notification_type==='earned')) continue;
     const { error: logError } = await db.from('referral_notification_logs').insert({ coupon_id:coupon.id, notification_type:'earned' });
     if (logError) continue;
-    const res = await fetch(`${url}/functions/v1/whatsapp-notify`, { method:'POST', headers:{'Content-Type':'application/json',Authorization:`Bearer ${serviceKey}`}, body:JSON.stringify({ appointmentId:coupon.id, clientName:owner.name, phone:owner.phone, action:'referral_earned', serviceName:`${coupon.discount_percent}%` }) });
+    const res = await fetch(`${url}/functions/v1/whatsapp-notify`, { method:'POST', headers:{'Content-Type':'application/json','apikey':legacyInvokeKey,Authorization:`Bearer ${legacyInvokeKey}`}, body:JSON.stringify({ appointmentId:coupon.id, clientName:owner.name, phone:owner.phone, action:'referral_earned', serviceName:`${coupon.discount_percent}%` }) });
     if (res.ok) sent++; else await db.from('referral_notification_logs').delete().eq('coupon_id',coupon.id).eq('notification_type','earned');
   }
   const days = Number(cfg.expiry_reminder_days || 7);
@@ -31,7 +32,7 @@ serve(async (req) => {
     if (!owner?.phone) continue;
     const { error: logError } = await db.from('referral_notification_logs').insert({ coupon_id:coupon.id, notification_type:'expiring' });
     if (logError) continue;
-    const res = await fetch(`${url}/functions/v1/whatsapp-notify`, { method:'POST', headers:{'Content-Type':'application/json',Authorization:`Bearer ${serviceKey}`}, body:JSON.stringify({ appointmentId:coupon.id, clientName:owner.name, phone:owner.phone, action:'referral_expiring', appointmentDate:String(coupon.expires_at).slice(0,10), serviceName:`${coupon.discount_percent}%` }) });
+    const res = await fetch(`${url}/functions/v1/whatsapp-notify`, { method:'POST', headers:{'Content-Type':'application/json','apikey':legacyInvokeKey,Authorization:`Bearer ${legacyInvokeKey}`}, body:JSON.stringify({ appointmentId:coupon.id, clientName:owner.name, phone:owner.phone, action:'referral_expiring', appointmentDate:String(coupon.expires_at).slice(0,10), serviceName:`${coupon.discount_percent}%` }) });
     if (res.ok) sent++; else await db.from('referral_notification_logs').delete().eq('coupon_id',coupon.id).eq('notification_type','expiring');
   }
   return Response.json({ success:true,sent });

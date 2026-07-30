@@ -161,7 +161,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabaseServiceRoleKey = (JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}')['edge_functions_20260730'] || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) ?? "";
     if (!supabaseUrl || !supabaseServiceRoleKey) {
       return new Response(
         JSON.stringify({ success: false, error: "SUPABASE envs ausentes" }),

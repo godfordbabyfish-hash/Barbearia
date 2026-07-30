@@ -233,7 +233,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabaseServiceRoleKey = (JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}')['edge_functions_20260730'] || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) ?? "";
     const internalKey = Deno.env.get("SUPABASE_USAGE_REPORT_INTERNAL_KEY") ?? "CHANGE_ME_SUPABASE_USAGE_REPORT_INTERNAL_KEY";
 
     if (!supabaseUrl || !supabaseServiceRoleKey) {

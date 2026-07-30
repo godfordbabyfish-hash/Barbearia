@@ -14,7 +14,8 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const serviceRoleKey = (JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}')['edge_functions_20260730'] || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
+    const legacyInvokeKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
     if (!supabaseUrl || !serviceRoleKey) {
       console.error('[WhatsApp Queue] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
@@ -46,8 +47,8 @@ serve(async (req) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': serviceRoleKey,
-        'Authorization': `Bearer ${serviceRoleKey}`,
+        'apikey': legacyInvokeKey,
+        'Authorization': `Bearer ${legacyInvokeKey}`,
       },
       body: JSON.stringify({}), // corpo vazio, apenas para disparar o processamento
     });

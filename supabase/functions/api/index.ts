@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabaseServiceKey = (JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') || '{}')['edge_functions_20260730'] || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'))!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -636,7 +636,7 @@ const listAllUsers = async () => {
     else if (roles.includes('barbeiro')) primaryRole = 'barbeiro';
 
     const barber = barbers?.find((b: any) => b.user_id === profile.id);
-    const imageUrl = barber?.image_url || null;
+    const imageUrl = profile.photo_url || barber?.image_url || null;
 
     const metaPhone = user?.user_metadata?.whatsapp || user?.user_metadata?.phone || null;
     const phone = profile.phone || profile.whatsapp || metaPhone || '';
@@ -646,7 +646,7 @@ const listAllUsers = async () => {
     const emailFromAuth = user?.email || null;
     const emailFromCpf = cpf ? `${cpf}@cliente.com` : null;
     const fallbackEmail = `${profile.id}@cliente.local`;
-    const email = emailFromAuth || emailFromCpf || fallbackEmail;
+    const email = profile.contact_email || emailFromAuth || emailFromCpf || fallbackEmail;
 
     // Ignorar usuários locais/temporários sem CPF (clientes criados só como "Cliente Local")
     if (!cpf && isTempUser && !user) {
@@ -779,6 +779,64 @@ const updateUserPassword = async (userId: string, newPassword: string) => {
     throw new Error('Erro ao atualizar senha: ' + error.message);
   }
 
+  return true;
+};
+
+const updateUserDetails = async (userId: string, data: {
+  name: string;
+  email: string;
+  phone?: string | null;
+  cpf?: string | null;
+  photo_url?: string | null;
+}) => {
+  const cpf = String(data.cpf || '').replace(/\D/g, '') || null;
+  const phone = String(data.phone || '').trim() || null;
+  const email = String(data.email || '').trim().toLowerCase();
+
+  if (!data.name?.trim() || !email) throw new Error('Nome e e-mail são obrigatórios.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('E-mail inválido.');
+  if (cpf && cpf.length !== 11) throw new Error('CPF deve conter 11 dígitos.');
+
+  if (cpf) {
+    const { data: duplicateCpf } = await supabase.from('profiles').select('id').eq('cpf', cpf).neq('id', userId).maybeSingle();
+    if (duplicateCpf) throw new Error('Este CPF já está vinculado a outro usuário.');
+  }
+
+  const { data: roles } = await supabase.from('user_roles').select('role').eq('user_id', userId);
+  const isClient = !roles?.some((item: any) => ['admin', 'gestor', 'barbeiro'].includes(item.role));
+  const { data: authResult } = await supabase.auth.admin.getUserById(userId);
+  const authUser = authResult?.user;
+
+  if (authUser) {
+    // Clientes continuam autenticando pelo CPF; o e-mail informado fica como contato.
+    const authEmail = isClient && cpf ? `${cpf}@cliente.com` : email;
+    const { error: authError } = await supabase.auth.admin.updateUserById(userId, {
+      email: authEmail,
+      email_confirm: true,
+      user_metadata: {
+        ...(authUser.user_metadata || {}),
+        name: data.name.trim(),
+        phone,
+        whatsapp: phone,
+        cpf,
+        avatar_url: data.photo_url || null,
+      },
+    });
+    if (authError) throw new Error('Erro ao atualizar acesso do usuário: ' + authError.message);
+  }
+
+  const { error: profileError } = await supabase.from('profiles').upsert({
+    id: userId,
+    name: data.name.trim(),
+    phone,
+    whatsapp: phone,
+    cpf,
+    photo_url: data.photo_url || null,
+    contact_email: email,
+  }, { onConflict: 'id' });
+  if (profileError) throw new Error('Erro ao atualizar perfil: ' + profileError.message);
+
+  await supabase.from('barbers').update({ name: data.name.trim(), image_url: data.photo_url || null }).eq('user_id', userId);
   return true;
 };
 
@@ -1242,6 +1300,29 @@ serve(async (req) => {
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         });
+      }
+    }
+
+    // PUT/POST /admin/users/:id/details - Update personal and contact data
+    if ((req.method === 'PUT' || req.method === 'POST') && path.startsWith('admin/users/') && path.endsWith('/details')) {
+      const userId = path.replace('admin/users/', '').replace('/details', '');
+      const authHeader = req.headers.get('authorization');
+      const { role: callerRole } = await getCallerRole(authHeader);
+
+      if (!callerRole || (callerRole !== 'admin' && callerRole !== 'gestor')) {
+        return new Response(JSON.stringify({ success: false, error: 'FORBIDDEN', message: 'Apenas administradores e gestores podem editar usuários' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      const { data: targetRoles } = await supabase.from('user_roles').select('role').eq('user_id', userId);
+      if (callerRole === 'gestor' && targetRoles?.some((item: any) => item.role === 'admin')) {
+        return new Response(JSON.stringify({ success: false, error: 'FORBIDDEN', message: 'Gestores não podem modificar administradores' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      try {
+        await updateUserDetails(userId, body);
+        return new Response(JSON.stringify({ success: true, message: 'Dados atualizados com sucesso' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      } catch (error: any) {
+        return new Response(JSON.stringify({ success: false, error: 'UPDATE_ERROR', message: error.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
     }
 

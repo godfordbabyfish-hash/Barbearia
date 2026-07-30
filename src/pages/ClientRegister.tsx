@@ -165,19 +165,7 @@ const ClientRegister = () => {
       return;
     }
 
-    // Verificar se CPF já está cadastrado
     const cleanedCPF = cleanCPF(formData.cpf);
-    const { data: existingProfile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('cpf', cleanedCPF)
-      .maybeSingle();
-
-    if (existingProfile) {
-      toast.error('Este CPF já está cadastrado. Faça login com seu CPF.');
-      setIsLoading(false);
-      return;
-    }
 
     // Criar conta
     const result = await signUpWithCPF(
