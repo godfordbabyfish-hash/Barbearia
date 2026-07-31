@@ -8,12 +8,14 @@ import { toast } from "sonner";
 type ReferralProgramConfig = {
   enabled?: boolean;
   discount_percent?: number;
+  credit_base_amount?: number;
 };
 
 export default function ReferralPromotionBanner() {
   const { user } = useAuth();
   const [referralCode, setReferralCode] = useState<string | null>(null);
   const [discountPercent, setDiscountPercent] = useState(50);
+  const [creditAmount, setCreditAmount] = useState(12.5);
   const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
@@ -29,6 +31,7 @@ export default function ReferralPromotionBanner() {
       const config = (configResult.data?.config_value || {}) as ReferralProgramConfig;
       setReferralCode(profileResult.data?.referral_code || null);
       setDiscountPercent(Number(config.discount_percent) || 50);
+      setCreditAmount(Number(((Number(config.credit_base_amount) || 25) * (Number(config.discount_percent) || 50) / 100).toFixed(2)));
       // Falha fechada: sem configuração válida ou campanha desligada, não divulga.
       setEnabled(
         !profileResult.error &&
@@ -82,9 +85,9 @@ export default function ReferralPromotionBanner() {
               </span>
               <Sparkles className="h-4 w-4 text-primary" />
             </div>
-            <h3 className="text-xl font-bold sm:text-2xl">Seu próximo corte pode sair pela metade do preço!</h3>
+            <h3 className="text-xl font-bold sm:text-2xl">Ganhe crédito para o seu próximo atendimento!</h3>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground sm:text-base">
-              Convide um amigo pelo seu link. Quando ele concluir o primeiro atendimento pago, você recebe um cupom de <strong className="text-foreground">{discountPercent}% de desconto</strong> para usar em um Corte de Cabelo.
+              Convide um amigo pelo seu link. Quando ele concluir o primeiro atendimento pago de pelo menos R$ 25,00, você recebe um crédito de <strong className="text-foreground">até R$ {creditAmount.toFixed(2)}</strong> ({discountPercent}%) para usar em qualquer serviço.
             </p>
           </div>
         </div>

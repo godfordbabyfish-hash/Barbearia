@@ -131,9 +131,9 @@ const DEFAULT_TEMPLATES: Record<string, string> = {
   whatsapp_msg_barber_new_appointment:
     '📅 *Novo Agendamento!*\n\nVocê tem um novo agendamento, *{{barberName}}*!\n\n👤 Cliente: {{clientName}}\n� Serviço: {{serviceName}}\n📆 Data: {{appointmentDate}}\n🕐 Horário: {{appointmentTime}}',
   whatsapp_msg_referral_earned:
-    '🎁 *Você ganhou um cupom!*\n\nOlá, *{{clientName}}*! Seu amigo concluiu o primeiro atendimento. Seu cupom de {{serviceName}} de desconto já está disponível no painel.',
+    '🎁 *Você ganhou um crédito!*\n\nOlá, *{{clientName}}*! Seu amigo concluiu o primeiro atendimento elegível. Seu crédito de {{serviceName}} já está disponível para usar em qualquer serviço.',
   whatsapp_msg_referral_expiring:
-    '⏳ *Seu cupom está perto de vencer!*\n\nOlá, *{{clientName}}*! Seu cupom de {{serviceName}} de desconto vence em {{appointmentDate}}. Agende seu corte e aproveite.',
+    '⏳ *Seu crédito está perto de vencer!*\n\nOlá, *{{clientName}}*! Seu crédito de {{serviceName}} vence em {{appointmentDate}}. Agende qualquer serviço e aproveite.',
   whatsapp_msg_inactive_client:
     '💈 *Sentimos sua falta!*\n\nOlá, *{{clientName}}*! Já faz {{inactivityDays}} dias desde sua última visita à Barbearia Raimundos.\n\nQue tal reservar um horário e renovar o visual? Estamos esperando por você! ✂️',
 };

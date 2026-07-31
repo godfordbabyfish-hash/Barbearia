@@ -6,7 +6,7 @@ import type { Tables } from '@/integrations/supabase/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Calendar, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors, Filter } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors, Filter } from 'lucide-react';
 import { format, addMinutes as addMinutesDate } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogClose } from '@/components/ui/dialog';
@@ -2341,7 +2341,11 @@ const BarbeiroDashboard = () => {
     const appointment = appointments.find(a => a.id === appointmentToComplete);
     const original = Number(appointment?.service?.price || 0);
     const coupon = availableReferralCoupons.find(c => c.id === selectedReferralCoupon);
-    return calculateReferralPrice(original, coupon ? Number(coupon.discount_percent) : 0);
+    return calculateReferralPrice(
+      original,
+      coupon ? Number(coupon.discount_percent) : 0,
+      coupon?.discount_amount_limit,
+    );
   };
 
   const loadReferralBenefits = async (appointmentId: string) => {
@@ -4008,21 +4012,51 @@ const BarbeiroDashboard = () => {
                         <span className="text-xs">🍴</span>
                         <span className="hidden sm:inline text-xs">Horário de Almoço</span>
                       </Button>
+                      <Select
+                        value={String(currentMonth.getMonth())}
+                        onValueChange={(value) => setCurrentMonth(new Date(currentMonth.getFullYear(), Number(value), 1))}
+                      >
+                        <SelectTrigger className="h-8 w-28 sm:w-32 text-xs capitalize" aria-label="Selecionar mês da escala">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 12 }, (_, monthIndex) => (
+                            <SelectItem key={monthIndex} value={String(monthIndex)} className="capitalize">
+                              {format(new Date(currentMonth.getFullYear(), monthIndex, 1), 'MMMM', { locale: ptBR })}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={String(currentMonth.getFullYear())}
+                        onValueChange={(value) => setCurrentMonth(new Date(Number(value), currentMonth.getMonth(), 1))}
+                      >
+                        <SelectTrigger className="h-8 w-20 text-xs" aria-label="Selecionar ano da escala">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[new Date().getFullYear(), new Date().getFullYear() + 1].map((yearOption) => (
+                            <SelectItem key={yearOption} value={String(yearOption)}>{yearOption}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Button 
                         variant="outline" 
                         size="icon"
                         className="h-8 w-8 sm:h-9 sm:w-9"
+                        aria-label="Mês anterior"
                         onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))}
                       >
-                        <X className="h-3.5 w-3.5 rotate-45" />
+                        <ChevronLeft className="h-4 w-4" />
                       </Button>
                       <Button 
                         variant="outline" 
                         size="icon"
                         className="h-8 w-8 sm:h-9 sm:w-9"
+                        aria-label="Próximo mês"
                         onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))}
                       >
-                        <Plus className="h-3.5 w-3.5 rotate-45" />
+                        <ChevronRight className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
@@ -5257,7 +5291,7 @@ const BarbeiroDashboard = () => {
 
               {/* Campo de forma de pagamento */}
               <div className="space-y-4">
-                {referralConfig?.enabled && referralConfig?.eligible_service_id === appointments.find(a => a.id === appointmentToComplete)?.service_id && availableReferralCoupons.length > 0 && (
+                {referralConfig?.enabled && availableReferralCoupons.length > 0 && (
                   <div className="rounded-lg border border-primary/40 bg-primary/5 p-3 space-y-2">
                     <Label>Cupom de indicação disponível</Label>
                     <Select value={selectedReferralCoupon} onValueChange={(value) => {
@@ -5266,13 +5300,27 @@ const BarbeiroDashboard = () => {
                       const appointment = appointments.find(a => a.id === appointmentToComplete);
                       const original = Number(appointment?.service?.price || 0);
                       const coupon = availableReferralCoupons.find(c => c.id === value);
-                      const total = coupon ? original - (original * Number(coupon.discount_percent) / 100) : original;
-                      setCurrentPaymentAmount(total.toFixed(2));
+                      const pricing = calculateReferralPrice(
+                        original,
+                        coupon ? Number(coupon.discount_percent) : 0,
+                        coupon?.discount_amount_limit,
+                      );
+                      setCurrentPaymentAmount(pricing.final.toFixed(2));
                     }}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">Não aplicar cupom</SelectItem>
-                        {availableReferralCoupons.map(c => <SelectItem key={c.id} value={c.id}>{Number(c.discount_percent)}% · vence {new Date(c.expires_at).toLocaleDateString('pt-BR')}</SelectItem>)}
+                        {availableReferralCoupons.map((coupon) => {
+                          const credit = Number(
+                            coupon.discount_amount_limit ??
+                            (Number(referralConfig?.credit_base_amount || 25) * Number(coupon.discount_percent || 0) / 100),
+                          );
+                          return (
+                            <SelectItem key={coupon.id} value={coupon.id}>
+                              Crédito de até R$ {credit.toFixed(2)} · vence {new Date(coupon.expires_at).toLocaleDateString('pt-BR')}
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                     {selectedReferralCoupon !== 'none' && <div className="grid grid-cols-3 gap-2 text-xs">

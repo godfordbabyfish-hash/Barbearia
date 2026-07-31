@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, Plus, X, Loader2, Users, User } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Loader2, Users, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { useOperatingHours, getDayKey } from '@/hooks/useOperatingHours';
@@ -245,6 +245,11 @@ const AdminMonthlySchedule = () => {
   const today = new Date().toISOString().split('T')[0];
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
+  const selectableYears = [new Date().getFullYear(), new Date().getFullYear() + 1];
+  const monthOptions = Array.from({ length: 12 }, (_, value) => ({
+    value: String(value),
+    label: format(new Date(year, value, 1), 'MMMM', { locale: ptBR }),
+  }));
   const firstDayOfWeek = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
@@ -302,22 +307,53 @@ const AdminMonthlySchedule = () => {
               <span className="hidden sm:inline text-xs">Almoço do Mês</span>
             </Button>
 
-            {/* Month navigation */}
+            <Select
+              value={String(month)}
+              onValueChange={(value) => setCurrentMonth(new Date(year, Number(value), 1))}
+            >
+              <SelectTrigger className="h-8 w-28 sm:w-32 text-xs capitalize" aria-label="Selecionar mês da escala">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {monthOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value} className="capitalize">
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={String(year)}
+              onValueChange={(value) => setCurrentMonth(new Date(Number(value), month, 1))}
+            >
+              <SelectTrigger className="h-8 w-20 text-xs" aria-label="Selecionar ano da escala">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {selectableYears.map((optionYear) => (
+                  <SelectItem key={optionYear} value={String(optionYear)}>{optionYear}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Navegação rápida entre meses */}
             <Button
               variant="outline"
               size="icon"
               className="h-8 w-8"
+              aria-label="Mês anterior"
               onClick={() => setCurrentMonth(new Date(year, month - 1, 1))}
             >
-              <X className="h-3.5 w-3.5 rotate-45" />
+              <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button
               variant="outline"
               size="icon"
               className="h-8 w-8"
+              aria-label="Próximo mês"
               onClick={() => setCurrentMonth(new Date(year, month + 1, 1))}
             >
-              <Plus className="h-3.5 w-3.5 rotate-45" />
+              <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         </div>

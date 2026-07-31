@@ -585,9 +585,9 @@ export type Database = {
         Relationships: []
       }
       referral_coupons: {
-        Row: { id:string; owner_id:string; referral_id:string|null; discount_percent:number; status:string; expires_at:string; used_appointment_id:string|null; created_at:string; used_at:string|null }
-        Insert: { id?:string; owner_id:string; referral_id?:string|null; discount_percent:number; status?:string; expires_at:string; used_appointment_id?:string|null; created_at?:string; used_at?:string|null }
-        Update: { id?:string; owner_id?:string; referral_id?:string|null; discount_percent?:number; status?:string; expires_at?:string; used_appointment_id?:string|null; created_at?:string; used_at?:string|null }
+        Row: { id:string; owner_id:string; referral_id:string|null; discount_percent:number; discount_amount_limit:number|null; status:string; expires_at:string; used_appointment_id:string|null; created_at:string; used_at:string|null }
+        Insert: { id?:string; owner_id:string; referral_id?:string|null; discount_percent:number; discount_amount_limit?:number|null; status?:string; expires_at:string; used_appointment_id?:string|null; created_at?:string; used_at?:string|null }
+        Update: { id?:string; owner_id?:string; referral_id?:string|null; discount_percent?:number; discount_amount_limit?:number|null; status?:string; expires_at?:string; used_appointment_id?:string|null; created_at?:string; used_at?:string|null }
         Relationships: []
       }
       push_subscriptions: {

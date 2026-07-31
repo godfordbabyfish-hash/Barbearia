@@ -86,22 +86,22 @@ const TEMPLATES: MessageTemplate[] = [
   },
   {
     key: 'whatsapp_msg_referral_earned',
-    label: 'Cupom de indicação liberado',
+    label: 'Crédito de indicação liberado',
     description: 'Enviado quando o amigo indicado conclui o primeiro atendimento pago.',
     badge: 'Indicação',
     badgeColor: 'bg-emerald-500/20 text-emerald-600 border-emerald-500/30',
     defaultText:
-      '🎁 Você ganhou um cupom!\n\nOlá, [Nome do cliente]! Seu amigo concluiu o primeiro atendimento. Seu cupom de [Serviço] de desconto já está disponível no painel.',
+      '🎁 Você ganhou um crédito!\n\nOlá, [Nome do cliente]! Seu amigo concluiu o primeiro atendimento elegível. Seu crédito de [Serviço] já está disponível para usar em qualquer serviço.',
     variables: ['{{clientName}}', '{{serviceName}}'],
   },
   {
     key: 'whatsapp_msg_referral_expiring',
-    label: 'Cupom próximo do vencimento',
-    description: 'Enviado automaticamente antes do vencimento do cupom de indicação.',
+    label: 'Crédito próximo do vencimento',
+    description: 'Enviado automaticamente antes do vencimento do crédito de indicação.',
     badge: 'Vencimento',
     badgeColor: 'bg-amber-500/20 text-amber-600 border-amber-500/30',
     defaultText:
-      '⏳ Seu cupom está perto de vencer!\n\nOlá, [Nome do cliente]! Seu cupom de [Serviço] de desconto vence em [Data]. Agende seu corte e aproveite.',
+      '⏳ Seu crédito está perto de vencer!\n\nOlá, [Nome do cliente]! Seu crédito de [Serviço] vence em [Data]. Agende qualquer serviço e aproveite.',
     variables: ['{{clientName}}', '{{serviceName}}', '{{appointmentDate}}'],
   },
   {
