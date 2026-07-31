@@ -31,7 +31,7 @@ update public.site_config
 set config_value = jsonb_set(
   config_value,
   '{text}',
-  to_jsonb(E'🎁 *Você ganhou um crédito!*\n\nOlá, *{{clientName}}*! Seu amigo concluiu o primeiro atendimento elegível. Seu crédito de {{serviceName}} já está disponível para usar em qualquer serviço.')
+  to_jsonb(E'🎁 *Você ganhou um crédito!*\n\nOlá, *{{clientName}}*! Seu amigo concluiu o primeiro atendimento elegível. Seu crédito de {{serviceName}} já está disponível para usar em qualquer serviço.'::text)
 )
 where config_key = 'whatsapp_msg_referral_earned'
   and config_value->>'text' = E'🎁 *Você ganhou um cupom!*\n\nOlá, *{{clientName}}*! Seu amigo concluiu o primeiro atendimento. Seu cupom de {{serviceName}} de desconto já está disponível no painel.';
@@ -40,7 +40,7 @@ update public.site_config
 set config_value = jsonb_set(
   config_value,
   '{text}',
-  to_jsonb(E'⏳ *Seu crédito está perto de vencer!*\n\nOlá, *{{clientName}}*! Seu crédito de {{serviceName}} vence em {{appointmentDate}}. Agende qualquer serviço e aproveite.')
+  to_jsonb(E'⏳ *Seu crédito está perto de vencer!*\n\nOlá, *{{clientName}}*! Seu crédito de {{serviceName}} vence em {{appointmentDate}}. Agende qualquer serviço e aproveite.'::text)
 )
 where config_key = 'whatsapp_msg_referral_expiring'
   and config_value->>'text' = E'⏳ *Seu cupom está perto de vencer!*\n\nOlá, *{{clientName}}*! Seu cupom de {{serviceName}} de desconto vence em {{appointmentDate}}. Agende seu corte e aproveite.';
