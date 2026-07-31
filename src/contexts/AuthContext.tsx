@@ -50,6 +50,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return finalRole;
   };
 
+  // The referral page stores the code before sending a new client to register.
+  // Claim it here, after the new profile has been created, instead of depending
+  // on the client dashboard mounting after the redirect.
+  const claimPendingReferral = async () => {
+    if (typeof window === 'undefined') return;
+
+    const code = localStorage.getItem('pending_referral_code');
+    if (!code) return;
+
+    const { error } = await (supabase as any).rpc('claim_referral', { p_code: code });
+    if (!error) {
+      localStorage.removeItem('pending_referral_code');
+      return;
+    }
+
+    // Keep the code for the dashboard fallback, which retries once the client
+    // session/profile is fully available. Never silently discard a referral.
+    console.warn('Unable to claim pending referral after registration:', error.message);
+  };
+
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
@@ -328,6 +348,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           console.warn('Falha ao atualizar telefone no perfil após cadastro (sessão existente):', e);
         }
       }
+
+      await claimPendingReferral();
 
       return { error: null };
     } catch (error: any) {
