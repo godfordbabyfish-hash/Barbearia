@@ -330,6 +330,7 @@ const BarbeiroDashboard = () => {
   const [availableNewSlots, setAvailableNewSlots] = useState<string[]>([]);
   const [loadingNewSlots, setLoadingNewSlots] = useState(false);
   const [pendingDialogOpen, setPendingDialogOpen] = useState(false);
+  const pendingDialogAutoOpenedRef = useRef(false);
   
   // Hooks for commission calculation
   const barberIdForCommissions = currentUserBarber?.id || selectedBarber;
@@ -370,6 +371,15 @@ const BarbeiroDashboard = () => {
         return b.appointment_time.localeCompare(a.appointment_time);
       });
   }, [appointments, selectedBarber, currentUserBarber?.id]);
+
+  useEffect(() => {
+    if (userRole !== 'barbeiro') return;
+    if (!currentUserBarber?.id || pastPendingCount === 0) return;
+    if (pendingDialogAutoOpenedRef.current) return;
+
+    pendingDialogAutoOpenedRef.current = true;
+    setPendingDialogOpen(true);
+  }, [userRole, currentUserBarber?.id, pastPendingCount]);
 
   const loadProductHistory = async (page: number = 1) => {
     const startedAt = performance.now();
