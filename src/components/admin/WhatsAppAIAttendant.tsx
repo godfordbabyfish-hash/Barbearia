@@ -18,6 +18,7 @@ type AIAttendantConfig = {
   max_history_messages: number;
   human_handoff_enabled: boolean;
   handoff_message: string;
+  basic_message: string;
   prompt: string;
 };
 
@@ -29,11 +30,11 @@ const defaultConfig: AIAttendantConfig = {
   max_history_messages: 12,
   human_handoff_enabled: true,
   handoff_message: 'Vou encaminhar sua conversa para nossa equipe. Assim que alguém estiver disponível, continuará o atendimento por aqui.',
+  basic_message: 'Olá! Para consultar os horários disponíveis e fazer seu agendamento, acesse nosso site:\n\n{{bookingUrl}}\n\nPor lá você escolhe o serviço, o barbeiro, a data e o melhor horário.',
   prompt: 'Você é a atendente virtual da Barbearia Raimundos. Responda em português do Brasil, de forma simpática, breve e profissional. Use somente os dados oficiais fornecidos no contexto. Nunca invente preços, serviços, barbeiros, horários disponíveis, promoções ou agendamentos. Você não pode confirmar, criar, alterar ou cancelar agendamentos. Para agendar, forneça exclusivamente o link oficial. Se a informação não estiver no contexto, diga que não possui essa confirmação e ofereça atendimento humano. Não peça CPF completo, cartão, senha, código ou qualquer dado sensível. Quando o cliente solicitar uma pessoa, responda apenas com a mensagem de encaminhamento.',
 };
 
 const errorMessages: Record<string, string> = {
-  api_key_required_to_enable: 'Cadastre a chave da API antes de ativar a atendente.',
   api_key_not_configured: 'A chave da API ainda não foi cadastrada.',
   prompt_and_booking_url_required: 'Informe o prompt e o link oficial de agendamento.',
   forbidden: 'Seu usuário não possui permissão para alterar esta configuração.',
@@ -112,9 +113,9 @@ const WhatsAppAIAttendant = () => {
             <div className="flex items-start gap-3">
               <div className="rounded-xl bg-primary/15 p-3"><Bot className="h-6 w-6 text-primary" /></div>
               <div>
-                <CardTitle>Atendente IA no WhatsApp</CardTitle>
+                <CardTitle>Atendente automática no WhatsApp</CardTitle>
                 <CardDescription className="mt-1">
-                  Responde dúvidas com dados reais da barbearia e encaminha situações incertas para uma pessoa.
+                  Sem API, direciona o cliente ao site. Com API, também responde dúvidas usando os dados da barbearia.
                 </CardDescription>
               </div>
             </div>
@@ -133,7 +134,7 @@ const WhatsAppAIAttendant = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg"><KeyRound className="h-5 w-5" /> API e modelo</CardTitle>
-            <CardDescription>A chave é enviada ao backend e armazenada no cofre do Supabase.</CardDescription>
+            <CardDescription>Opcional. Sem uma chave, o atendimento básico continua funcionando normalmente.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -148,7 +149,7 @@ const WhatsAppAIAttendant = () => {
               />
               <p className="flex items-center gap-1 text-xs text-muted-foreground">
                 {hasApiKey && <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />}
-                {hasApiKey ? 'Existe uma chave protegida cadastrada.' : 'Nenhuma chave cadastrada.'}
+                {hasApiKey ? 'Modo inteligente disponível: existe uma chave protegida cadastrada.' : 'Modo básico: o bot enviará o link de agendamento.'}
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -202,6 +203,11 @@ const WhatsAppAIAttendant = () => {
             <div className="space-y-2">
               <Label htmlFor="handoff-message">Mensagem de encaminhamento</Label>
               <Textarea id="handoff-message" rows={4} value={config.handoff_message} onChange={(event) => setConfig((current) => ({ ...current, handoff_message: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="basic-message">Mensagem do modo básico (sem API)</Label>
+              <Textarea id="basic-message" rows={6} value={config.basic_message} onChange={(event) => setConfig((current) => ({ ...current, basic_message: event.target.value }))} />
+              <p className="text-xs text-muted-foreground">Use {'{{bookingUrl}}'} no ponto em que o link oficial deve aparecer.</p>
             </div>
           </CardContent>
         </Card>

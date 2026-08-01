@@ -1,6 +1,10 @@
 # Encaminhamento de mensagens do Baileys para a Atendente IA
 
-O servidor local precisa encaminhar somente mensagens privadas recebidas para a Edge Function. A IA continua desativada até o admin habilitá-la no painel.
+O servidor local precisa encaminhar somente mensagens privadas recebidas para a Edge Function. O atendimento automático continua desativado até o admin habilitá-lo no painel.
+
+- Sem uma chave da OpenAI, o bot funciona em modo básico e envia o link oficial de agendamento.
+- Com uma chave válida, a atendente também responde dúvidas usando somente o contexto oficial da barbearia.
+- Em ambos os modos, o cliente conclui o agendamento com segurança pelo site.
 
 ## Variável de ambiente
 

@@ -84,11 +84,12 @@ serve(async (req) => {
         max_history_messages: Math.min(20, Math.max(4, Number(incoming.max_history_messages) || 12)),
         human_handoff_enabled: incoming.human_handoff_enabled !== false,
         handoff_message: String(incoming.handoff_message || '').trim().slice(0, 1000),
+        basic_message: String(incoming.basic_message || '').trim().slice(0, 1500),
         prompt: String(incoming.prompt || '').trim().slice(0, 6000),
         updated_at: new Date().toISOString(),
       };
 
-      if (!config.prompt || !config.booking_url) {
+      if (!config.prompt || !config.booking_url || !config.basic_message) {
         return json({ success: false, error: 'prompt_and_booking_url_required' }, 400);
       }
 
@@ -99,7 +100,6 @@ serve(async (req) => {
 
       const { data: hasKey, error: keyError } = await service.rpc('has_whatsapp_ai_api_key');
       if (keyError) throw keyError;
-      if (config.enabled && !hasKey) return json({ success: false, error: 'api_key_required_to_enable' }, 400);
 
       const { error } = await service.from('site_config').upsert(
         { config_key: 'whatsapp_ai_attendant', config_value: config },
