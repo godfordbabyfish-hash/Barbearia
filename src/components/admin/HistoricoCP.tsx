@@ -22,6 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import FilterPopup from '@/components/FilterPopup';
 
 // Hook para detectar mobile
 const useIsMobile = () => {
@@ -1077,12 +1078,12 @@ const HistoricoCP = () => {
               onClick={() => setShowFilters(v => !v)}
             >
               <Filter className="h-3 w-3 mr-1" />
-              {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+              Filtros
             </Button>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
-          <div className={`${showFilters ? '' : 'hidden'} mb-4 sm:mb-6 pb-3 border-b border-border`}>
+          <FilterPopup open={showFilters} onOpenChange={setShowFilters} title="Filtros do histórico">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3 sm:gap-4">
             <div>
               <Label className="text-sm text-muted-foreground mb-1 block">Data Inicial</Label>
@@ -1203,7 +1204,7 @@ const HistoricoCP = () => {
               </Select>
             </div>
             </div>
-          </div>
+          </FilterPopup>
 
           <div className="mb-4 sm:mb-6">
             <Card className="bg-card border-primary/40">

@@ -99,6 +99,60 @@ All colors MUST be HSL.
   }
 }
 
+@layer components {
+  .financial-metric-grid > * {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  @media (max-width: 640px) {
+    .financial-metric-grid > * > div:first-child {
+      min-height: 3.5rem;
+      padding: 0.55rem 0.5rem 0.3rem !important;
+      gap: 0.25rem;
+      align-items: flex-start;
+    }
+
+    .financial-metric-grid > * > div:nth-child(2) {
+      padding: 0.25rem 0.5rem 0.6rem !important;
+    }
+
+    .financial-metric-grid h3 {
+      min-width: 0;
+      font-size: 0.64rem !important;
+      line-height: 0.82rem !important;
+      overflow-wrap: anywhere;
+    }
+
+    .financial-metric-grid [class*="text-2xl"],
+    .financial-metric-grid [class*="text-xl"] {
+      font-size: 0.98rem !important;
+      line-height: 1.15rem !important;
+      white-space: nowrap;
+      letter-spacing: -0.025em;
+    }
+
+    .financial-metric-grid p {
+      margin-top: 0.2rem;
+      font-size: 0.56rem !important;
+      line-height: 0.72rem !important;
+      overflow-wrap: anywhere;
+    }
+
+    .financial-metric-grid svg {
+      width: 0.75rem !important;
+      height: 0.75rem !important;
+      flex-shrink: 0;
+    }
+
+    .financial-metric-grid button {
+      height: 1.35rem !important;
+      padding-inline: 0.3rem !important;
+      font-size: 0.55rem !important;
+    }
+  }
+}
+
 @layer base {
   * {
     @apply border-border;

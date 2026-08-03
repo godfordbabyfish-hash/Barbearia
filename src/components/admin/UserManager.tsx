@@ -819,7 +819,7 @@ export const UserManager = () => {
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         {metricCards.map(({ filter, label, value, hint, icon: Icon, tone }) => (
           <button
             key={filter}
@@ -829,16 +829,16 @@ export const UserManager = () => {
               setFilterRole('cliente');
               setCurrentPage(1);
             }}
-            className={`rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-lg ${tone} ${clientFilter === filter ? 'ring-2 ring-current' : ''}`}
+            className={`min-w-0 rounded-xl border p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-lg sm:p-4 ${tone} ${clientFilter === filter ? 'ring-2 ring-current' : ''}`}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-foreground/80">{label}</p>
-                <p className="mt-1 text-3xl font-bold text-foreground">{loading ? '—' : value}</p>
+            <div className="flex items-start justify-between gap-1.5 sm:gap-3">
+              <div className="min-w-0">
+                <p className="break-words text-xs font-medium leading-tight text-foreground/80 sm:text-sm">{label}</p>
+                <p className="mt-1 text-2xl font-bold leading-none text-foreground sm:text-3xl">{loading ? '—' : value}</p>
               </div>
-              <Icon className="h-5 w-5" />
+              <Icon className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">{hint}</p>
+            <p className="mt-2 break-words text-[10px] leading-snug text-muted-foreground sm:text-xs">{hint}</p>
           </button>
         ))}
       </div>

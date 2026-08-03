@@ -14,6 +14,7 @@ import { ptBR } from 'date-fns/locale';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { Badge } from '@/components/ui/badge';
+import FilterPopup from '@/components/FilterPopup';
 
 interface Product {
   id: string;
@@ -294,7 +295,7 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
               onClick={() => setShowFilters(v => !v)}
             >
               <Filter className="h-3 w-3 mr-1" />
-              {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+              Filtros
             </Button>
             <Button onClick={() => setDialogOpen(true)} size="sm" className="flex-shrink-0">
             <Plus className="h-4 w-4 mr-2" />
@@ -305,7 +306,7 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
         </div>
       </CardHeader>
       <CardContent className="w-full p-3 sm:p-4 md:p-6" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
-        <div className={`${showFilters ? '' : 'hidden'} mb-4 pb-3 border-b border-border`}>
+        <FilterPopup open={showFilters} onOpenChange={setShowFilters} title="Filtros de vendas">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <Label className="text-xs text-muted-foreground mb-1 block">Data Inicial</Label>
@@ -331,9 +332,9 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
             </div>
           </div>
           <div className="mt-3">
-            <Button size="sm" variant="outline" onClick={loadSales}>Aplicar filtros</Button>
+            <Button size="sm" variant="outline" onClick={() => { loadSales(); setShowFilters(false); }}>Aplicar filtros</Button>
           </div>
-        </div>
+        </FilterPopup>
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />

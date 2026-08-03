@@ -25,6 +25,7 @@ import FilaDaBarbearia from '@/pages/FilaDaBarbearia';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import ReferralPanel from '@/components/ReferralPanel';
+import FilterPopup from '@/components/FilterPopup';
 
 type HistoryFilterPeriod = 'all' | 'today' | 'week' | 'month' | 'year';
 type HistoryFilterStatus = 'all' | 'completed' | 'cancelled' | 'confirmed' | 'pending';
@@ -219,6 +220,7 @@ const ClienteDashboard = () => {
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
   const [cancellationReason, setCancellationReason] = useState('');
   const [historyFilterPeriod, setHistoryFilterPeriod] = useState<HistoryFilterPeriod>('all');
+  const [showHistoryFilters, setShowHistoryFilters] = useState(false);
   const [historyFilterStatus, setHistoryFilterStatus] = useState<HistoryFilterStatus>('all');
   const [historyFilterService, setHistoryFilterService] = useState<string>('all');
   const [historyTab, setHistoryTab] = useState<'services' | 'products'>('services');
@@ -1027,11 +1029,14 @@ const ClienteDashboard = () => {
                     <CardTitle className="flex items-center gap-2">
                       <History className="h-5 w-5 text-primary" />
                       Histórico de Serviços
+                      <Button variant="outline" size="sm" className="ml-auto h-8 px-2 text-xs" onClick={() => setShowHistoryFilters(true)}>
+                        <Filter className="mr-1 h-3 w-3" />Filtros
+                      </Button>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     {/* Filtros */}
-                    <div className="mb-6 pb-4 border-b border-border">
+                    <FilterPopup open={showHistoryFilters} onOpenChange={setShowHistoryFilters} title="Filtros do histórico de serviços">
                         <div className="grid grid-cols-2 gap-2">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -1107,7 +1112,7 @@ const ClienteDashboard = () => {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
-                    </div>
+                    </FilterPopup>
 
                     <div className="space-y-3">
                       {loadingHistoryAppointments ? (

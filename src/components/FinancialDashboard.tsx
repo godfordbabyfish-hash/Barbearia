@@ -16,13 +16,17 @@ import {
   DropdownMenuRadioItem 
 } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { format, subDays, subMonths, subYears, startOfDay, endOfDay, endOfMonth, startOfWeek, startOfMonth, startOfYear, parse } from 'date-fns';
+import { addDays, format, subDays, subMonths, subYears, startOfDay, endOfDay, endOfMonth, startOfWeek, startOfMonth, startOfYear, parse } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import { IndividualCommissionManager } from '@/components/IndividualCommissionManager';
 import BarberAdvancesManager from '@/components/admin/BarberAdvancesManager';
 import ReportsManager from '@/components/admin/ReportsManager';
+import FilterPopup from '@/components/FilterPopup';
+import WeeklyOverviewSelector from '@/components/WeeklyOverviewSelector';
 import OperationalExpensesManager from '@/components/admin/OperationalExpensesManager';
+import DailyCashManager from '@/components/admin/DailyCashManager';
+import ManagerialClosingManager from '@/components/admin/ManagerialClosingManager';
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
@@ -85,6 +89,7 @@ const FinancialDashboard = () => {
   const [services, setServices] = useState<Service[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year' | 'custom'>('week');
+  const [selectedWeekStart, setSelectedWeekStart] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [dateFrom, setDateFrom] = useState<string>(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [dateTo, setDateTo] = useState<string>(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
@@ -92,7 +97,7 @@ const FinancialDashboard = () => {
   const [filterService, setFilterService] = useState<string>('all');
   const [filterProduct, setFilterProduct] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
-  const [activeTab, setActiveTab] = useState<'overview' | 'commissions' | 'advances' | 'expenses' | 'reports'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'cash' | 'closing' | 'commissions' | 'advances' | 'expenses' | 'reports'>('overview');
   const [showFilters, setShowFilters] = useState(false);
   const [recentTab, setRecentTab] = useState<'appointments' | 'products'>('appointments');
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
@@ -141,7 +146,7 @@ const FinancialDashboard = () => {
   useEffect(() => {
     loadAppointments();
     loadProductSales();
-  }, [period, dateFrom, dateTo, filterType, filterBarber, filterService, filterProduct, filterStatus]);
+  }, [period, selectedWeekStart, dateFrom, dateTo, filterType, filterBarber, filterService, filterProduct, filterStatus]);
 
   // Subscriptions Realtime separadas — criadas apenas uma vez
   useEffect(() => {
@@ -214,13 +219,13 @@ const FinancialDashboard = () => {
       case 'day':
         return { start: startOfDay(today), end: endOfDay(today) };
       case 'week':
-        return { start: startOfWeek(today, { weekStartsOn: 0 }), end: today };
+        return { start: startOfDay(parse(selectedWeekStart, 'yyyy-MM-dd', today)), end: endOfDay(addDays(parse(selectedWeekStart, 'yyyy-MM-dd', today), 6)) };
       case 'month':
         return { start: startOfMonth(today), end: today };
       case 'year':
         return { start: startOfYear(today), end: today };
       default:
-        return { start: startOfWeek(today, { weekStartsOn: 0 }), end: today };
+        return { start: startOfWeek(today, { weekStartsOn: 1 }), end: today };
     }
   };
 
@@ -425,11 +430,15 @@ const FinancialDashboard = () => {
         grouped[serviceName].count += 1;
         grouped[serviceName].revenue += getAppointmentRevenue(apt);
       });
-    return Object.entries(grouped).map(([name, data]) => ({ 
-      name, 
-      quantidade: data.count,
-      receita: data.revenue 
-    }));
+    return Object.entries(grouped)
+      .map(([name, data]) => ({
+        name,
+        displayName: name.length > 18 ? `${name.slice(0, 16)}…` : name,
+        quantidade: data.count,
+        receita: data.revenue,
+      }))
+      .sort((a, b) => b.receita - a.receita)
+      .slice(0, 5);
   };
 
   // Revenue by product
@@ -526,7 +535,10 @@ const FinancialDashboard = () => {
     }
     switch (period) {
       case 'day': return 'Hoje';
-      case 'week': return 'Esta Semana';
+      case 'week': {
+        const start = parse(selectedWeekStart, 'yyyy-MM-dd', new Date());
+        return `${format(start, 'dd/MM/yyyy')} até ${format(addDays(start, 6), 'dd/MM/yyyy')}`;
+      }
       case 'month': return 'Este Mês';
       case 'year': return 'Este Ano';
       default: return 'Período';
@@ -544,17 +556,10 @@ const FinancialDashboard = () => {
           onClick={() => setShowFilters((v) => !v)}
         >
           <Filter className="h-3 w-3 mr-1" />
-          {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+          Filtros
         </Button>
       </div>
-      <Card className={`bg-card border-border ${showFilters ? '' : 'hidden'}`}>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Filter className="h-5 w-5" />
-            Filtros
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+      <FilterPopup open={showFilters} onOpenChange={setShowFilters}>
           <div className="grid grid-cols-2 gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -574,6 +579,7 @@ const FinancialDashboard = () => {
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
+            {period === 'week' && <WeeklyOverviewSelector value={selectedWeekStart} onChange={setSelectedWeekStart} />}
             {period === 'custom' && (
               <>
                 <div className="min-w-[160px]">
@@ -684,13 +690,13 @@ const FinancialDashboard = () => {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </CardContent>
-      </Card>
+      </FilterPopup>
 
       {/* Stats Cards */}
       <div className="space-y-3 sm:space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          <Card className="bg-card border-border">
+        <h3 className="text-base font-semibold text-foreground">Receitas</h3>
+        <div className="financial-metric-grid grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
+          <Card className="order-1 bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Receita do Período ({getPeriodLabel()})</CardTitle>
               <DollarSign className="h-4 w-4 text-primary" />
@@ -705,7 +711,7 @@ const FinancialDashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border">
+          <Card className="order-3 bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Receita de Produtos</CardTitle>
               <DollarSign className="h-4 w-4 text-primary" />
@@ -720,7 +726,7 @@ const FinancialDashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border">
+          <Card className="order-2 bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Receita de Serviços</CardTitle>
               <DollarSign className="h-4 w-4 text-primary" />
@@ -736,8 +742,9 @@ const FinancialDashboard = () => {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          <Card className="bg-card border-border">
+        <h3 className="pt-2 text-base font-semibold text-foreground">Comissões</h3>
+        <div className="financial-metric-grid grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
+          <Card className="order-1 bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Comissão do Período</CardTitle>
               <TrendingUp className="h-4 w-4 text-primary" />
@@ -752,7 +759,7 @@ const FinancialDashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border">
+          <Card className="order-3 bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Comissão de Produtos</CardTitle>
               <TrendingUp className="h-4 w-4 text-primary" />
@@ -767,7 +774,7 @@ const FinancialDashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border">
+          <Card className="order-2 bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Comissão de Serviços</CardTitle>
               <TrendingUp className="h-4 w-4 text-primary" />
@@ -783,8 +790,9 @@ const FinancialDashboard = () => {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <Card className="bg-card border-border">
+        <h3 className="pt-2 text-base font-semibold text-foreground">Operação e desempenho</h3>
+        <div className="financial-metric-grid grid grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-4 lg:gap-4">
+          <Card className="order-1 bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Agendamentos</CardTitle>
               <Calendar className="h-4 w-4 text-primary" />
@@ -797,7 +805,7 @@ const FinancialDashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border">
+          <Card className="order-2 bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Taxa de Conclusão</CardTitle>
               <TrendingUp className="h-4 w-4 text-primary" />
@@ -815,7 +823,7 @@ const FinancialDashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border">
+          <Card className="order-4 bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Ticket Médio Produtos</CardTitle>
               <Users className="h-4 w-4 text-primary" />
@@ -830,7 +838,7 @@ const FinancialDashboard = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-card border-border">
+          <Card className="order-3 bg-card border-border">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Ticket Médio Serviços</CardTitle>
               <Users className="h-4 w-4 text-primary" />
@@ -963,13 +971,14 @@ const FinancialDashboard = () => {
         <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle>Receita por Serviço</CardTitle>
+            <p className="text-xs text-muted-foreground">Os 5 serviços com maior receita no período</p>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={260}>
               <BarChart data={revenueByService()} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis type="number" stroke="hsl(var(--muted-foreground))" />
-                <YAxis dataKey="name" type="category" stroke="hsl(var(--muted-foreground))" width={120} />
+                <YAxis dataKey="displayName" type="category" stroke="hsl(var(--muted-foreground))" width={92} tick={{ fontSize: 10 }} />
                 <Tooltip 
                   contentStyle={{ 
                     backgroundColor: 'hsl(var(--card))', 
@@ -980,6 +989,7 @@ const FinancialDashboard = () => {
                     name === 'receita' ? `R$ ${value.toFixed(2)}` : value,
                     name === 'receita' ? 'Receita' : 'Quantidade'
                   ]}
+                  labelFormatter={(_label, payload) => payload?.[0]?.payload?.name || _label}
                 />
                 <Legend />
                 <Bar dataKey="quantidade" fill="hsl(var(--secondary))" name="Quantidade" radius={[0, 4, 4, 0]} />
@@ -1391,9 +1401,11 @@ const FinancialDashboard = () => {
   return (
     <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       {isManager ? (
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'overview' | 'commissions' | 'advances' | 'expenses' | 'reports')} className="w-full" style={{ maxWidth: '100%' }}>
-          <TabsList className="grid w-full max-w-full grid-cols-5">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'overview' | 'cash' | 'closing' | 'commissions' | 'advances' | 'expenses' | 'reports')} className="w-full" style={{ maxWidth: '100%' }}>
+          <TabsList className="grid h-auto w-full max-w-full grid-cols-2 gap-1 p-1 sm:grid-cols-4 xl:grid-cols-7">
             <TabsTrigger value="overview" className="text-xs sm:text-sm">Visão Geral</TabsTrigger>
+            <TabsTrigger value="cash" className="text-xs sm:text-sm">Caixa Diário</TabsTrigger>
+            <TabsTrigger value="closing" className="text-xs sm:text-sm">Fechamento</TabsTrigger>
             <TabsTrigger value="commissions" className="text-xs sm:text-sm">Comissões</TabsTrigger>
             <TabsTrigger value="advances" className="text-xs sm:text-sm">Vales</TabsTrigger>
             <TabsTrigger value="expenses" className="text-xs sm:text-sm">Despesas</TabsTrigger>
@@ -1402,6 +1414,14 @@ const FinancialDashboard = () => {
           
           <TabsContent value="overview" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
             {renderContent()}
+          </TabsContent>
+
+          <TabsContent value="cash" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+            <DailyCashManager />
+          </TabsContent>
+
+          <TabsContent value="closing" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+            <ManagerialClosingManager />
           </TabsContent>
           
           <TabsContent value="commissions" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>

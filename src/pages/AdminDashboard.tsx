@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -35,19 +35,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import FilaDaBarbearia from '@/pages/FilaDaBarbearia';
 import ReferralPanel from '@/components/ReferralPanel';
-
-const EGRESs_INCLUDED_GB_FREE_PLAN = 5;
-const EGRESS_TARGET_DAILY_MB = 160;
-const BILLING_PERIOD_DAYS = 30;
-const EGRESS_SNAPSHOT_CONFIG_KEY = 'supabase_cached_egress_snapshot';
-const EGRESS_SCHEDULE_CONFIG_KEY = 'supabase_usage_sync_schedule';
-const DEFAULT_EGRESS_SCHEDULE_TIME = '06:15';
-const EGRESS_WHATSAPP_CONFIG_KEY = 'whatsapp_egress_report';
+import SupplyInventoryManager from '@/components/admin/SupplyInventoryManager';
+import ManagerDashboard from '@/components/admin/ManagerDashboard';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, role, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState<string>('services-products');
+  const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [servicesProductsTab, setServicesProductsTab] = useState<'services' | 'products'>('services');
   const [services, setServices] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -62,289 +56,6 @@ const AdminDashboard = () => {
     newPassword: '',
     confirmPassword: '',
   });
-  const [egressUsedGbInput, setEgressUsedGbInput] = useState<string>('5.05');
-  const [egressDaysElapsedInput, setEgressDaysElapsedInput] = useState<string>('22');
-  const [syncingEgress, setSyncingEgress] = useState(false);
-  const [egressLastSyncedAt, setEgressLastSyncedAt] = useState<string | null>(null);
-  const [egressScheduleTime, setEgressScheduleTime] = useState<string>(DEFAULT_EGRESS_SCHEDULE_TIME);
-  const [savingEgressSchedule, setSavingEgressSchedule] = useState(false);
-  const [egressWhatsappEnabled, setEgressWhatsappEnabled] = useState(false);
-  const [egressWhatsappPhone, setEgressWhatsappPhone] = useState('');
-  const [savingEgressWhatsappConfig, setSavingEgressWhatsappConfig] = useState(false);
-  const [testingEgressWhatsapp, setTestingEgressWhatsapp] = useState(false);
-
-  const parseLocalizedNumber = (value: string) => {
-    const normalized = value.replace(',', '.').trim();
-    const parsed = Number.parseFloat(normalized);
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
-
-  const loadEgressWhatsappConfig = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('site_config')
-        .select('config_value')
-        .eq('config_key', EGRESS_WHATSAPP_CONFIG_KEY)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Erro ao carregar config de WhatsApp do egress:', error);
-        return;
-      }
-
-      const cfg = (data?.config_value as any) || {};
-      setEgressWhatsappEnabled(Boolean(cfg.enabled));
-      setEgressWhatsappPhone(typeof cfg.phone_number === 'string' ? cfg.phone_number : '');
-    } catch (error) {
-      console.error('Erro inesperado ao carregar config de WhatsApp do egress:', error);
-    }
-  };
-
-  const handleTestEgressWhatsappReport = async () => {
-    setTestingEgressWhatsapp(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('sync-supabase-usage', {
-        body: { force: true, send_whatsapp: true },
-      });
-
-      if (error) {
-        throw new Error(error.message || 'Falha ao testar envio de egress');
-      }
-
-      if (!data?.success) {
-        throw new Error(data?.error || 'Falha ao testar envio de egress');
-      }
-
-      if (data?.snapshot) {
-        applyEgressSnapshot(data.snapshot);
-      }
-
-      if (data?.whatsapp_report_sent) {
-        toast.success('Teste enviado no WhatsApp de egress.');
-      } else {
-        toast.error('Teste não enviado', {
-          description:
-            data?.whatsapp_report_error || 'Verifique se o envio está habilitado e o número foi configurado.',
-        });
-      }
-    } catch (error: any) {
-      toast.error('Erro ao testar envio de egress', {
-        description: error?.message || 'Não foi possível testar agora.',
-      });
-    } finally {
-      setTestingEgressWhatsapp(false);
-    }
-  };
-
-  const handleSaveEgressWhatsappConfig = async () => {
-    const normalizedPhone = egressWhatsappPhone.replace(/\D/g, '');
-
-    if (egressWhatsappEnabled && !normalizedPhone) {
-      toast.error('Informe o número de WhatsApp para envio do report de egress.');
-      return;
-    }
-
-    setSavingEgressWhatsappConfig(true);
-    try {
-      const payload = {
-        enabled: egressWhatsappEnabled,
-        phone_number: normalizedPhone,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase
-        .from('site_config')
-        .upsert(
-          {
-            config_key: EGRESS_WHATSAPP_CONFIG_KEY,
-            config_value: payload as any,
-          },
-          { onConflict: 'config_key' }
-        );
-
-      if (error) {
-        throw new Error(error.message || 'Falha ao salvar config de WhatsApp do egress');
-      }
-
-      setEgressWhatsappPhone(normalizedPhone);
-      toast.success('Configuração de WhatsApp do egress salva.');
-    } catch (error: any) {
-      toast.error('Erro ao salvar WhatsApp do egress', {
-        description: error?.message || 'Não foi possível salvar agora.',
-      });
-    } finally {
-      setSavingEgressWhatsappConfig(false);
-    }
-  };
-
-  const loadEgressSchedule = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('site_config')
-        .select('config_value')
-        .eq('config_key', EGRESS_SCHEDULE_CONFIG_KEY)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Erro ao carregar horário do sync de egress:', error);
-        return;
-      }
-
-      const scheduleConfig = (data?.config_value as any) || {};
-      const configuredTime = typeof scheduleConfig.time === 'string'
-        ? scheduleConfig.time
-        : null;
-
-      if (configuredTime && /^([01]\d|2[0-3]):([0-5]\d)$/.test(configuredTime)) {
-        setEgressScheduleTime(configuredTime);
-      }
-    } catch (error) {
-      console.error('Erro inesperado ao carregar horário do sync de egress:', error);
-    }
-  };
-
-  const handleSaveEgressSchedule = async () => {
-    if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(egressScheduleTime)) {
-      toast.error('Horário inválido', {
-        description: 'Use o formato HH:MM (24h).',
-      });
-      return;
-    }
-
-    setSavingEgressSchedule(true);
-    try {
-      const { error } = await (supabase as any).rpc('set_sync_supabase_usage_schedule', {
-        p_time: egressScheduleTime,
-      });
-
-      if (error) {
-        throw new Error(error.message || 'Falha ao atualizar horário do cron');
-      }
-
-      toast.success('Horário do sync automático atualizado.');
-      await loadEgressSchedule();
-    } catch (error: any) {
-      toast.error('Erro ao salvar horário do sync', {
-        description: error?.message || 'Não foi possível salvar agora.',
-      });
-    } finally {
-      setSavingEgressSchedule(false);
-    }
-  };
-
-  const egressEstimate = useMemo(() => {
-    const usedGb = Math.max(0, parseLocalizedNumber(egressUsedGbInput));
-    const daysElapsed = Math.max(0, Number.parseInt(egressDaysElapsedInput || '0', 10) || 0);
-    const dailyMb = daysElapsed > 0 ? (usedGb * 1024) / daysElapsed : 0;
-    const projectedMonthlyGb = (dailyMb * BILLING_PERIOD_DAYS) / 1024;
-    const reductionNeededPct =
-      dailyMb > EGRESS_TARGET_DAILY_MB
-        ? ((dailyMb - EGRESS_TARGET_DAILY_MB) / dailyMb) * 100
-        : 0;
-
-    const remainingGb = Math.max(0, EGRESs_INCLUDED_GB_FREE_PLAN - usedGb);
-    const remainingDays = Math.max(0, BILLING_PERIOD_DAYS - daysElapsed);
-    const safeDailyFromNowMb = remainingDays > 0 ? (remainingGb * 1024) / remainingDays : 0;
-
-    return {
-      usedGb,
-      daysElapsed,
-      dailyMb,
-      projectedMonthlyGb,
-      reductionNeededPct,
-      remainingGb,
-      remainingDays,
-      safeDailyFromNowMb,
-      isAboveTarget: dailyMb > EGRESS_TARGET_DAILY_MB,
-      willExceedPlan: projectedMonthlyGb > EGRESs_INCLUDED_GB_FREE_PLAN,
-    };
-  }, [egressDaysElapsedInput, egressUsedGbInput]);
-
-  const applyEgressSnapshot = (configValue: any) => {
-    const usedGb = Number(configValue?.used_gb);
-    const daysElapsed = Number(configValue?.days_elapsed);
-    const updatedAt = typeof configValue?.updated_at === 'string' ? configValue.updated_at : null;
-
-    if (Number.isFinite(usedGb) && usedGb >= 0) {
-      setEgressUsedGbInput(usedGb.toFixed(2));
-    }
-
-    if (Number.isFinite(daysElapsed) && daysElapsed > 0) {
-      setEgressDaysElapsedInput(String(Math.round(daysElapsed)));
-    }
-
-    setEgressLastSyncedAt(updatedAt);
-  };
-
-  const loadEgressSnapshot = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('site_config')
-        .select('config_value')
-        .eq('config_key', EGRESS_SNAPSHOT_CONFIG_KEY)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Erro ao carregar snapshot de egress:', error);
-        return;
-      }
-
-      if (!data?.config_value) {
-        return;
-      }
-
-      applyEgressSnapshot(data.config_value as any);
-    } catch (error) {
-      console.error('Erro inesperado ao carregar egress snapshot:', error);
-    }
-  };
-
-  const handleSyncEgressFromSupabase = async () => {
-    setSyncingEgress(true);
-    try {
-      // Se o usuário editou o campo manualmente, envia para salvar
-      const manualUsedGb = parseFloat(String(egressUsedGbInput).replace(',', '.'));
-      const hasManualValue = Number.isFinite(manualUsedGb) && manualUsedGb >= 0;
-
-      const body: Record<string, unknown> = { force: true };
-      if (hasManualValue) {
-        body.manual_used_gb = manualUsedGb;
-      }
-
-      const { data, error } = await supabase.functions.invoke('sync-supabase-usage', {
-        body,
-      });
-
-      if (error) {
-        throw new Error(error.message || 'Falha ao sincronizar com Supabase');
-      }
-
-      if (!data?.success) {
-        throw new Error(data?.error || 'Falha ao sincronizar com Supabase');
-      }
-
-      if (data?.snapshot) {
-        applyEgressSnapshot(data.snapshot);
-      } else {
-        await loadEgressSnapshot();
-      }
-
-      const sourceLabel =
-        data?.source === 'manual'
-          ? 'Valor manual salvo.'
-          : data?.source === 'analytics_logs'
-            ? 'Uso atualizado (estimativa via logs).'
-            : 'Usando snapshot em cache (Dashboard > Organization > Usage para valor real).';
-      toast.success(sourceLabel);
-    } catch (error: any) {
-      toast.error('Erro ao sincronizar uso', {
-        description: error?.message || 'Não foi possível sincronizar agora.',
-      });
-    } finally {
-      setSyncingEgress(false);
-    }
-  };
-
   const handleClearAllAppointments = async () => {
     setClearingAppointments(true);
     try {
@@ -407,9 +118,6 @@ const AdminDashboard = () => {
         });
       } else {
         loadData();
-        loadEgressSnapshot();
-        loadEgressSchedule();
-        loadEgressWhatsappConfig();
       }
     }
   }, [user, role, loading, navigate]);
@@ -874,6 +582,12 @@ const AdminDashboard = () => {
         <div className="min-h-screen py-4 sm:py-6 px-2 sm:px-4 md:px-6 lg:px-8 pt-20 lg:pt-6 overflow-x-hidden">
           <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6 w-full overflow-x-hidden">
             {/* Content based on active tab */}
+            {activeTab === 'dashboard' && (
+              <div className="w-full min-w-0 space-y-4 pl-12 lg:pl-0" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                <ManagerDashboard onNavigate={setActiveTab} />
+              </div>
+            )}
+
             {activeTab === 'services-products' && (
               <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 w-full">
@@ -1420,9 +1134,17 @@ const AdminDashboard = () => {
               </div>
             )}
 
+            {activeTab === 'supplies' && (
+              <div className="w-full min-w-0 space-y-4 pl-12 lg:pl-0" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+                <SupplyInventoryManager />
+              </div>
+            )}
+
             {activeTab === 'config' && (
               <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
                 <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Configurações</h2>
+            {/* A estimativa de Cached Egress foi removida da interface por não representar o consumo oficial. */}
+            {/*
             <Card className="bg-card border-border">
               <CardHeader className="pb-2">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1473,7 +1195,7 @@ const AdminDashboard = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                   <div className="rounded-lg border border-border p-3 bg-secondary/20">
                     <p className="text-xs text-muted-foreground">Média diária</p>
                     <p className="text-lg font-bold">{egressEstimate.dailyMb.toFixed(1)} MB/dia</p>
@@ -1595,6 +1317,16 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
+            */}
+            <Tabs defaultValue="account" className="w-full space-y-4">
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 sm:grid-cols-4">
+                <TabsTrigger value="account" className="min-h-10 px-2 text-xs sm:text-sm">Minha conta</TabsTrigger>
+                <TabsTrigger value="business" className="min-h-10 px-2 text-xs sm:text-sm">Barbearia</TabsTrigger>
+                <TabsTrigger value="site" className="min-h-10 px-2 text-xs sm:text-sm">Site e aparência</TabsTrigger>
+                <TabsTrigger value="maintenance" className="min-h-10 px-2 text-xs sm:text-sm">Manutenção</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="account" className="mt-0">
             {/* Minha conta - troca de senha do próprio admin/gestor */}
             <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
               <CardHeader className="p-3 sm:p-4 md:p-6">
@@ -1644,10 +1376,17 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
+              </TabsContent>
 
-            <OperatingHoursEditor />
-            <SiteConfigEditor />
-            
+              <TabsContent value="business" className="mt-0">
+                <OperatingHoursEditor />
+              </TabsContent>
+
+              <TabsContent value="site" className="mt-0">
+                <SiteConfigEditor />
+              </TabsContent>
+              
+              <TabsContent value="maintenance" className="mt-0">
             {/* Card de Manutenção de Dados */}
             <Card className="bg-card border-destructive/50 shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
               <CardHeader className="p-3 sm:p-4 md:p-6">
@@ -1709,6 +1448,8 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
+              </TabsContent>
+            </Tabs>
               </div>
             )}
 

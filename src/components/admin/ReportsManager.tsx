@@ -6,11 +6,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { FileText, Download, Calendar, DollarSign, Users, TrendingUp, Filter } from 'lucide-react';
-import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { FileText, Download, Calendar, DollarSign, Users, TrendingUp, Filter, BarChart3 } from 'lucide-react';
+import { addDays, format, startOfDay, endOfDay, startOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import WeeklyClosingManager from '@/components/WeeklyClosingManager';
+import FilterPopup from '@/components/FilterPopup';
+import WeeklyOverviewSelector from '@/components/WeeklyOverviewSelector';
 
 interface ReportData {
   period: string;
@@ -45,9 +48,11 @@ const ReportsManager = () => {
   const [barbers, setBarbers] = useState<any[]>([]);
   const [selectedBarber, setSelectedBarber] = useState<string>('all');
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily');
+  const [selectedWeekStart, setSelectedWeekStart] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [customDateFrom, setCustomDateFrom] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [customDateTo, setCustomDateTo] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [generating, setGenerating] = useState(false);
+  const [generatingManagerial, setGeneratingManagerial] = useState(false);
   const [recalculatingProducts, setRecalculatingProducts] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -92,8 +97,8 @@ const ReportsManager = () => {
         end = endOfDay(today);
         break;
       case 'weekly':
-        start = startOfWeek(today, { weekStartsOn: 0 });
-        end = endOfWeek(today, { weekStartsOn: 0 });
+        start = startOfDay(parseLocalISODate(selectedWeekStart));
+        end = endOfDay(addDays(start, 6));
         break;
       case 'monthly':
         start = startOfMonth(today);
@@ -722,6 +727,212 @@ const ReportsManager = () => {
     }
   };
 
+  const generateManagerialDashboardPDF = (data: ReportData, operational: { total: number; completed: number; cancelled: number }, supplies: any) => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const gold: [number, number, number] = [245, 180, 30];
+    const dark: [number, number, number] = [22, 22, 22];
+    const green: [number, number, number] = [34, 197, 94];
+    const blue: [number, number, number] = [59, 130, 246];
+    const red: [number, number, number] = [239, 68, 68];
+    const currency = (value: number) => `R$ ${value.toFixed(2).replace('.', ',')}`;
+    const summary = data.summary;
+    const completion = operational.total > 0
+      ? Math.round((operational.completed / operational.total) * 100)
+      : 0;
+
+    doc.setFillColor(...dark);
+    doc.rect(0, 0, 297, 35, 'F');
+    doc.setTextColor(...gold);
+    doc.setFontSize(21);
+    doc.text('DASHBOARD GERENCIAL — BARBEARIA RAIMUNDOS', 14, 16);
+    doc.setTextColor(235, 235, 235);
+    doc.setFontSize(10);
+    doc.text(`Período: ${data.period}  |  Visão: ${data.barberName || 'Todos os barbeiros'}  |  Gerado em ${new Date().toLocaleString('pt-BR')}`, 14, 27);
+
+    const metrics = [
+      ['Faturamento total', currency(summary.grossRevenue), gold],
+      ['Comissões brutas', currency(summary.totalCommissions), blue],
+      ['Parte da barbearia', currency(summary.barbershopProfit), green],
+      ['Vales / adiantamentos', currency(summary.totalAdvances), red],
+      ['Comissão líquida', currency(summary.netProfit), gold],
+      ['Atendimentos', String(summary.totalAppointments), blue],
+    ] as const;
+    metrics.forEach(([label, value, color], index) => {
+      const x = 14 + index * 46;
+      doc.setFillColor(246, 246, 246);
+      doc.roundedRect(x, 43, 42, 24, 2, 2, 'F');
+      doc.setTextColor(85, 85, 85);
+      doc.setFontSize(8);
+      doc.text(label, x + 3, 50);
+      doc.setTextColor(...color);
+      doc.setFontSize(13);
+      doc.text(value, x + 3, 61);
+    });
+
+    doc.setTextColor(35, 35, 35);
+    doc.setFontSize(13);
+    doc.text('Composição financeira', 14, 79);
+    const total = Math.max(summary.grossRevenue, 1);
+    const commissionWidth = 120 * Math.max(summary.totalCommissions, 0) / total;
+    const shopWidth = 120 * Math.max(summary.barbershopProfit, 0) / total;
+    doc.setFillColor(...blue); doc.rect(14, 86, commissionWidth, 12, 'F');
+    doc.setFillColor(...green); doc.rect(14 + commissionWidth, 86, shopWidth, 12, 'F');
+    doc.setFontSize(9);
+    doc.text(`Comissões ${currency(summary.totalCommissions)}`, 14, 104);
+    doc.text(`Barbearia ${currency(summary.barbershopProfit)}`, 78, 104);
+
+    doc.setFontSize(13);
+    doc.text('Indicadores operacionais', 158, 79);
+    autoTable(doc, {
+      startY: 84,
+      margin: { left: 158, right: 14 },
+      head: [['Indicador', 'Resultado']],
+      body: [
+        ['Taxa de conclusão', `${completion}%`],
+        ['Agendamentos no período', String(operational.total)],
+        ['Cancelamentos', String(operational.cancelled)],
+        ['Ticket médio', currency(summary.totalAppointments ? summary.grossRevenue / summary.totalAppointments : 0)],
+        ['Receita por comissão paga', summary.totalCommissions ? (summary.grossRevenue / summary.totalCommissions).toFixed(2) : '0,00'],
+        ['Produtos confirmados', String(data.productSales.length)],
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: dark },
+      styles: { fontSize: 8 },
+    });
+
+    const barberRows = Object.values(data.barberDetails || {}).sort((a, b) => b.grossRevenue - a.grossRevenue);
+    doc.setFontSize(13);
+    doc.text('Desempenho por barbeiro', 14, 120);
+    autoTable(doc, {
+      startY: 125,
+      head: [['Barbeiro', 'Atendimentos', 'Faturamento', 'Comissão bruta', 'Vales', 'Comissão líquida']],
+      body: barberRows.map((item) => [item.name, item.appointments, currency(item.grossRevenue), currency(item.commission), currency(item.advances), currency(item.netCommission)]),
+      theme: 'striped',
+      headStyles: { fillColor: gold, textColor: dark },
+      styles: { fontSize: 8 },
+    });
+
+    doc.addPage('a4', 'landscape');
+    doc.setFillColor(...dark); doc.rect(0, 0, 297, 25, 'F');
+    doc.setTextColor(...gold); doc.setFontSize(18); doc.text('DETALHAMENTO E ANÁLISE', 14, 16);
+    const serviceCounts = new Map<string, { count: number; revenue: number }>();
+    data.appointments.forEach((item: any) => {
+      const name = item.service?.title || item.service_title || 'Serviço';
+      const current = serviceCounts.get(name) || { count: 0, revenue: 0 };
+      current.count += 1;
+      current.revenue += Number(item.final_price ?? item.service?.price ?? item.service_price ?? 0);
+      serviceCounts.set(name, current);
+    });
+    const rankedServices = [...serviceCounts.entries()].sort((a, b) => b[1].revenue - a[1].revenue);
+    const maxServiceRevenue = Math.max(...rankedServices.map(([, value]) => value.revenue), 1);
+    doc.setTextColor(35, 35, 35); doc.setFontSize(12); doc.text('Ranking de receita por serviço', 14, 34);
+    rankedServices.slice(0, 5).forEach(([name, value], index) => {
+      const y = 41 + index * 8;
+      doc.setFontSize(8); doc.setTextColor(70, 70, 70); doc.text(name.slice(0, 28), 14, y + 4);
+      doc.setFillColor(230, 230, 230); doc.rect(72, y, 92, 5, 'F');
+      doc.setFillColor(...gold); doc.rect(72, y, 92 * value.revenue / maxServiceRevenue, 5, 'F');
+      doc.setTextColor(35, 35, 35); doc.text(currency(value.revenue), 168, y + 4);
+    });
+    doc.setFontSize(12); doc.text('Participação dos barbeiros no faturamento', 202, 34);
+    const maxBarberRevenue = Math.max(...barberRows.map((item) => item.grossRevenue), 1);
+    barberRows.slice(0, 5).forEach((item, index) => {
+      const y = 41 + index * 8;
+      doc.setFontSize(8); doc.setTextColor(70, 70, 70); doc.text(item.name.slice(0, 18), 202, y + 4);
+      doc.setFillColor(230, 230, 230); doc.rect(235, y, 35, 5, 'F');
+      doc.setFillColor(...blue); doc.rect(235, y, 35 * item.grossRevenue / maxBarberRevenue, 5, 'F');
+      doc.setTextColor(35, 35, 35); doc.text(currency(item.grossRevenue), 273, y + 4);
+    });
+    autoTable(doc, {
+      startY: 88,
+      head: [['Serviço', 'Quantidade', 'Receita estimada']],
+      body: rankedServices.map(([name, value]) => [name, value.count, currency(value.revenue)]),
+      theme: 'grid',
+      headStyles: { fillColor: dark },
+      styles: { fontSize: 8 },
+    });
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    doc.setTextColor(35, 35, 35); doc.setFontSize(13); doc.text('Leitura gerencial', 14, finalY);
+    doc.setFontSize(9);
+    const observations = [
+      `• O período registrou ${operational.total} agendamentos, ${operational.completed} contabilizados e faturamento de ${currency(summary.grossRevenue)}.`,
+      `• A taxa de conclusão foi de ${completion}% e o ticket médio ficou em ${currency(summary.totalAppointments ? summary.grossRevenue / summary.totalAppointments : 0)}.`,
+      `• As comissões representaram ${summary.grossRevenue ? ((summary.totalCommissions / summary.grossRevenue) * 100).toFixed(1) : '0,0'}% do faturamento.`,
+      `• Foram descontados ${currency(summary.totalAdvances)} em vales/adiantamentos, resultando em ${currency(summary.netProfit)} de comissão líquida.`,
+    ];
+    doc.text(observations, 14, finalY + 8);
+    doc.addPage('a4', 'landscape');
+    doc.setFillColor(...dark); doc.rect(0, 0, 297, 25, 'F');
+    doc.setTextColor(...gold); doc.setFontSize(18); doc.text('ESTOQUE E CONSUMO DE INSUMOS', 14, 16);
+    const supplyMetrics = [
+      ['Valor atual investido', currency(supplies.invested), green],
+      ['Custo consumido', currency(supplies.consumedCost), gold],
+      ['Quantidade consumida', supplies.consumedQuantity.toLocaleString('pt-BR'), blue],
+      ['Itens abaixo do mínimo', String(supplies.low.length), red],
+      ['Lotes próximos da validade', String(supplies.near.length), gold],
+      ['Lotes vencidos', String(supplies.expired.length), red],
+    ] as const;
+    supplyMetrics.forEach(([label,value,color],index)=>{const x=14+index*46;doc.setFillColor(246,246,246);doc.roundedRect(x,34,42,22,2,2,'F');doc.setTextColor(85,85,85);doc.setFontSize(7.5);doc.text(label,x+3,41);doc.setTextColor(...color);doc.setFontSize(12);doc.text(value,x+3,51)});
+    doc.setTextColor(35,35,35);doc.setFontSize(12);doc.text('Cinco insumos mais consumidos',14,68);
+    const maxSupply=Math.max(...supplies.top.map((x:any)=>x.quantity),1);
+    supplies.top.slice(0,5).forEach((item:any,index:number)=>{const y=75+index*9;doc.setFontSize(8);doc.setTextColor(70,70,70);doc.text(item.name.slice(0,25),14,y+4);doc.setFillColor(230,230,230);doc.rect(60,y,85,5,'F');doc.setFillColor(...gold);doc.rect(60,y,85*item.quantity/maxSupply,5,'F');doc.setTextColor(35,35,35);doc.text(`${item.quantity.toLocaleString('pt-BR')} (${currency(item.cost)})`,149,y+4)});
+    doc.setFontSize(12);doc.text('Consumo por barbeiro',190,68);
+    supplies.byBarber.slice(0,5).forEach((item:any,index:number)=>{const y=75+index*9;doc.setFontSize(8);doc.text(`${item.name}: ${item.quantity.toLocaleString('pt-BR')} — ${currency(item.cost)}`,190,y+4)});
+    doc.setFontSize(11);doc.setTextColor(35,35,35);doc.text('Evolução diária do custo',14,126);
+    const dailyEntries=[...supplies.daily.entries()] as [string,number][];const maxDaily=Math.max(...dailyEntries.map(([,v])=>v),1);dailyEntries.slice(-14).forEach(([date,value],index)=>{const x=14+index*12;const height=18*value/maxDaily;doc.setFillColor(...green);doc.rect(x,148-height,8,height,'F');doc.setFontSize(6);doc.setTextColor(90,90,90);doc.text(date.slice(5).split('-').reverse().join('/'),x,153,{angle:45})});
+    autoTable(doc,{startY:160,head:[['Data','Insumo','Quantidade','Barbeiro','Custo','Observação']],body:supplies.rows.map((r:any)=>[new Date(`${r.date}T12:00:00`).toLocaleDateString('pt-BR'),r.item,r.quantity.toLocaleString('pt-BR'),r.barber,currency(r.cost),r.notes||'—']),theme:'striped',headStyles:{fillColor:dark},styles:{fontSize:7},margin:{left:14,right:14}});
+    const pages = (doc as any).internal.getNumberOfPages();
+    for (let page = 1; page <= pages; page++) {
+      doc.setPage(page); doc.setFontSize(8); doc.setTextColor(140, 140, 140); doc.text(`Página ${page} de ${pages}`, 284, 202, { align: 'right' });
+    }
+    doc.save(`dashboard-gerencial-${data.barberName?.replace(/\s+/g, '-').toLowerCase() || 'geral'}-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+  };
+
+  const handleGenerateManagerialReport = async () => {
+    setGeneratingManagerial(true);
+    try {
+      const data = await loadReportData();
+      const { start, end } = getDateRange();
+      let operationalQuery = supabase
+        .from('appointments')
+        .select('status')
+        .gte('appointment_date', format(start, 'yyyy-MM-dd'))
+        .lte('appointment_date', format(end, 'yyyy-MM-dd'));
+      if (selectedBarber !== 'all') operationalQuery = operationalQuery.eq('barber_id', selectedBarber);
+      const { data: operationalRows, error: operationalError } = await operationalQuery;
+      if (operationalError) throw operationalError;
+      const operational = {
+        total: operationalRows?.length || 0,
+        completed: operationalRows?.filter((item) => item.status === 'completed' || item.status === 'confirmed').length || 0,
+        cancelled: operationalRows?.filter((item) => item.status === 'cancelled').length || 0,
+      };
+      const database = supabase as any;
+      const [{ data: stockRows }, { data: batchRows }, { data: consumptionRows }, { data: barberRows }] = await Promise.all([
+        database.rpc('get_supply_stock'),
+        database.from('supply_batches').select('*'),
+        database.from('supply_consumptions').select('*').eq('status','active').gte('consumption_date',format(start,'yyyy-MM-dd')).lte('consumption_date',format(end,'yyyy-MM-dd')),
+        database.from('barbers').select('id,name'),
+      ]);
+      const consumptionIds=(consumptionRows||[]).map((item:any)=>item.id);
+      const { data: allocationRows }=consumptionIds.length
+        ? await database.from('supply_consumption_allocations').select('*').in('consumption_id',consumptionIds)
+        : { data: [] };
+      const itemNames=Object.fromEntries((stockRows||[]).map((item:any)=>[item.item_id,item.name]));
+      const barberNames=Object.fromEntries((barberRows||[]).map((item:any)=>[item.id,item.name]));
+      const costs=new Map<string,number>();(allocationRows||[]).forEach((a:any)=>costs.set(a.consumption_id,(costs.get(a.consumption_id)||0)+Number(a.quantity)*Number(a.unit_cost)));
+      const topMap=new Map<string,{name:string;quantity:number;cost:number}>(); const barberMap=new Map<string,{name:string;quantity:number;cost:number}>();
+      const rows=(consumptionRows||[]).map((c:any)=>{const cost=costs.get(c.id)||0;const top=topMap.get(c.item_id)||{name:itemNames[c.item_id]||'Insumo',quantity:0,cost:0};top.quantity+=Number(c.quantity);top.cost+=cost;topMap.set(c.item_id,top);const bar=barberMap.get(c.barber_id)||{name:barberNames[c.barber_id]||'Barbeiro',quantity:0,cost:0};bar.quantity+=Number(c.quantity);bar.cost+=cost;barberMap.set(c.barber_id,bar);return{date:c.consumption_date,item:itemNames[c.item_id]||'Insumo',quantity:Number(c.quantity),barber:barberNames[c.barber_id]||'Barbeiro',cost,notes:c.notes}});
+      const dateNow=format(new Date(),'yyyy-MM-dd');const warningDate=format(new Date(Date.now()+15*86400000),'yyyy-MM-dd');
+      const daily=new Map<string,number>();rows.forEach((r:any)=>daily.set(r.date,(daily.get(r.date)||0)+r.cost));
+      const supplies={invested:(batchRows||[]).reduce((t:number,b:any)=>t+Number(b.quantity_remaining)*Number(b.unit_cost),0),consumedCost:rows.reduce((t:number,r:any)=>t+r.cost,0),consumedQuantity:rows.reduce((t:number,r:any)=>t+r.quantity,0),low:(stockRows||[]).filter((x:any)=>x.active&&Number(x.current_stock)<=Number(x.minimum_stock)),expired:(batchRows||[]).filter((x:any)=>Number(x.quantity_remaining)>0&&x.expires_on&&x.expires_on<dateNow),near:(batchRows||[]).filter((x:any)=>Number(x.quantity_remaining)>0&&x.expires_on&&x.expires_on>=dateNow&&x.expires_on<=warningDate),top:[...topMap.values()].sort((a,b)=>b.quantity-a.quantity),byBarber:[...barberMap.values()].sort((a,b)=>b.quantity-a.quantity),daily:new Map([...daily.entries()].sort()),rows};
+      generateManagerialDashboardPDF(data, operational, supplies);
+      toast.success('Dashboard gerencial gerado com sucesso');
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao gerar o dashboard gerencial');
+    } finally {
+      setGeneratingManagerial(false);
+    }
+  };
+
   const handleRecalculateProductCommissions = async () => {
     try {
       setRecalculatingProducts(true);
@@ -810,25 +1021,38 @@ const ReportsManager = () => {
   };
 
   return (
+    <div className="space-y-6">
+      <WeeklyClosingManager canClose />
     <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       <CardHeader className="p-3 sm:p-4 md:p-6">
         <CardTitle className="flex items-center justify-between gap-2 text-lg sm:text-xl">
           <FileText className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
           Relatórios Financeiros
           <Button
+            size="sm"
+            className="ml-auto h-8 px-2 text-xs"
+            onClick={handleGenerateManagerialReport}
+            disabled={generatingManagerial}
+          >
+            {generatingManagerial ? <TrendingUp className="mr-1 h-3 w-3 animate-spin" /> : <BarChart3 className="mr-1 h-3 w-3" />}
+            <span className="hidden sm:inline">Dashboard PDF</span>
+            <span className="sm:hidden">PDF</span>
+          </Button>
+          <Button
             variant="outline"
             size="sm"
-            className="h-8 px-2 text-xs ml-auto"
+            className="h-8 px-2 text-xs"
             onClick={() => setShowFilters(v => !v)}
           >
             <Filter className="h-3 w-3 mr-1" />
-            {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+            Filtros
           </Button>
         </CardTitle>
       </CardHeader>
       <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
         <div className="space-y-4 sm:space-y-6">
-          <div className={`${showFilters ? '' : 'hidden'} grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 pb-3 border-b border-border`}>
+          <FilterPopup open={showFilters} onOpenChange={setShowFilters} title="Filtros do relatório">
+          <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-3">
             {/* Period Selection */}
             <div>
               <Label className="text-sm">Período do Relatório</Label>
@@ -867,6 +1091,8 @@ const ReportsManager = () => {
                 </SelectContent>
               </Select>
             </div>
+
+            {reportPeriod === 'weekly' && <WeeklyOverviewSelector value={selectedWeekStart} onChange={setSelectedWeekStart} />}
 
             {/* Barber Selection */}
             <div>
@@ -924,7 +1150,7 @@ const ReportsManager = () => {
           </div>
 
           {/* Custom Date Range */}
-          {reportPeriod === 'custom' && showFilters && (
+          {reportPeriod === 'custom' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 p-3 sm:p-4 bg-secondary/30 rounded-lg">
               <div>
                 <Label className="text-sm">Data Inicial</Label>
@@ -946,6 +1172,7 @@ const ReportsManager = () => {
               </div>
             </div>
           )}
+          </FilterPopup>
 
           {/* Info Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
@@ -999,6 +1226,7 @@ const ReportsManager = () => {
         </div>
       </CardContent>
     </Card>
+    </div>
   );
 };
 

@@ -18,12 +18,15 @@ import {
   DropdownMenuRadioGroup, 
   DropdownMenuRadioItem 
 } from '@/components/ui/dropdown-menu';
-import { format, startOfDay, endOfDay, startOfWeek, startOfMonth, endOfMonth, startOfYear } from 'date-fns';
+import { addDays, format, startOfDay, endOfDay, startOfWeek, startOfMonth, endOfMonth, startOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
+import WeeklyClosingManager from '@/components/WeeklyClosingManager';
+import FilterPopup from '@/components/FilterPopup';
+import WeeklyOverviewSelector from '@/components/WeeklyOverviewSelector';
 
 interface Appointment {
   id: string;
@@ -73,6 +76,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
   const [productSales, setProductSales] = useState<ProductSale[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year' | 'custom'>('week');
+  const [selectedWeekStart, setSelectedWeekStart] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [dateFrom, setDateFrom] = useState<string>(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [dateTo, setDateTo] = useState<string>(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
@@ -148,7 +152,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
         debounceRef.current = null;
       }
     };
-  }, [barberId, period, dateFrom, dateTo, filterType, filterService, filterStatus]);
+  }, [barberId, period, selectedWeekStart, dateFrom, dateTo, filterType, filterService, filterStatus]);
 
   // Realtime subscription - separate effect to avoid re-subscribing on filter changes
   useEffect(() => {
@@ -227,8 +231,8 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
         end = endOfDay(today);
         break;
       case 'week':
-        start = startOfWeek(today, { weekStartsOn: 0 });
-        end = today;
+        start = startOfDay(parseLocalISODate(selectedWeekStart));
+        end = endOfDay(addDays(start, 6));
         break;
       case 'month':
         start = startOfMonth(today);
@@ -239,7 +243,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
         end = today;
         break;
       default:
-        start = startOfWeek(today, { weekStartsOn: 0 });
+        start = startOfWeek(today, { weekStartsOn: 1 });
         end = today;
     }
 
@@ -538,7 +542,10 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
     }
     switch (period) {
       case 'day': return 'Hoje';
-      case 'week': return 'Esta Semana';
+      case 'week': {
+        const start = parseLocalISODate(selectedWeekStart);
+        return `${format(start, 'dd/MM/yyyy')} até ${format(addDays(start, 6), 'dd/MM/yyyy')}`;
+      }
       case 'month': return 'Este Mês';
       case 'year': return 'Este Ano';
       default: return 'Período';
@@ -557,6 +564,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
 
   return (
     <div className="space-y-6">
+      <WeeklyClosingManager barberId={barberId} canClose={false} />
       <div className="flex justify-end">
         <Button
           size="sm"
@@ -565,15 +573,11 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
           onClick={() => setShowFilters((v) => !v)}
         >
           <Filter className="h-3 w-3 mr-1" />
-          {showFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+          Filtros
         </Button>
       </div>
       {/* Filters */}
-      <Card className={`bg-card border-border ${showFilters ? '' : 'hidden'}`}>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Filtros</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <FilterPopup open={showFilters} onOpenChange={setShowFilters}>
           <div className="grid grid-cols-2 gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -593,6 +597,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
+            {period === 'week' && <WeeklyOverviewSelector value={selectedWeekStart} onChange={setSelectedWeekStart} />}
             {period === 'custom' && (
               <>
                 <div className="min-w-[160px]">
@@ -665,11 +670,10 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </CardContent>
-      </Card>
+      </FilterPopup>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="financial-metric-grid grid grid-cols-3 gap-2 lg:grid-cols-4 lg:gap-3">
         <Card className="bg-card border-border">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Minha Comissão Líquida ({getPeriodLabel()})</CardTitle>

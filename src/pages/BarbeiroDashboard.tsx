@@ -6,7 +6,7 @@ import type { Tables } from '@/integrations/supabase/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Calendar, ChevronLeft, ChevronRight, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors, Filter } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors, Filter, PackageCheck } from 'lucide-react';
 import { format, addMinutes as addMinutesDate } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogClose } from '@/components/ui/dialog';
@@ -38,6 +38,8 @@ import type { BarberAdvance } from '@/integrations/supabase/barberAdvances';
 import { generateUUID } from '@/utils/uuid';
 import { useOperatingHours, getDayKey } from '@/hooks/useOperatingHours';
 import { calculateReferralPrice } from '@/utils/referrals';
+import FilterPopup from '@/components/FilterPopup';
+import SupplyConsumptionPanel from '@/components/SupplyConsumptionPanel';
 
 type BarberRecord = Tables<'barbers'>;
 type ServiceRecord = Tables<'services'>;
@@ -3149,11 +3151,12 @@ const BarbeiroDashboard = () => {
         {(currentUserBarber || selectedBarber) && (
           <>
             <Tabs value={activeTab} onValueChange={setActiveTab as any} className="w-full">
-              <TabsList className="grid w-full grid-cols-4 mb-6">
-                <TabsTrigger value="agendamentos">Agendamentos</TabsTrigger>
-                <TabsTrigger value="horarios">Horários</TabsTrigger>
-                <TabsTrigger value="financeiro">Financeiro</TabsTrigger>
-                <TabsTrigger value="historico">Histórico</TabsTrigger>
+              <TabsList className="mb-4 flex h-auto w-full justify-start gap-1 overflow-x-auto p-1 sm:mb-6 sm:grid sm:grid-cols-5">
+                <TabsTrigger className="shrink-0 px-3 text-xs sm:text-sm" value="agendamentos">Agendamentos</TabsTrigger>
+                <TabsTrigger className="shrink-0 px-3 text-xs sm:text-sm" value="horarios">Horários</TabsTrigger>
+                <TabsTrigger className="shrink-0 px-3 text-xs sm:text-sm" value="financeiro">Financeiro</TabsTrigger>
+                <TabsTrigger value="insumos" className="shrink-0 gap-1 px-3 text-xs sm:text-sm"><PackageCheck className="hidden h-4 w-4 sm:block"/>Insumos</TabsTrigger>
+                <TabsTrigger className="shrink-0 px-3 text-xs sm:text-sm" value="historico">Histórico</TabsTrigger>
               </TabsList>
 
               <TabsContent value="agendamentos" className="space-y-6">
@@ -4543,6 +4546,10 @@ const BarbeiroDashboard = () => {
                 </Card>
               </TabsContent>
 
+              <TabsContent value="insumos" className="space-y-6">
+                <SupplyConsumptionPanel barberId={selectedBarber} />
+              </TabsContent>
+
               <TabsContent value="historico" className="space-y-6">
                 <Tabs value={historySectionTab} onValueChange={setHistorySectionTab as any} className="w-full">
                   <TabsList className="grid w-full grid-cols-2 mb-4">
@@ -4645,14 +4652,14 @@ const BarbeiroDashboard = () => {
                           className="h-8 px-2 text-xs"
                           onClick={() => setShowHistoryFilters((v) => !v)}
                         >
-                          {showHistoryFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+                          Filtros
                         </Button>
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent>
                     {/* Filtros */}
-                    <div className={`mb-4 pb-3 border-b border-border ${showHistoryFilters ? '' : 'hidden'}`}>
+                    <FilterPopup open={showHistoryFilters} onOpenChange={setShowHistoryFilters} title="Filtros do histórico de serviços">
                         <div className="grid grid-cols-2 gap-2">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -4735,7 +4742,7 @@ const BarbeiroDashboard = () => {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
-                    </div>
+                    </FilterPopup>
 
                     {loadingHistoryAppointments ? (
                       <div className="flex items-center justify-center py-8">
@@ -4924,12 +4931,12 @@ const BarbeiroDashboard = () => {
                         className="h-8 px-2 text-xs"
                         onClick={() => setShowProductHistoryFilters((v) => !v)}
                       >
-                        {showProductHistoryFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
+                        Filtros
                       </Button>
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className={`mb-4 pb-3 border-b border-border ${showProductHistoryFilters ? '' : 'hidden'}`}>
+                    <FilterPopup open={showProductHistoryFilters} onOpenChange={setShowProductHistoryFilters} title="Filtros do histórico de produtos">
                       <div className="grid grid-cols-3 gap-2">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -4999,7 +5006,7 @@ const BarbeiroDashboard = () => {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
-                    </div>
+                    </FilterPopup>
                     {loadingProductHistory ? (
                       <div className="flex items-center justify-center py-8">
                         <Loader2 className="h-6 w-6 animate-spin text-primary" />

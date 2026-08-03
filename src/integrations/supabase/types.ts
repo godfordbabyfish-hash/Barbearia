@@ -10,91 +10,10 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "13.0.5"
+    PostgrestVersion: "14.1"
   }
   public: {
     Tables: {
-      appointments: {
-        Row: {
-          appointment_date: string
-          appointment_time: string
-          barber_id: string
-          booking_type: string | null
-          client_id: string
-          client_name: string | null
-          created_at: string | null
-          id: string
-          notes: string | null
-          payment_method: string | null
-          photo_url: string | null
-          referral_coupon_id: string | null
-          original_price: number | null
-          discount_amount: number
-          final_price: number | null
-          commission_basis: string | null
-          service_id: string
-          status: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          appointment_date: string
-          appointment_time: string
-          barber_id: string
-          booking_type?: string | null
-          client_id: string
-          client_name?: string | null
-          created_at?: string | null
-          id?: string
-          notes?: string | null
-          payment_method?: string | null
-          photo_url?: string | null
-          referral_coupon_id?: string | null
-          original_price?: number | null
-          discount_amount?: number
-          final_price?: number | null
-          commission_basis?: string | null
-          service_id: string
-          status?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          appointment_date?: string
-          appointment_time?: string
-          barber_id?: string
-          booking_type?: string | null
-          client_id?: string
-          client_name?: string | null
-          created_at?: string | null
-          id?: string
-          notes?: string | null
-          payment_method?: string | null
-          photo_url?: string | null
-          referral_coupon_id?: string | null
-          original_price?: number | null
-          discount_amount?: number
-          final_price?: number | null
-          commission_basis?: string | null
-          service_id?: string
-          status?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "appointments_barber_id_fkey"
-            columns: ["barber_id"]
-            isOneToOne: false
-            referencedRelation: "barbers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "appointments_service_id_fkey"
-            columns: ["service_id"]
-            isOneToOne: false
-            referencedRelation: "services"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       appointment_payments: {
         Row: {
           amount: number
@@ -123,6 +42,97 @@ export type Database = {
             columns: ["appointment_id"]
             isOneToOne: false
             referencedRelation: "appointments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      appointments: {
+        Row: {
+          appointment_date: string
+          appointment_time: string
+          barber_id: string
+          booking_type: string | null
+          client_id: string
+          client_name: string | null
+          commission_basis: string | null
+          created_at: string | null
+          discount_amount: number
+          final_price: number | null
+          id: string
+          notes: string | null
+          original_price: number | null
+          payment_method: string | null
+          photo_url: string | null
+          referral_coupon_id: string | null
+          reminder_sent: boolean | null
+          service_id: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          appointment_date: string
+          appointment_time: string
+          barber_id: string
+          booking_type?: string | null
+          client_id: string
+          client_name?: string | null
+          commission_basis?: string | null
+          created_at?: string | null
+          discount_amount?: number
+          final_price?: number | null
+          id?: string
+          notes?: string | null
+          original_price?: number | null
+          payment_method?: string | null
+          photo_url?: string | null
+          referral_coupon_id?: string | null
+          reminder_sent?: boolean | null
+          service_id: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          appointment_date?: string
+          appointment_time?: string
+          barber_id?: string
+          booking_type?: string | null
+          client_id?: string
+          client_name?: string | null
+          commission_basis?: string | null
+          created_at?: string | null
+          discount_amount?: number
+          final_price?: number | null
+          id?: string
+          notes?: string | null
+          original_price?: number | null
+          payment_method?: string | null
+          photo_url?: string | null
+          referral_coupon_id?: string | null
+          reminder_sent?: boolean | null
+          service_id?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "appointments_barber_id_fkey"
+            columns: ["barber_id"]
+            isOneToOne: false
+            referencedRelation: "barbers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "appointments_referral_coupon_id_fkey"
+            columns: ["referral_coupon_id"]
+            isOneToOne: false
+            referencedRelation: "referral_coupons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "appointments_service_id_fkey"
+            columns: ["service_id"]
+            isOneToOne: false
+            referencedRelation: "services"
             referencedColumns: ["id"]
           },
         ]
@@ -289,7 +299,7 @@ export type Database = {
           {
             foreignKeyName: "barber_fixed_commissions_barber_id_fkey"
             columns: ["barber_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "barbers"
             referencedColumns: ["id"]
           },
@@ -337,11 +347,73 @@ export type Database = {
           },
         ]
       }
+      barber_schedules: {
+        Row: {
+          barber_id: string
+          close: string
+          closed: boolean
+          created_at: string
+          date: string
+          has_lunch: boolean
+          has_pause: boolean
+          id: string
+          lunch_end: string | null
+          lunch_start: string | null
+          observation: string | null
+          open: string
+          pause_end: string | null
+          pause_start: string | null
+          updated_at: string
+        }
+        Insert: {
+          barber_id: string
+          close?: string
+          closed?: boolean
+          created_at?: string
+          date: string
+          has_lunch?: boolean
+          has_pause?: boolean
+          id?: string
+          lunch_end?: string | null
+          lunch_start?: string | null
+          observation?: string | null
+          open?: string
+          pause_end?: string | null
+          pause_start?: string | null
+          updated_at?: string
+        }
+        Update: {
+          barber_id?: string
+          close?: string
+          closed?: boolean
+          created_at?: string
+          date?: string
+          has_lunch?: boolean
+          has_pause?: boolean
+          id?: string
+          lunch_end?: string | null
+          lunch_start?: string | null
+          observation?: string | null
+          open?: string
+          pause_end?: string | null
+          pause_start?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barber_schedules_barber_id_fkey"
+            columns: ["barber_id"]
+            isOneToOne: false
+            referencedRelation: "barbers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       barbers: {
         Row: {
           availability: Json | null
           created_at: string | null
-          experience: string
+          experience: string | null
           id: string
           image_url: string | null
           name: string
@@ -356,7 +428,7 @@ export type Database = {
         Insert: {
           availability?: Json | null
           created_at?: string | null
-          experience: string
+          experience?: string | null
           id?: string
           image_url?: string | null
           name: string
@@ -371,7 +443,7 @@ export type Database = {
         Update: {
           availability?: Json | null
           created_at?: string | null
-          experience?: string
+          experience?: string | null
           id?: string
           image_url?: string | null
           name?: string
@@ -382,6 +454,122 @@ export type Database = {
           user_id?: string | null
           visible?: boolean | null
           whatsapp_phone?: string | null
+        }
+        Relationships: []
+      }
+      daily_cash_movements: {
+        Row: {
+          amount: number
+          cash_session_id: string
+          created_at: string
+          created_by: string
+          id: string
+          idempotency_key: string
+          movement_type: string
+          reason: string
+        }
+        Insert: {
+          amount: number
+          cash_session_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          idempotency_key: string
+          movement_type: string
+          reason: string
+        }
+        Update: {
+          amount?: number
+          cash_session_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          idempotency_key?: string
+          movement_type?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_cash_movements_cash_session_id_fkey"
+            columns: ["cash_session_id"]
+            isOneToOne: false
+            referencedRelation: "daily_cash_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_cash_sessions: {
+        Row: {
+          business_date: string
+          card_sales: number | null
+          cash_difference: number | null
+          cash_sales: number | null
+          close_idempotency_key: string | null
+          closed_at: string | null
+          closed_by: string | null
+          closing_notes: string | null
+          counted_cash: number | null
+          created_at: string
+          expected_cash: number | null
+          id: string
+          open_idempotency_key: string
+          opened_at: string
+          opened_by: string
+          opening_balance: number
+          opening_notes: string | null
+          other_sales: number | null
+          pix_sales: number | null
+          status: string
+          total_sales: number | null
+          updated_at: string
+        }
+        Insert: {
+          business_date: string
+          card_sales?: number | null
+          cash_difference?: number | null
+          cash_sales?: number | null
+          close_idempotency_key?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
+          closing_notes?: string | null
+          counted_cash?: number | null
+          created_at?: string
+          expected_cash?: number | null
+          id?: string
+          open_idempotency_key: string
+          opened_at?: string
+          opened_by: string
+          opening_balance?: number
+          opening_notes?: string | null
+          other_sales?: number | null
+          pix_sales?: number | null
+          status?: string
+          total_sales?: number | null
+          updated_at?: string
+        }
+        Update: {
+          business_date?: string
+          card_sales?: number | null
+          cash_difference?: number | null
+          cash_sales?: number | null
+          close_idempotency_key?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
+          closing_notes?: string | null
+          counted_cash?: number | null
+          created_at?: string
+          expected_cash?: number | null
+          id?: string
+          open_idempotency_key?: string
+          opened_at?: string
+          opened_by?: string
+          opening_balance?: number
+          opening_notes?: string | null
+          other_sales?: number | null
+          pix_sales?: number | null
+          status?: string
+          total_sales?: number | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -406,93 +594,217 @@ export type Database = {
         }
         Relationships: []
       }
-      products: {
+      managerial_financial_closure_audit: {
         Row: {
-          category: string
-          created_at: string | null
-          description: string
+          actor_id: string
+          closure_id: string
+          event_at: string
+          event_type: string
           id: string
-          image_url: string | null
-          name: string
-          order_index: number | null
-          price: number
-          stock: number | null
-          updated_at: string | null
-          visible: boolean | null
+          metadata: Json
+          reason: string | null
         }
         Insert: {
-          category: string
-          created_at?: string | null
-          description: string
+          actor_id: string
+          closure_id: string
+          event_at?: string
+          event_type: string
           id?: string
-          image_url?: string | null
-          name: string
-          order_index?: number | null
-          price: number
-          stock?: number | null
-          updated_at?: string | null
-          visible?: boolean | null
+          metadata?: Json
+          reason?: string | null
         }
         Update: {
-          category?: string
-          created_at?: string | null
-          description?: string
+          actor_id?: string
+          closure_id?: string
+          event_at?: string
+          event_type?: string
           id?: string
-          image_url?: string | null
-          name?: string
-          order_index?: number | null
-          price?: number
-          stock?: number | null
-          updated_at?: string | null
-          visible?: boolean | null
+          metadata?: Json
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "managerial_financial_closure_audit_closure_id_fkey"
+            columns: ["closure_id"]
+            isOneToOne: false
+            referencedRelation: "managerial_financial_closures"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      managerial_financial_closures: {
+        Row: {
+          approved_advances: number
+          cash_difference: number
+          closed_at: string
+          closed_by: string
+          created_at: string
+          discounts_granted: number
+          gross_commissions: number
+          gross_revenue: number
+          id: string
+          idempotency_key: string
+          net_profit: number
+          notes: string | null
+          operational_expenses: number
+          period_end: string
+          period_start: string
+          previous_closure_id: string | null
+          product_commissions: number
+          product_revenue: number
+          reopened_at: string | null
+          reopened_by: string | null
+          reopening_reason: string | null
+          revision: number
+          service_commissions: number
+          service_revenue: number
+          snapshot: Json
+          status: string
+          supply_consumption_cost: number
+          updated_at: string
+        }
+        Insert: {
+          approved_advances?: number
+          cash_difference?: number
+          closed_at?: string
+          closed_by: string
+          created_at?: string
+          discounts_granted?: number
+          gross_commissions?: number
+          gross_revenue?: number
+          id?: string
+          idempotency_key: string
+          net_profit?: number
+          notes?: string | null
+          operational_expenses?: number
+          period_end: string
+          period_start: string
+          previous_closure_id?: string | null
+          product_commissions?: number
+          product_revenue?: number
+          reopened_at?: string | null
+          reopened_by?: string | null
+          reopening_reason?: string | null
+          revision?: number
+          service_commissions?: number
+          service_revenue?: number
+          snapshot: Json
+          status?: string
+          supply_consumption_cost?: number
+          updated_at?: string
+        }
+        Update: {
+          approved_advances?: number
+          cash_difference?: number
+          closed_at?: string
+          closed_by?: string
+          created_at?: string
+          discounts_granted?: number
+          gross_commissions?: number
+          gross_revenue?: number
+          id?: string
+          idempotency_key?: string
+          net_profit?: number
+          notes?: string | null
+          operational_expenses?: number
+          period_end?: string
+          period_start?: string
+          previous_closure_id?: string | null
+          product_commissions?: number
+          product_revenue?: number
+          reopened_at?: string | null
+          reopened_by?: string | null
+          reopening_reason?: string | null
+          revision?: number
+          service_commissions?: number
+          service_revenue?: number
+          snapshot?: Json
+          status?: string
+          supply_consumption_cost?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "managerial_financial_closures_previous_closure_id_fkey"
+            columns: ["previous_closure_id"]
+            isOneToOne: false
+            referencedRelation: "managerial_financial_closures"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      operational_expenses: {
+        Row: {
+          amount: number
+          category: string
+          created_at: string
+          created_by: string | null
+          description: string
+          expense_date: string
+          id: string
+          notes: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description: string
+          expense_date?: string
+          id?: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          expense_date?: string
+          id?: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
         }
         Relationships: []
       }
-      profiles: {
+      operational_usage_snapshots: {
         Row: {
-          birth_date: string | null
-          blocked: boolean | null
-          contact_email: string | null
-          created_at: string | null
-          cpf: string | null
+          appointments_created: number
+          completed_services: number
+          created_at: string
           id: string
-          is_temp_user: boolean | null
-          name: string
-          phone: string | null
-          photo_url: string | null
-          referral_code: string | null
-          updated_at: string | null
-          whatsapp: string | null
+          new_clients: number
+          snapshot_date: string
+          updated_at: string
+          whatsapp_failed: number
+          whatsapp_pending: number
         }
         Insert: {
-          birth_date?: string | null
-          blocked?: boolean | null
-          contact_email?: string | null
-          created_at?: string | null
-          cpf?: string | null
-          id: string
-          is_temp_user?: boolean | null
-          name: string
-          phone?: string | null
-          photo_url?: string | null
-          referral_code?: string | null
-          updated_at?: string | null
-          whatsapp?: string | null
+          appointments_created?: number
+          completed_services?: number
+          created_at?: string
+          id?: string
+          new_clients?: number
+          snapshot_date: string
+          updated_at?: string
+          whatsapp_failed?: number
+          whatsapp_pending?: number
         }
         Update: {
-          birth_date?: string | null
-          blocked?: boolean | null
-          contact_email?: string | null
-          created_at?: string | null
-          cpf?: string | null
+          appointments_created?: number
+          completed_services?: number
+          created_at?: string
           id?: string
-          is_temp_user?: boolean | null
-          name?: string
-          phone?: string | null
-          photo_url?: string | null
-          referral_code?: string | null
-          updated_at?: string | null
-          whatsapp?: string | null
+          new_clients?: number
+          snapshot_date?: string
+          updated_at?: string
+          whatsapp_failed?: number
+          whatsapp_pending?: number
         }
         Relationships: []
       }
@@ -578,16 +890,94 @@ export type Database = {
           },
         ]
       }
-      referrals: {
-        Row: { id:string; referrer_id:string; referred_id:string; referral_code:string; status:string; qualifying_appointment_id:string|null; created_at:string; qualified_at:string|null }
-        Insert: { id?:string; referrer_id:string; referred_id:string; referral_code:string; status?:string; qualifying_appointment_id?:string|null; created_at?:string; qualified_at?:string|null }
-        Update: { id?:string; referrer_id?:string; referred_id?:string; referral_code?:string; status?:string; qualifying_appointment_id?:string|null; created_at?:string; qualified_at?:string|null }
+      products: {
+        Row: {
+          category: string
+          created_at: string | null
+          description: string
+          id: string
+          image_url: string | null
+          name: string
+          order_index: number | null
+          price: number
+          stock: number | null
+          updated_at: string | null
+          visible: boolean | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          description: string
+          id?: string
+          image_url?: string | null
+          name: string
+          order_index?: number | null
+          price: number
+          stock?: number | null
+          updated_at?: string | null
+          visible?: boolean | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          description?: string
+          id?: string
+          image_url?: string | null
+          name?: string
+          order_index?: number | null
+          price?: number
+          stock?: number | null
+          updated_at?: string | null
+          visible?: boolean | null
+        }
         Relationships: []
       }
-      referral_coupons: {
-        Row: { id:string; owner_id:string; referral_id:string|null; discount_percent:number; discount_amount_limit:number|null; status:string; expires_at:string; used_appointment_id:string|null; created_at:string; used_at:string|null }
-        Insert: { id?:string; owner_id:string; referral_id?:string|null; discount_percent:number; discount_amount_limit?:number|null; status?:string; expires_at:string; used_appointment_id?:string|null; created_at?:string; used_at?:string|null }
-        Update: { id?:string; owner_id?:string; referral_id?:string|null; discount_percent?:number; discount_amount_limit?:number|null; status?:string; expires_at?:string; used_appointment_id?:string|null; created_at?:string; used_at?:string|null }
+      profiles: {
+        Row: {
+          birth_date: string | null
+          blocked: boolean | null
+          contact_email: string | null
+          cpf: string | null
+          created_at: string | null
+          id: string
+          is_temp_user: boolean | null
+          name: string
+          phone: string | null
+          photo_url: string | null
+          referral_code: string | null
+          updated_at: string | null
+          whatsapp: string | null
+        }
+        Insert: {
+          birth_date?: string | null
+          blocked?: boolean | null
+          contact_email?: string | null
+          cpf?: string | null
+          created_at?: string | null
+          id?: string
+          is_temp_user?: boolean | null
+          name: string
+          phone?: string | null
+          photo_url?: string | null
+          referral_code?: string | null
+          updated_at?: string | null
+          whatsapp?: string | null
+        }
+        Update: {
+          birth_date?: string | null
+          blocked?: boolean | null
+          contact_email?: string | null
+          cpf?: string | null
+          created_at?: string | null
+          id?: string
+          is_temp_user?: boolean | null
+          name?: string
+          phone?: string | null
+          photo_url?: string | null
+          referral_code?: string | null
+          updated_at?: string | null
+          whatsapp?: string | null
+        }
         Relationships: []
       }
       push_subscriptions: {
@@ -634,6 +1024,151 @@ export type Database = {
           },
         ]
       }
+      referral_coupons: {
+        Row: {
+          created_at: string
+          discount_amount_limit: number | null
+          discount_percent: number
+          expires_at: string
+          id: string
+          owner_id: string
+          referral_id: string | null
+          status: string
+          used_appointment_id: string | null
+          used_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          discount_amount_limit?: number | null
+          discount_percent: number
+          expires_at: string
+          id?: string
+          owner_id: string
+          referral_id?: string | null
+          status?: string
+          used_appointment_id?: string | null
+          used_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          discount_amount_limit?: number | null
+          discount_percent?: number
+          expires_at?: string
+          id?: string
+          owner_id?: string
+          referral_id?: string | null
+          status?: string
+          used_appointment_id?: string | null
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_coupons_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_coupons_referral_id_fkey"
+            columns: ["referral_id"]
+            isOneToOne: true
+            referencedRelation: "referrals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_coupons_used_appointment_id_fkey"
+            columns: ["used_appointment_id"]
+            isOneToOne: false
+            referencedRelation: "appointments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_notification_logs: {
+        Row: {
+          coupon_id: string
+          created_at: string
+          id: string
+          notification_type: string
+        }
+        Insert: {
+          coupon_id: string
+          created_at?: string
+          id?: string
+          notification_type: string
+        }
+        Update: {
+          coupon_id?: string
+          created_at?: string
+          id?: string
+          notification_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_notification_logs_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "referral_coupons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referrals: {
+        Row: {
+          created_at: string
+          id: string
+          qualified_at: string | null
+          qualifying_appointment_id: string | null
+          referral_code: string
+          referred_id: string
+          referrer_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          qualified_at?: string | null
+          qualifying_appointment_id?: string | null
+          referral_code: string
+          referred_id: string
+          referrer_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          qualified_at?: string | null
+          qualifying_appointment_id?: string | null
+          referral_code?: string
+          referred_id?: string
+          referrer_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referrals_qualifying_appointment_id_fkey"
+            columns: ["qualifying_appointment_id"]
+            isOneToOne: false
+            referencedRelation: "appointments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referrals_referred_id_fkey"
+            columns: ["referred_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referrals_referrer_id_fkey"
+            columns: ["referrer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       services: {
         Row: {
           created_at: string | null
@@ -676,6 +1211,57 @@ export type Database = {
         }
         Relationships: []
       }
+      shop_schedules: {
+        Row: {
+          close: string
+          closed: boolean
+          created_at: string
+          date: string
+          has_lunch: boolean
+          has_pause: boolean
+          id: string
+          lunch_end: string | null
+          lunch_start: string | null
+          observation: string | null
+          open: string
+          pause_end: string | null
+          pause_start: string | null
+          updated_at: string
+        }
+        Insert: {
+          close?: string
+          closed?: boolean
+          created_at?: string
+          date: string
+          has_lunch?: boolean
+          has_pause?: boolean
+          id?: string
+          lunch_end?: string | null
+          lunch_start?: string | null
+          observation?: string | null
+          open?: string
+          pause_end?: string | null
+          pause_start?: string | null
+          updated_at?: string
+        }
+        Update: {
+          close?: string
+          closed?: boolean
+          created_at?: string
+          date?: string
+          has_lunch?: boolean
+          has_pause?: boolean
+          id?: string
+          lunch_end?: string | null
+          lunch_start?: string | null
+          observation?: string | null
+          open?: string
+          pause_end?: string | null
+          pause_start?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       site_config: {
         Row: {
           config_key: string
@@ -700,6 +1286,319 @@ export type Database = {
         }
         Relationships: []
       }
+      supply_alert_notifications: {
+        Row: {
+          alert_date: string
+          alert_key: string
+          attempts: number
+          created_at: string
+          id: string
+          last_error: string | null
+          message: string
+          sent_at: string | null
+          status: string
+        }
+        Insert: {
+          alert_date: string
+          alert_key: string
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          message: string
+          sent_at?: string | null
+          status?: string
+        }
+        Update: {
+          alert_date?: string
+          alert_key?: string
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          message?: string
+          sent_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
+      supply_batches: {
+        Row: {
+          created_at: string
+          created_by: string
+          expires_on: string | null
+          id: string
+          invoice_reference: string | null
+          item_id: string
+          notes: string | null
+          purchased_on: string
+          quantity_received: number
+          quantity_remaining: number
+          supplier: string | null
+          total_cost: number
+          unit_cost: number
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          expires_on?: string | null
+          id?: string
+          invoice_reference?: string | null
+          item_id: string
+          notes?: string | null
+          purchased_on?: string
+          quantity_received: number
+          quantity_remaining: number
+          supplier?: string | null
+          total_cost: number
+          unit_cost: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          expires_on?: string | null
+          id?: string
+          invoice_reference?: string | null
+          item_id?: string
+          notes?: string | null
+          purchased_on?: string
+          quantity_received?: number
+          quantity_remaining?: number
+          supplier?: string | null
+          total_cost?: number
+          unit_cost?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supply_batches_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "supply_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supply_consumption_allocations: {
+        Row: {
+          batch_id: string
+          consumption_id: string
+          created_at: string
+          id: string
+          quantity: number
+          unit_cost: number
+        }
+        Insert: {
+          batch_id: string
+          consumption_id: string
+          created_at?: string
+          id?: string
+          quantity: number
+          unit_cost: number
+        }
+        Update: {
+          batch_id?: string
+          consumption_id?: string
+          created_at?: string
+          id?: string
+          quantity?: number
+          unit_cost?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supply_consumption_allocations_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "supply_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supply_consumption_allocations_consumption_id_fkey"
+            columns: ["consumption_id"]
+            isOneToOne: false
+            referencedRelation: "supply_consumptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supply_consumptions: {
+        Row: {
+          barber_id: string
+          consumption_date: string
+          created_at: string
+          created_by: string
+          id: string
+          idempotency_key: string
+          item_id: string
+          notes: string | null
+          quantity: number
+          reversal_reason: string | null
+          reversed_at: string | null
+          reversed_by: string | null
+          status: string
+        }
+        Insert: {
+          barber_id: string
+          consumption_date: string
+          created_at?: string
+          created_by: string
+          id?: string
+          idempotency_key: string
+          item_id: string
+          notes?: string | null
+          quantity: number
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          reversed_by?: string | null
+          status?: string
+        }
+        Update: {
+          barber_id?: string
+          consumption_date?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          idempotency_key?: string
+          item_id?: string
+          notes?: string | null
+          quantity?: number
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          reversed_by?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supply_consumptions_barber_id_fkey"
+            columns: ["barber_id"]
+            isOneToOne: false
+            referencedRelation: "barbers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supply_consumptions_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "supply_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supply_items: {
+        Row: {
+          active: boolean
+          category: string
+          created_at: string
+          created_by: string
+          expiry_warning_days: number
+          id: string
+          minimum_stock: number
+          name: string
+          notes: string | null
+          unit: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          category?: string
+          created_at?: string
+          created_by: string
+          expiry_warning_days?: number
+          id?: string
+          minimum_stock?: number
+          name: string
+          notes?: string | null
+          unit?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          category?: string
+          created_at?: string
+          created_by?: string
+          expiry_warning_days?: number
+          id?: string
+          minimum_stock?: number
+          name?: string
+          notes?: string | null
+          unit?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      supply_movements: {
+        Row: {
+          actor_id: string
+          barber_id: string | null
+          batch_id: string | null
+          consumption_id: string | null
+          created_at: string
+          id: string
+          item_id: string
+          movement_date: string
+          movement_type: string
+          notes: string | null
+          quantity: number
+          unit_cost: number
+        }
+        Insert: {
+          actor_id: string
+          barber_id?: string | null
+          batch_id?: string | null
+          consumption_id?: string | null
+          created_at?: string
+          id?: string
+          item_id: string
+          movement_date?: string
+          movement_type: string
+          notes?: string | null
+          quantity: number
+          unit_cost?: number
+        }
+        Update: {
+          actor_id?: string
+          barber_id?: string | null
+          batch_id?: string | null
+          consumption_id?: string | null
+          created_at?: string
+          id?: string
+          item_id?: string
+          movement_date?: string
+          movement_type?: string
+          notes?: string | null
+          quantity?: number
+          unit_cost?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supply_movements_barber_id_fkey"
+            columns: ["barber_id"]
+            isOneToOne: false
+            referencedRelation: "barbers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supply_movements_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "supply_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supply_movements_consumption_id_fkey"
+            columns: ["consumption_id"]
+            isOneToOne: false
+            referencedRelation: "supply_consumptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supply_movements_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "supply_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           id: string
@@ -718,20 +1617,616 @@ export type Database = {
         }
         Relationships: []
       }
+      weekly_financial_closures: {
+        Row: {
+          barber_id: string
+          closed_at: string
+          closed_by: string
+          competence_month: number
+          competence_year: number
+          created_at: string
+          id: string
+          snapshot: Json
+          week_end: string
+          week_number: number
+          week_start: string
+        }
+        Insert: {
+          barber_id: string
+          closed_at?: string
+          closed_by: string
+          competence_month: number
+          competence_year: number
+          created_at?: string
+          id?: string
+          snapshot: Json
+          week_end: string
+          week_number: number
+          week_start: string
+        }
+        Update: {
+          barber_id?: string
+          closed_at?: string
+          closed_by?: string
+          competence_month?: number
+          competence_year?: number
+          created_at?: string
+          id?: string
+          snapshot?: Json
+          week_end?: string
+          week_number?: number
+          week_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "weekly_financial_closures_barber_id_fkey"
+            columns: ["barber_id"]
+            isOneToOne: false
+            referencedRelation: "barbers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_ai_conversations: {
+        Row: {
+          created_at: string
+          customer_name: string | null
+          last_message_at: string
+          paused_until: string | null
+          phone: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          customer_name?: string | null
+          last_message_at?: string
+          paused_until?: string | null
+          phone: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          customer_name?: string | null
+          last_message_at?: string
+          paused_until?: string | null
+          phone?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      whatsapp_ai_messages: {
+        Row: {
+          content: string
+          created_at: string
+          delivery_status: string
+          direction: string
+          external_message_id: string | null
+          id: string
+          metadata: Json
+          phone: string
+          role: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          delivery_status?: string
+          direction: string
+          external_message_id?: string | null
+          id?: string
+          metadata?: Json
+          phone: string
+          role: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          delivery_status?: string
+          direction?: string
+          external_message_id?: string | null
+          id?: string
+          metadata?: Json
+          phone?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_ai_messages_phone_fkey"
+            columns: ["phone"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_ai_conversations"
+            referencedColumns: ["phone"]
+          },
+        ]
+      }
+      whatsapp_inactive_client_logs: {
+        Row: {
+          activity_date: string
+          client_id: string
+          cycle_number: number
+          id: string
+          inactivity_days: number
+          queued_at: string
+        }
+        Insert: {
+          activity_date: string
+          client_id: string
+          cycle_number: number
+          id?: string
+          inactivity_days: number
+          queued_at?: string
+        }
+        Update: {
+          activity_date?: string
+          client_id?: string
+          cycle_number?: number
+          id?: string
+          inactivity_days?: number
+          queued_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_inactive_client_logs_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_notifications_queue: {
+        Row: {
+          appointment_id: string | null
+          attempts: number | null
+          client_name: string
+          client_phone: string
+          created_at: string | null
+          error_message: string | null
+          id: string
+          message_action: string
+          payload: Json
+          processed_at: string | null
+          status: string | null
+          target_name: string | null
+          target_phone: string | null
+          target_type: string | null
+        }
+        Insert: {
+          appointment_id?: string | null
+          attempts?: number | null
+          client_name: string
+          client_phone: string
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          message_action: string
+          payload: Json
+          processed_at?: string | null
+          status?: string | null
+          target_name?: string | null
+          target_phone?: string | null
+          target_type?: string | null
+        }
+        Update: {
+          appointment_id?: string | null
+          attempts?: number | null
+          client_name?: string
+          client_phone?: string
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          message_action?: string
+          payload?: Json
+          processed_at?: string | null
+          status?: string | null
+          target_name?: string | null
+          target_phone?: string | null
+          target_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_notifications_queue_appointment_id_fkey"
+            columns: ["appointment_id"]
+            isOneToOne: false
+            referencedRelation: "appointments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_report_logs: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          goals_daily_pct: number
+          goals_monthly_pct: number
+          goals_weekly_pct: number
+          gross_revenue: number
+          id: string
+          metadata: Json
+          net_profit: number
+          period_end: string | null
+          period_start: string | null
+          phone_number: string | null
+          report_type: string
+          roi: number
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          goals_daily_pct?: number
+          goals_monthly_pct?: number
+          goals_weekly_pct?: number
+          gross_revenue?: number
+          id?: string
+          metadata?: Json
+          net_profit?: number
+          period_end?: string | null
+          period_start?: string | null
+          phone_number?: string | null
+          report_type: string
+          roi?: number
+          status: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          goals_daily_pct?: number
+          goals_monthly_pct?: number
+          goals_weekly_pct?: number
+          gross_revenue?: number
+          id?: string
+          metadata?: Json
+          net_profit?: number
+          period_end?: string | null
+          period_start?: string | null
+          phone_number?: string | null
+          report_type?: string
+          roi?: number
+          status?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      claim_referral: { Args: { p_code: string }; Returns: Database["public"]["Tables"]["referrals"]["Row"] }
-      complete_appointment_with_referral: { Args: { p_appointment_id:string; p_payments:Json; p_photo_url?:string|null; p_coupon_id?:string|null }; Returns: Json }
-      expire_referral_coupons: { Args: Record<PropertyKey, never>; Returns: number }
-      has_role: {
-        Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
-        }
+      calculate_daily_cash_totals: {
+        Args: { p_business_date: string }
+        Returns: Json
+      }
+      cancel_own_appointment: {
+        Args: { p_appointment_id: string; p_reason?: string }
         Returns: boolean
+      }
+      claim_referral: {
+        Args: { p_code: string }
+        Returns: {
+          created_at: string
+          id: string
+          qualified_at: string | null
+          qualifying_appointment_id: string | null
+          referral_code: string
+          referred_id: string
+          referrer_id: string
+          status: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "referrals"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      close_daily_cash: {
+        Args: {
+          p_cash_session_id: string
+          p_closing_notes: string
+          p_counted_cash: number
+          p_idempotency_key: string
+        }
+        Returns: {
+          business_date: string
+          card_sales: number | null
+          cash_difference: number | null
+          cash_sales: number | null
+          close_idempotency_key: string | null
+          closed_at: string | null
+          closed_by: string | null
+          closing_notes: string | null
+          counted_cash: number | null
+          created_at: string
+          expected_cash: number | null
+          id: string
+          open_idempotency_key: string
+          opened_at: string
+          opened_by: string
+          opening_balance: number
+          opening_notes: string | null
+          other_sales: number | null
+          pix_sales: number | null
+          status: string
+          total_sales: number | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "daily_cash_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      close_managerial_financial_period: {
+        Args: {
+          p_idempotency_key: string
+          p_notes: string
+          p_period_end: string
+          p_period_start: string
+        }
+        Returns: {
+          approved_advances: number
+          cash_difference: number
+          closed_at: string
+          closed_by: string
+          created_at: string
+          discounts_granted: number
+          gross_commissions: number
+          gross_revenue: number
+          id: string
+          idempotency_key: string
+          net_profit: number
+          notes: string | null
+          operational_expenses: number
+          period_end: string
+          period_start: string
+          previous_closure_id: string | null
+          product_commissions: number
+          product_revenue: number
+          reopened_at: string | null
+          reopened_by: string | null
+          reopening_reason: string | null
+          revision: number
+          service_commissions: number
+          service_revenue: number
+          snapshot: Json
+          status: string
+          supply_consumption_cost: number
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "managerial_financial_closures"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      complete_appointment_with_referral: {
+        Args: {
+          p_appointment_id: string
+          p_coupon_id?: string
+          p_payments: Json
+          p_photo_url?: string
+        }
+        Returns: Json
+      }
+      create_supply_batch: {
+        Args: {
+          p_expires_on?: string
+          p_invoice_reference?: string
+          p_item_id: string
+          p_notes?: string
+          p_purchased_on: string
+          p_quantity: number
+          p_supplier?: string
+          p_total_cost: number
+        }
+        Returns: string
+      }
+      delete_barber_advance_admin: {
+        Args: { advance_id: string }
+        Returns: Json
+      }
+      expire_referral_coupons: { Args: never; Returns: number }
+      get_barber_busy_slots: {
+        Args: { p_barber_id: string; p_date: string }
+        Returns: {
+          appointment_time: string
+          duration: number
+        }[]
+      }
+      get_daily_cash_summary: {
+        Args: { p_business_date: string }
+        Returns: Json
+      }
+      get_public_daily_queue: {
+        Args: never
+        Returns: {
+          appointment_date: string
+          appointment_id: string
+          appointment_time: string
+          barber_id: string
+          booking_type: string
+          client_display_name: string
+          duration: number
+          service_title: string
+          status: string
+        }[]
+      }
+      get_referrer_display_name: { Args: { p_code: string }; Returns: string }
+      get_service_booking_counts: {
+        Args: never
+        Returns: {
+          booking_count: number
+          service_id: string
+        }[]
+      }
+      get_supply_stock: {
+        Args: never
+        Returns: {
+          active: boolean
+          category: string
+          current_stock: number
+          expiry_warning_days: number
+          item_id: string
+          minimum_stock: number
+          name: string
+          nearest_expiry: string
+          notes: string
+          unit: string
+        }[]
+      }
+      get_whatsapp_ai_api_key: { Args: never; Returns: string }
+      has_role:
+        | { Args: { _role: string; _user_id: string }; Returns: boolean }
+        | {
+            Args: {
+              _role: Database["public"]["Enums"]["app_role"]
+              _user_id: string
+            }
+            Returns: boolean
+          }
+      has_whatsapp_ai_api_key: { Args: never; Returns: boolean }
+      invoke_referral_coupon_reminder: { Args: never; Returns: undefined }
+      invoke_sync_supabase_usage: { Args: never; Returns: undefined }
+      invoke_whatsapp_daily_report: { Args: never; Returns: undefined }
+      invoke_whatsapp_reminder: { Args: never; Returns: undefined }
+      is_referral_staff: { Args: never; Returns: boolean }
+      limpar_fila_whatsapp_antiga: { Args: never; Returns: undefined }
+      limpar_logs_relatorio_whatsapp_antigos: {
+        Args: never
+        Returns: undefined
+      }
+      open_daily_cash: {
+        Args: {
+          p_business_date: string
+          p_idempotency_key: string
+          p_opening_balance: number
+          p_opening_notes: string
+        }
+        Returns: {
+          business_date: string
+          card_sales: number | null
+          cash_difference: number | null
+          cash_sales: number | null
+          close_idempotency_key: string | null
+          closed_at: string | null
+          closed_by: string | null
+          closing_notes: string | null
+          counted_cash: number | null
+          created_at: string
+          expected_cash: number | null
+          id: string
+          open_idempotency_key: string
+          opened_at: string
+          opened_by: string
+          opening_balance: number
+          opening_notes: string | null
+          other_sales: number | null
+          pix_sales: number | null
+          status: string
+          total_sales: number | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "daily_cash_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      preview_managerial_financial_closure: {
+        Args: { p_period_end: string; p_period_start: string }
+        Returns: Json
+      }
+      record_daily_cash_movement: {
+        Args: {
+          p_amount: number
+          p_cash_session_id: string
+          p_idempotency_key: string
+          p_movement_type: string
+          p_reason: string
+        }
+        Returns: {
+          amount: number
+          cash_session_id: string
+          created_at: string
+          created_by: string
+          id: string
+          idempotency_key: string
+          movement_type: string
+          reason: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "daily_cash_movements"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      record_supply_consumption: {
+        Args: {
+          p_barber_id?: string
+          p_consumption_date: string
+          p_idempotency_key: string
+          p_item_id: string
+          p_notes: string
+          p_quantity: number
+        }
+        Returns: string
+      }
+      reopen_managerial_financial_period: {
+        Args: { p_closure_id: string; p_reason: string }
+        Returns: {
+          approved_advances: number
+          cash_difference: number
+          closed_at: string
+          closed_by: string
+          created_at: string
+          discounts_granted: number
+          gross_commissions: number
+          gross_revenue: number
+          id: string
+          idempotency_key: string
+          net_profit: number
+          notes: string | null
+          operational_expenses: number
+          period_end: string
+          period_start: string
+          previous_closure_id: string | null
+          product_commissions: number
+          product_revenue: number
+          reopened_at: string | null
+          reopened_by: string | null
+          reopening_reason: string | null
+          revision: number
+          service_commissions: number
+          service_revenue: number
+          snapshot: Json
+          status: string
+          supply_consumption_cost: number
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "managerial_financial_closures"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      reverse_supply_consumption: {
+        Args: { p_consumption_id: string; p_reason: string }
+        Returns: undefined
+      }
+      set_sync_supabase_usage_schedule: {
+        Args: { p_time: string }
+        Returns: Json
+      }
+      set_whatsapp_ai_api_key: {
+        Args: { p_api_key: string }
+        Returns: undefined
       }
     }
     Enums: {
@@ -867,3 +2362,4 @@ export const Constants = {
     },
   },
 } as const
+

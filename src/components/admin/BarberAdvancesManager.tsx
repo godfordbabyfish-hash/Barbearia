@@ -25,6 +25,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import FilterPopup from "@/components/FilterPopup";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,6 +46,7 @@ interface Barber {
 const BarberAdvancesManager = () => {
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [selectedBarberId, setSelectedBarberId] = useState<string>("all");
+  const [showFilters, setShowFilters] = useState(false);
   const [statusFilter, setStatusFilter] = useState<BarberAdvanceStatus | "all">("all");
   const [loading, setLoading] = useState(false);
   const [advances, setAdvances] = useState<BarberAdvance[]>([]);
@@ -321,6 +323,9 @@ const BarberAdvancesManager = () => {
         <CardHeader className="p-3 sm:p-4 md:p-6">
           <CardTitle className="flex flex-col sm:flex-row items-start sm:items-center gap-2 text-lg sm:text-xl">
             Vales de Barbeiros
+            <Button variant="outline" size="sm" className="sm:ml-auto h-8 px-2 text-xs" onClick={() => setShowFilters(true)}>
+              <Filter className="mr-1 h-3 w-3" />Filtros
+            </Button>
             {advances.filter(adv => adv.status === "pending").length > 0 && (
               <Badge variant="secondary" className="text-yellow-600 dark:text-yellow-400 text-xs">
                 {advances.filter(adv => adv.status === "pending").length} pendente{advances.filter(adv => adv.status === "pending").length > 1 ? 's' : ''}
@@ -330,6 +335,7 @@ const BarberAdvancesManager = () => {
         </CardHeader>
         <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
           <div className="space-y-3 sm:space-y-4">
+            <FilterPopup open={showFilters} onOpenChange={setShowFilters} title="Filtros de vales">
             <div className="grid grid-cols-2 gap-2">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -367,6 +373,7 @@ const BarberAdvancesManager = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+            </FilterPopup>
 
           {loading ? (
             <div className="flex items-center justify-center py-8">
