@@ -22,6 +22,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
+import BarberProductivityDashboard from '@/components/admin/BarberProductivityDashboard';
+import ManagementForecastDashboard from '@/components/admin/ManagementForecastDashboard';
 
 type ManagerDashboardProps = {
   onNavigate: (tab: string) => void;
@@ -285,6 +287,10 @@ export default function ManagerDashboard({ onNavigate }: ManagerDashboardProps) 
           ))}
         </CardContent>
       </Card>
+
+      <BarberProductivityDashboard />
+
+      <ManagementForecastDashboard onNavigate={onNavigate} />
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Button variant="outline" onClick={() => onNavigate('financial')}><CircleDollarSign className="mr-2 h-4 w-4" />Financeiro</Button>

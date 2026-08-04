@@ -14,6 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_audit_logs: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_role: string | null
+          changed_fields: string[]
+          id: number
+          module: string
+          new_data: Json | null
+          occurred_at: string
+          old_data: Json | null
+          record_id: string | null
+          source: string
+          table_name: string
+          transaction_id: number
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_role?: string | null
+          changed_fields?: string[]
+          id?: never
+          module: string
+          new_data?: Json | null
+          occurred_at?: string
+          old_data?: Json | null
+          record_id?: string | null
+          source?: string
+          table_name: string
+          transaction_id?: number
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_role?: string | null
+          changed_fields?: string[]
+          id?: never
+          module?: string
+          new_data?: Json | null
+          occurred_at?: string
+          old_data?: Json | null
+          record_id?: string | null
+          source?: string
+          table_name?: string
+          transaction_id?: number
+        }
+        Relationships: []
+      }
       appointment_payments: {
         Row: {
           amount: number
@@ -573,6 +621,57 @@ export type Database = {
         }
         Relationships: []
       }
+      expense_recurrence_rules: {
+        Row: {
+          active: boolean
+          amount: number
+          category: string
+          created_at: string
+          created_by: string | null
+          description: string
+          end_date: string | null
+          frequency: string
+          id: string
+          interval_count: number
+          next_due_date: string
+          notes: string | null
+          supplier: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          amount: number
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description: string
+          end_date?: string | null
+          frequency: string
+          id?: string
+          interval_count?: number
+          next_due_date: string
+          notes?: string | null
+          supplier?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          amount?: number
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          end_date?: string | null
+          frequency?: string
+          id?: string
+          interval_count?: number
+          next_due_date?: string
+          notes?: string | null
+          supplier?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       leads: {
         Row: {
           created_at: string
@@ -591,6 +690,42 @@ export type Database = {
           id?: string
           name?: string
           phone?: string
+        }
+        Relationships: []
+      }
+      management_alert_states: {
+        Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          alert_key: string
+          created_at: string
+          fingerprint: string
+          note: string | null
+          snoozed_until: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          alert_key: string
+          created_at?: string
+          fingerprint: string
+          note?: string | null
+          snoozed_until?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
+          alert_key?: string
+          created_at?: string
+          fingerprint?: string
+          note?: string | null
+          snoozed_until?: string | null
+          status?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -733,44 +868,123 @@ export type Database = {
           },
         ]
       }
+      operational_expense_audit: {
+        Row: {
+          actor_id: string | null
+          event_at: string
+          event_type: string
+          expense_id: string | null
+          id: number
+          new_data: Json | null
+          old_data: Json | null
+        }
+        Insert: {
+          actor_id?: string | null
+          event_at?: string
+          event_type: string
+          expense_id?: string | null
+          id?: never
+          new_data?: Json | null
+          old_data?: Json | null
+        }
+        Update: {
+          actor_id?: string | null
+          event_at?: string
+          event_type?: string
+          expense_id?: string | null
+          id?: never
+          new_data?: Json | null
+          old_data?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "operational_expense_audit_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "operational_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       operational_expenses: {
         Row: {
           amount: number
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
           category: string
           created_at: string
           created_by: string | null
           description: string
+          document_reference: string | null
+          due_date: string | null
           expense_date: string
           id: string
           notes: string | null
+          paid_at: string | null
+          paid_by: string | null
+          payment_method: string | null
+          recurrence_occurrence: string | null
+          recurring_rule_id: string | null
           status: string
+          supplier: string | null
           updated_at: string
         }
         Insert: {
           amount: number
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           category?: string
           created_at?: string
           created_by?: string | null
           description: string
+          document_reference?: string | null
+          due_date?: string | null
           expense_date?: string
           id?: string
           notes?: string | null
+          paid_at?: string | null
+          paid_by?: string | null
+          payment_method?: string | null
+          recurrence_occurrence?: string | null
+          recurring_rule_id?: string | null
           status?: string
+          supplier?: string | null
           updated_at?: string
         }
         Update: {
           amount?: number
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           category?: string
           created_at?: string
           created_by?: string | null
           description?: string
+          document_reference?: string | null
+          due_date?: string | null
           expense_date?: string
           id?: string
           notes?: string | null
+          paid_at?: string | null
+          paid_by?: string | null
+          payment_method?: string | null
+          recurrence_occurrence?: string | null
+          recurring_rule_id?: string | null
           status?: string
+          supplier?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "operational_expenses_recurring_rule_id_fkey"
+            columns: ["recurring_rule_id"]
+            isOneToOne: false
+            referencedRelation: "expense_recurrence_rules"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       operational_usage_snapshots: {
         Row: {
@@ -1894,9 +2108,45 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_bulk_commission: {
+        Args: { p_barber_id?: string; p_kind: string; p_percentage: number }
+        Returns: Json
+      }
       calculate_daily_cash_totals: {
         Args: { p_business_date: string }
         Returns: Json
+      }
+      cancel_operational_expense: {
+        Args: { p_expense_id: string; p_reason: string }
+        Returns: {
+          amount: number
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          category: string
+          created_at: string
+          created_by: string | null
+          description: string
+          document_reference: string | null
+          due_date: string | null
+          expense_date: string
+          id: string
+          notes: string | null
+          paid_at: string | null
+          paid_by: string | null
+          payment_method: string | null
+          recurrence_occurrence: string | null
+          recurring_rule_id: string | null
+          status: string
+          supplier: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "operational_expenses"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       cancel_own_appointment: {
         Args: { p_appointment_id: string; p_reason?: string }
@@ -2030,6 +2280,10 @@ export type Database = {
         Returns: Json
       }
       expire_referral_coupons: { Args: never; Returns: number }
+      generate_due_recurring_expenses: {
+        Args: { p_until?: string }
+        Returns: number
+      }
       get_barber_busy_slots: {
         Args: { p_barber_id: string; p_date: string }
         Returns: {
@@ -2037,8 +2291,58 @@ export type Database = {
           duration: number
         }[]
       }
+      get_barber_productivity_metrics: {
+        Args: { p_end: string; p_start: string }
+        Returns: {
+          available_minutes: number
+          average_ticket: number
+          barber_id: string
+          barber_name: string
+          booked_minutes: number
+          cancellation_rate: number
+          cancelled_appointments: number
+          completed_appointments: number
+          completion_rate: number
+          distinct_clients: number
+          idle_minutes: number
+          image_url: string
+          occupancy_rate: number
+          pending_finalizations: number
+          product_revenue: number
+          product_sales: number
+          productive_minutes: number
+          productive_rate: number
+          revenue_per_available_hour: number
+          service_revenue: number
+          total_appointments: number
+        }[]
+      }
       get_daily_cash_summary: {
         Args: { p_business_date: string }
+        Returns: Json
+      }
+      get_management_alerts: {
+        Args: { p_include_handled?: boolean }
+        Returns: {
+          acknowledged_at: string
+          acknowledged_by: string
+          action_label: string
+          alert_key: string
+          amount: number
+          fingerprint: string
+          item_count: number
+          message: string
+          module: string
+          severity: string
+          snoozed_until: string
+          source_updated_at: string
+          state_status: string
+          target_tab: string
+          title: string
+        }[]
+      }
+      get_management_demand_forecast: {
+        Args: { p_horizon_days?: number; p_reference_date?: string }
         Returns: Json
       }
       get_public_daily_queue: {
@@ -2099,6 +2403,10 @@ export type Database = {
         Args: never
         Returns: undefined
       }
+      next_expense_due_date: {
+        Args: { p_due_date: string; p_frequency: string; p_interval: number }
+        Returns: string
+      }
       open_daily_cash: {
         Args: {
           p_business_date: string
@@ -2133,6 +2441,43 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "daily_cash_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      pay_operational_expense: {
+        Args: {
+          p_document_reference?: string
+          p_expense_id: string
+          p_paid_at?: string
+          p_payment_method?: string
+        }
+        Returns: {
+          amount: number
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          category: string
+          created_at: string
+          created_by: string | null
+          description: string
+          document_reference: string | null
+          due_date: string | null
+          expense_date: string
+          id: string
+          notes: string | null
+          paid_at: string | null
+          paid_by: string | null
+          payment_method: string | null
+          recurrence_occurrence: string | null
+          recurring_rule_id: string | null
+          status: string
+          supplier: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "operational_expenses"
           isOneToOne: true
           isSetofReturn: false
         }
@@ -2219,6 +2564,32 @@ export type Database = {
       reverse_supply_consumption: {
         Args: { p_consumption_id: string; p_reason: string }
         Returns: undefined
+      }
+      set_management_alert_state: {
+        Args: {
+          p_alert_key: string
+          p_fingerprint: string
+          p_note?: string
+          p_snoozed_until?: string
+          p_status: string
+        }
+        Returns: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          alert_key: string
+          created_at: string
+          fingerprint: string
+          note: string | null
+          snoozed_until: string | null
+          status: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "management_alert_states"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       set_sync_supabase_usage_schedule: {
         Args: { p_time: string }

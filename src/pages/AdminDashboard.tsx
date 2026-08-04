@@ -37,6 +37,8 @@ import FilaDaBarbearia from '@/pages/FilaDaBarbearia';
 import ReferralPanel from '@/components/ReferralPanel';
 import SupplyInventoryManager from '@/components/admin/SupplyInventoryManager';
 import ManagerDashboard from '@/components/admin/ManagerDashboard';
+import AdminAuditManager from '@/components/admin/AdminAuditManager';
+import ManagementAlertCenter from '@/components/admin/ManagementAlertCenter';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -586,6 +588,10 @@ const AdminDashboard = () => {
               <div className="w-full min-w-0 space-y-4 pl-12 lg:pl-0" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
                 <ManagerDashboard onNavigate={setActiveTab} />
               </div>
+            )}
+
+            {activeTab === 'alerts' && (
+              <ManagementAlertCenter onNavigate={setActiveTab} />
             )}
 
             {activeTab === 'services-products' && (
@@ -1138,6 +1144,10 @@ const AdminDashboard = () => {
               <div className="w-full min-w-0 space-y-4 pl-12 lg:pl-0" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
                 <SupplyInventoryManager />
               </div>
+            )}
+
+            {activeTab === 'audit' && (
+              <AdminAuditManager />
             )}
 
             {activeTab === 'config' && (

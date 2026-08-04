@@ -17,7 +17,9 @@ import {
   ListChecks,
   Gift,
   Boxes,
-  LayoutDashboard
+  LayoutDashboard,
+  ShieldCheck,
+  BellRing
 } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
@@ -45,6 +47,7 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
 
   const menuItems: MenuItem[] = [
     { id: 'dashboard', label: 'Dashboard Gerencial', icon: <LayoutDashboard className="h-4 w-4" /> },
+    { id: 'alerts', label: 'Central de Alertas', icon: <BellRing className="h-4 w-4" /> },
     { id: 'services-products', label: 'Serviços & Produtos', icon: <Scissors className="h-4 w-4" /> },
     { id: 'users', label: 'Usuários', icon: <User className="h-4 w-4" />, adminOnly: true },
     { id: 'financial', label: 'Financeiro', icon: <DollarSign className="h-4 w-4" /> },
@@ -52,6 +55,7 @@ export const AdminSidebar = ({ activeTab, onTabChange, role }: AdminSidebarProps
     { id: 'fila', label: 'Fila', icon: <ListChecks className="h-4 w-4" /> },
     { id: 'referrals', label: 'Indicações', icon: <Gift className="h-4 w-4" /> },
     { id: 'supplies', label: 'Estoque de Insumos', icon: <Boxes className="h-4 w-4" /> },
+    { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="h-4 w-4" /> },
     { id: 'whatsapp', label: 'WhatsApp', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
     // Gestor também pode acessar as Configurações do Site
     { id: 'config', label: 'Configurações', icon: <Settings className="h-4 w-4" />, adminOnly: true },

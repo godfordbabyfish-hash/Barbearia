@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { addDays, format, subDays, subMonths, subYears, startOfDay, endOfDay, endOfMonth, startOfWeek, startOfMonth, startOfYear, parse } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
-import { IndividualCommissionManager } from '@/components/IndividualCommissionManager';
+import { CommissionConfigurationManager } from '@/components/CommissionConfigurationManager';
 import BarberAdvancesManager from '@/components/admin/BarberAdvancesManager';
 import ReportsManager from '@/components/admin/ReportsManager';
 import FilterPopup from '@/components/FilterPopup';
@@ -1425,7 +1425,7 @@ const FinancialDashboard = () => {
           </TabsContent>
           
           <TabsContent value="commissions" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
-            <IndividualCommissionManager />
+            <CommissionConfigurationManager />
           </TabsContent>
           
           <TabsContent value="advances" className="space-y-4 sm:space-y-6 mt-4 sm:mt-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
