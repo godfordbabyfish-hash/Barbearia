@@ -82,6 +82,11 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "cookie": path.resolve(__dirname, "./node_modules/cookie/index.js"),
+      "set-cookie-parser": path.resolve(__dirname, "./node_modules/set-cookie-parser/lib/set-cookie.js"),
     },
+  },
+  optimizeDeps: {
+    include: ["cookie", "set-cookie-parser"],
   },
 }));

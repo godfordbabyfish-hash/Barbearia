@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Pencil, Trash2, Plus, ArrowLeft, Upload, Image as ImageIcon, Loader2, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,6 +45,7 @@ const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, role, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [servicesProductsTab, setServicesProductsTab] = useState<'services' | 'products'>('services');
   const [services, setServices] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -577,15 +579,20 @@ const AdminDashboard = () => {
         activeTab={activeTab} 
         onTabChange={setActiveTab}
         role={role as 'admin' | 'gestor'}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
       />
 
       {/* Main Content */}
-      <main className="flex-1 lg:pl-64 bg-background overflow-x-hidden">
+      <main className={cn(
+        "flex-1 bg-background overflow-x-hidden transition-all duration-300 ease-in-out",
+        sidebarCollapsed ? "md:pl-16" : "md:pl-64"
+      )}>
         <div className="min-h-screen py-4 sm:py-6 px-2 sm:px-4 md:px-6 lg:px-8 pt-20 lg:pt-6 overflow-x-hidden">
           <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6 w-full overflow-x-hidden">
             {/* Content based on active tab */}
             {activeTab === 'dashboard' && (
-              <div className="w-full min-w-0 space-y-4 pl-12 lg:pl-0" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+              <div className="w-full min-w-0 space-y-4 pl-12 md:pl-0" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
                 <ManagerDashboard onNavigate={setActiveTab} />
               </div>
             )}
@@ -597,7 +604,7 @@ const AdminDashboard = () => {
             {activeTab === 'services-products' && (
               <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 w-full">
-                  <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Serviços & Produtos</h2>
+                  <h2 className="text-xl sm:text-2xl font-bold pl-12 md:pl-0">Serviços & Produtos</h2>
                 </div>
 
                 <Tabs value={servicesProductsTab} onValueChange={(value) => setServicesProductsTab(value as 'services' | 'products')} className="w-full" style={{ maxWidth: '100%' }}>
@@ -1115,7 +1122,7 @@ const AdminDashboard = () => {
 
             {activeTab === 'financial' && (
               <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
-                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Financeiro</h2>
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 md:pl-0">Financeiro</h2>
                 <FinancialDashboard />
               </div>
             )}
@@ -1128,20 +1135,20 @@ const AdminDashboard = () => {
 
             {activeTab === 'fila' && (
               <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
-                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Fila da Barbearia</h2>
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 md:pl-0">Fila da Barbearia</h2>
                 <FilaDaBarbearia />
               </div>
             )}
 
             {activeTab === 'referrals' && (
               <div className="space-y-4 sm:space-y-6 w-full">
-                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Programa de Indicações</h2>
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 md:pl-0">Programa de Indicações</h2>
                 <ReferralPanel mode="admin" />
               </div>
             )}
 
             {activeTab === 'supplies' && (
-              <div className="w-full min-w-0 space-y-4 pl-12 lg:pl-0" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+              <div className="w-full min-w-0 space-y-4 pl-12 md:pl-0" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
                 <SupplyInventoryManager />
               </div>
             )}
@@ -1152,7 +1159,7 @@ const AdminDashboard = () => {
 
             {activeTab === 'config' && (
               <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
-                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Configurações</h2>
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 md:pl-0">Configurações</h2>
             {/* A estimativa de Cached Egress foi removida da interface por não representar o consumo oficial. */}
             {/*
             <Card className="bg-card border-border">
@@ -1465,7 +1472,7 @@ const AdminDashboard = () => {
 
             {activeTab === 'images' && (
               <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
-                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">Gerenciar Imagens</h2>
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 md:pl-0">Gerenciar Imagens</h2>
                 <ImageManager />
               </div>
             )}
@@ -1478,7 +1485,7 @@ const AdminDashboard = () => {
 
             {activeTab === 'whatsapp' && (
               <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
-                <h2 className="text-xl sm:text-2xl font-bold pl-12 lg:pl-0">WhatsApp</h2>
+                <h2 className="text-xl sm:text-2xl font-bold pl-12 md:pl-0">WhatsApp</h2>
                 <WhatsAppManager />
               </div>
             )}

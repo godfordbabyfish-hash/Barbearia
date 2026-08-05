@@ -45,7 +45,7 @@ const options = {
   headers: {
     'Authorization': `Bearer ${token}`,
     'Content-Type': 'application/json',
-    'apikey': '<REMOVIDO_ROTACIONAR_CHAVE_SUPABASE>'
+    'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhYmVmbWdmc2F0bHVzZXZ4eWZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1MDgzMjYsImV4cCI6MjA4NDA4NDMyNn0.QJM-evofOHygDLm08gZpRPfOA9MnweBR67bNnNH5Bnc'
   }
 };
 

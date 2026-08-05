@@ -105,7 +105,7 @@ export default function AdminAuditManager() {
 
   const actionBadge = (value: AuditAction) => <Badge variant={value === 'delete' ? 'destructive' : value === 'insert' ? 'default' : 'secondary'}>{ACTION_LABELS[value]}</Badge>;
 
-  return <div className="space-y-4 pl-12 lg:pl-0">
+  return <div className="space-y-4 pl-12 md:pl-0">
     <div><h1 className="flex items-center gap-2 text-xl font-bold sm:text-2xl"><ShieldCheck className="h-6 w-6 text-primary" />Auditoria Administrativa</h1><p className="mt-1 text-sm text-muted-foreground">Rastreabilidade das alterações realizadas pela gestão e pelo sistema.</p></div>
     <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
       {[["Eventos no período", metrics.total, Activity], ["Alterações na página", metrics.updates, FilePenLine], ["Eventos críticos", metrics.critical, ShieldCheck], ["Responsáveis na página", metrics.actors, UserCog]].map(([title, value, Icon]) => <Card key={String(title)}><CardContent className="p-3 sm:p-4"><div className="flex justify-between gap-2"><div><p className="text-[11px] text-muted-foreground sm:text-sm">{String(title)}</p><p className="mt-1 text-xl font-bold sm:text-2xl">{String(value)}</p></div><Icon className="h-4 w-4 text-primary" /></div></CardContent></Card>)}

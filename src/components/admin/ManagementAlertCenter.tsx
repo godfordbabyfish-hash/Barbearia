@@ -148,7 +148,7 @@ export default function ManagementAlertCenter({ onNavigate }: Props) {
   const handledCount = alerts.length - active.length;
 
   return (
-    <div className="w-full min-w-0 space-y-5 pl-12 lg:pl-0">
+    <div className="w-full min-w-0 space-y-5 pl-12 md:pl-0">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold sm:text-2xl">

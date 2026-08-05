@@ -84,7 +84,7 @@ if not exist ".env" (
     
     (
         echo VITE_SUPABASE_PROJECT_ID=wabefmgfsatlusevxyfo
-        echo VITE_SUPABASE_PUBLISHABLE_KEY=<REMOVIDO_ROTACIONAR_CHAVE_SUPABASE>
+        echo VITE_SUPABASE_PUBLISHABLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhYmVmbWdmc2F0bHVzZXZ4eWZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg1MDgzMjYsImV4cCI6MjA4NDA4NDMyNn0.QJM-evofOHygDLm08gZpRPfOA9MnweBR67bNnNH5Bnc
         echo VITE_SUPABASE_URL=https://wabefmgfsatlusevxyfo.supabase.co
     ) > .env
     
