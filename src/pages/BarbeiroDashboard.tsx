@@ -6,7 +6,7 @@ import type { Tables } from '@/integrations/supabase/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Calendar, ChevronLeft, ChevronRight, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors, Filter, PackageCheck } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Clock, User, Plus, Upload, X, Camera, Loader2, LogOut, ShoppingBag, Settings, Smartphone, Banknote, CreditCard, Users, Scissors, Filter, PackageCheck, Gift } from 'lucide-react';
 import { format, addMinutes as addMinutesDate } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogClose } from '@/components/ui/dialog';
@@ -38,6 +38,7 @@ import type { BarberAdvance } from '@/integrations/supabase/barberAdvances';
 import { generateUUID } from '@/utils/uuid';
 import { useOperatingHours, getDayKey } from '@/hooks/useOperatingHours';
 import { calculateReferralPrice } from '@/utils/referrals';
+import { getReferralCouponCredit, summarizeReferralCoupons, type ReferralCouponSummary } from '@/utils/referralBenefits';
 import FilterPopup from '@/components/FilterPopup';
 import SupplyConsumptionPanel from '@/components/SupplyConsumptionPanel';
 
@@ -240,6 +241,7 @@ const BarbeiroDashboard = () => {
   const [availableReferralCoupons, setAvailableReferralCoupons] = useState<any[]>([]);
   const [selectedReferralCoupon, setSelectedReferralCoupon] = useState<string>('none');
   const [referralConfig, setReferralConfig] = useState<any>(null);
+  const [referralBenefitsByClient, setReferralBenefitsByClient] = useState<Record<string, ReferralCouponSummary>>({});
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [appointmentToCancel, setAppointmentToCancel] = useState<string | null>(null);
   const [cancellationReason, setCancellationReason] = useState('');
@@ -1329,6 +1331,7 @@ const BarbeiroDashboard = () => {
   // Sistema de notificações e Realtime
   const { isReady, showNotification } = useNotifications();
   const pendingNotifiedRef = useRef<Set<string>>(new Set());
+  const referralNotifiedRef = useRef<Set<string>>(new Set());
   const isReadyRef = useRef(isReady);
   const showNotificationRef = useRef(showNotification);
   useEffect(() => { isReadyRef.current = isReady; }, [isReady]);
@@ -1344,6 +1347,7 @@ const BarbeiroDashboard = () => {
     const lunchChannelName = `barber-lunch-${barberId}`;
     const schedulesChannelName = `barber-schedules-${barberId}`;
     const appointmentsChannelName = `appointments-barber-${barberId}`;
+    const referralCouponsChannelName = `referral-coupons-barber-${barberId}`;
 
     let breaksRemoved = false;
     const breaksChannel = supabase
@@ -1481,16 +1485,36 @@ const BarbeiroDashboard = () => {
         }
       });
 
+    let referralCouponsRemoved = false;
+    const referralCouponsChannel = supabase
+      .channel(referralCouponsChannelName)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'referral_coupons' },
+        () => {
+          debugLog('🎁 Créditos de indicação atualizados via Realtime');
+          void loadAppointments();
+        },
+      )
+      .subscribe((status) => {
+        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !referralCouponsRemoved) {
+          referralCouponsRemoved = true;
+          setTimeout(() => { try { supabase.removeChannel(referralCouponsChannel); } catch { /* ignore */ } }, 0);
+        }
+      });
+
     return () => {
       debugLog('🔴 Cleaning up Realtime subscriptions');
       breaksRemoved = true;
       lunchRemoved = true;
       appointmentsRemoved = true;
       schedulesRemoved = true;
+      referralCouponsRemoved = true;
       try { supabase.removeChannel(breaksChannel); } catch { /* ignore */ }
       try { supabase.removeChannel(lunchChannel); } catch { /* ignore */ }
       try { supabase.removeChannel(appointmentsChannel); } catch { /* ignore */ }
       try { supabase.removeChannel(schedulesChannel); } catch { /* ignore */ }
+      try { supabase.removeChannel(referralCouponsChannel); } catch { /* ignore */ }
     };
   }, [selectedBarber, currentUserBarber?.id, user?.id, isReady]);
 
@@ -1565,6 +1589,67 @@ const BarbeiroDashboard = () => {
     });
   };
 
+  const loadAppointmentReferralBenefits = async (baseAppointments: AppointmentWithRelations[]) => {
+    const clientIds = [...new Set(baseAppointments
+      .filter((appointment) => !appointment.isBreak && ['pending', 'confirmed'].includes(appointment.status))
+      .map((appointment) => appointment.client_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0))];
+
+    if (clientIds.length === 0) {
+      setReferralBenefitsByClient({});
+      return;
+    }
+
+    const { data: configRow } = await supabase
+      .from('site_config')
+      .select('config_value')
+      .eq('config_key', 'referral_program')
+      .maybeSingle();
+    const config = (configRow?.config_value || {}) as { enabled?: boolean; credit_base_amount?: number };
+    if (config.enabled !== true) {
+      setReferralBenefitsByClient({});
+      return;
+    }
+
+    const { data: coupons, error } = await (supabase as any)
+      .from('referral_coupons')
+      .select('owner_id, discount_percent, discount_amount_limit, expires_at')
+      .in('owner_id', clientIds)
+      .eq('status', 'available')
+      .gt('expires_at', new Date().toISOString());
+
+    if (error) {
+      console.error('Erro ao carregar créditos dos próximos clientes:', error);
+      return;
+    }
+
+    const grouped = (coupons || []).reduce((map: Record<string, any[]>, coupon: any) => {
+      (map[coupon.owner_id] ||= []).push(coupon);
+      return map;
+    }, {});
+    const summaries = Object.fromEntries(Object.entries(grouped)
+      .map(([clientId, clientCoupons]) => [
+        clientId,
+        summarizeReferralCoupons(clientCoupons as any[], Number(config.credit_base_amount || 25)),
+      ])
+      .filter((entry): entry is [string, ReferralCouponSummary] => Boolean(entry[1])));
+    setReferralBenefitsByClient(summaries);
+
+    const nextAppointment = [...baseAppointments]
+      .filter((appointment) => ['pending', 'confirmed'].includes(appointment.status) && appointment.client_id)
+      .sort((left, right) => `${left.appointment_date} ${left.appointment_time}`.localeCompare(`${right.appointment_date} ${right.appointment_time}`))[0];
+    const nextBenefit = nextAppointment?.client_id ? summaries[nextAppointment.client_id] : null;
+    if (nextAppointment && nextBenefit && !referralNotifiedRef.current.has(nextAppointment.id)) {
+      referralNotifiedRef.current.add(nextAppointment.id);
+      const clientName = nextAppointment.client_name || nextAppointment.client?.name || 'Próximo cliente';
+      const message = `${clientName} possui cupom de ${nextBenefit.maxPercent}% (até R$ ${nextBenefit.maxCredit.toFixed(2)}). Confirme antes da cobrança.`;
+      toast.warning('🎁 Próximo cliente com cupom', { description: message, duration: 10000 });
+      if (isReadyRef.current && showNotificationRef.current) {
+        void showNotificationRef.current('🎁 Próximo cliente com cupom', { body: message });
+      }
+    }
+  };
+
   const loadAppointments = async () => {
     const startedAt = performance.now();
     const targetBarber = selectedBarber || currentUserBarber?.id;
@@ -1609,6 +1694,7 @@ const BarbeiroDashboard = () => {
 
     const hydrated = await hydrateAppointmentsClients((appointmentsData || []) as AppointmentWithRelations[]);
     setAppointments(hydrated);
+    await loadAppointmentReferralBenefits(hydrated);
 
     logDashboardQueryMetric({
       query: 'appointments_operational',
@@ -2370,6 +2456,15 @@ const BarbeiroDashboard = () => {
     ]);
     setReferralConfig(cfg?.config_value || null);
     setAvailableReferralCoupons(coupons || []);
+    if ((cfg?.config_value as any)?.enabled === true && (coupons || []).length > 0) {
+      const summary = summarizeReferralCoupons(coupons || [], Number((cfg?.config_value as any)?.credit_base_amount || 25));
+      if (summary) {
+        toast.warning(`ATENÇÃO: este cliente possui cupom de ${summary.maxPercent}%`, {
+          description: `Crédito de até R$ ${summary.maxCredit.toFixed(2)}. Confirme com o cliente antes de cobrar.`,
+          duration: 8000,
+        });
+      }
+    }
   };
 
   const buildFinalPaymentsForAppointment = (appointmentId: string | null) => {
@@ -3727,6 +3822,9 @@ const BarbeiroDashboard = () => {
                                       } catch { return false; }
                                     })();
                                     const isBreak = appointment.isBreak || appointment.status === 'break';
+                                    const referralBenefit = !isBreak && appointment.client_id
+                                      ? referralBenefitsByClient[appointment.client_id]
+                                      : null;
                                     const clientName = isBreak
                                       ? (appointment.service?.title || 'Pausa')
                                       : (appointment.client_name || appointment.client?.name || 'Local');
@@ -3743,7 +3841,9 @@ const BarbeiroDashboard = () => {
 
                                     const cardClasses = isBreak
                                       ? 'p-2 rounded-lg border cursor-default bg-red-500/10 border-red-400'
-                                      : 'p-2 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-primary/5 border-primary/30';
+                                      : referralBenefit
+                                        ? 'p-2 rounded-lg border-2 cursor-pointer transition-all hover:shadow-md bg-amber-500/10 border-amber-400 shadow-[0_0_18px_rgba(251,191,36,0.12)]'
+                                        : 'p-2 rounded-lg border cursor-pointer transition-all hover:shadow-md bg-primary/5 border-primary/30';
 
                                     const isLunchBreak = isBreak && (appointment.break_type === 'lunch' || appointment.client_name === 'Almoço' || appointment.service?.title === 'Almoço');
 
@@ -3770,18 +3870,32 @@ const BarbeiroDashboard = () => {
                                         }}
                                       >
                                         <div className="flex items-center gap-2">
-                                          <Avatar className={`h-8 w-8 border ${isBreak ? 'border-red-400 bg-red-500/10' : 'border-border/60'}`}>
-                                            <AvatarImage src={isBreak ? '' : (appointment.client?.photo_url || '')} alt={clientName} />
-                                            <AvatarFallback className={isBreak ? 'bg-red-500/20 text-red-500 font-semibold' : 'bg-secondary text-foreground font-semibold'}>
-                                              {clientInitial}
-                                            </AvatarFallback>
-                                          </Avatar>
+                                          <div className="relative shrink-0">
+                                            <Avatar className={`h-8 w-8 border-2 ${isBreak ? 'border-red-400 bg-red-500/10' : referralBenefit ? 'border-amber-400 ring-2 ring-amber-400/30' : 'border-border/60'}`}>
+                                              <AvatarImage src={isBreak ? '' : (appointment.client?.photo_url || '')} alt={clientName} />
+                                              <AvatarFallback className={isBreak ? 'bg-red-500/20 text-red-500 font-semibold' : 'bg-secondary text-foreground font-semibold'}>
+                                                {clientInitial}
+                                              </AvatarFallback>
+                                            </Avatar>
+                                            {referralBenefit && (
+                                              <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border border-background bg-amber-400 text-black" title={`Cliente possui crédito de ${referralBenefit.maxPercent}%`}>
+                                                <Gift className="h-2.5 w-2.5" />
+                                              </span>
+                                            )}
+                                          </div>
                                           <div className="flex-1 space-y-1">
                                             <div className="flex items-center justify-between">
                                               <div className="flex items-center gap-2">
                                                 {isFit && (
                                                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-600 text-white shadow-sm uppercase tracking-wider">
                                                     Encaixe
+                                                  </span>
+                                                )}
+                                                {referralBenefit && (
+                                                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/70 bg-amber-400 px-2 py-0.5 text-[10px] font-black text-black shadow-sm">
+                                                    <Gift className="h-3 w-3" />
+                                                    CUPOM {referralBenefit.maxPercent}%
+                                                    {referralBenefit.count > 1 ? ` · ${referralBenefit.count} créditos` : ''}
                                                   </span>
                                                 )}
                                                 <p className={`font-semibold text-sm ${isBreak ? 'text-red-600' : ''}`}>
@@ -3806,6 +3920,11 @@ const BarbeiroDashboard = () => {
                                                   : `Cliente: ${clientName}`
                                                 }
                                               </p>
+                                              {referralBenefit && (
+                                                <p className="text-[11px] font-semibold text-amber-400">
+                                                  Avisar o cliente: crédito de até R$ {referralBenefit.maxCredit.toFixed(2)} disponível
+                                                </p>
+                                              )}
                                               <div className="flex items-center gap-2">
                                                 {!isBreak && (
                                                   <span className={`px-2 py-0.5 rounded text-xs font-medium border ${bookingTypeColor}`}>
@@ -5175,6 +5294,19 @@ const BarbeiroDashboard = () => {
                   Data: {new Date(selectedAppointmentForAction.appointment_date + 'T00:00:00').toLocaleDateString('pt-BR')} às {selectedAppointmentForAction.appointment_time.slice(0, 5)}
                 </DialogDescription>
               )}
+              {selectedAppointmentForAction?.client_id && referralBenefitsByClient[selectedAppointmentForAction.client_id] && (() => {
+                const benefit = referralBenefitsByClient[selectedAppointmentForAction.client_id!];
+                return (
+                  <div className="mt-3 rounded-lg border-2 border-amber-400 bg-amber-400/15 p-3 text-left" role="alert">
+                    <p className="flex items-center gap-2 font-black text-amber-400">
+                      <Gift className="h-5 w-5" /> CLIENTE COM CUPOM DE {benefit.maxPercent}%
+                    </p>
+                    <p className="mt-1 text-xs text-foreground">
+                      Crédito de até R$ {benefit.maxCredit.toFixed(2)}. Avise o cliente e confira o benefício antes da cobrança.
+                    </p>
+                  </div>
+                );
+              })()}
             </DialogHeader>
             <div className="space-y-3 pt-2">
               <Button
@@ -5196,7 +5328,9 @@ const BarbeiroDashboard = () => {
                   setCompleteDialogOpen(true);
                 }}
               >
-                Concluir atendimento
+                {selectedAppointmentForAction?.client_id && referralBenefitsByClient[selectedAppointmentForAction.client_id]
+                  ? `Concluir atendimento · CUPOM ${referralBenefitsByClient[selectedAppointmentForAction.client_id].maxPercent}%`
+                  : 'Concluir atendimento'}
               </Button>
               <Button
                 className="w-full bg-blue-600 hover:bg-blue-700"
@@ -5257,6 +5391,21 @@ const BarbeiroDashboard = () => {
               )}
             </DialogHeader>
             <div className="space-y-4 py-4">
+              {referralConfig?.enabled && availableReferralCoupons.length > 0 && (() => {
+                const summary = summarizeReferralCoupons(availableReferralCoupons, Number(referralConfig?.credit_base_amount || 25));
+                if (!summary) return null;
+                return (
+                  <div className="rounded-lg border-2 border-amber-400 bg-amber-400/15 p-3" role="alert">
+                    <p className="flex items-center gap-2 font-black text-amber-400">
+                      <Gift className="h-5 w-5" /> ATENÇÃO — CUPOM DE {summary.maxPercent}% DISPONÍVEL
+                    </p>
+                    <p className="mt-1 text-sm font-medium">
+                      Antes de cobrar, confirme com o cliente. Crédito de até R$ {summary.maxCredit.toFixed(2)} neste atendimento.
+                    </p>
+                    {summary.count > 1 && <p className="mt-1 text-xs text-muted-foreground">O cliente possui {summary.count} créditos; somente um pode ser usado por atendimento.</p>}
+                  </div>
+                );
+              })()}
               <p className="text-sm text-muted-foreground">
                 Tire uma foto do corte realizado para concluir o atendimento.
               </p>
@@ -5328,13 +5477,10 @@ const BarbeiroDashboard = () => {
                       <SelectContent>
                         <SelectItem value="none">Não aplicar cupom</SelectItem>
                         {availableReferralCoupons.map((coupon) => {
-                          const credit = Number(
-                            coupon.discount_amount_limit ??
-                            (Number(referralConfig?.credit_base_amount || 25) * Number(coupon.discount_percent || 0) / 100),
-                          );
+                          const credit = getReferralCouponCredit(coupon, Number(referralConfig?.credit_base_amount || 25));
                           return (
                             <SelectItem key={coupon.id} value={coupon.id}>
-                              Crédito de até R$ {credit.toFixed(2)} · vence {new Date(coupon.expires_at).toLocaleDateString('pt-BR')}
+                              {Number(coupon.discount_percent || 0)}% · crédito de até R$ {credit.toFixed(2)} · vence {new Date(coupon.expires_at).toLocaleDateString('pt-BR')}
                             </SelectItem>
                           );
                         })}

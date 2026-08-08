@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { LogOut, Calendar, Clock, Scissors, Sparkles, Wind, Home, ShoppingBag, History, Settings, Filter } from 'lucide-react';
+import { LogOut, Calendar, Clock, Scissors, Sparkles, Wind, Home, ShoppingBag, History, Settings, Filter, Gift } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu';
@@ -26,6 +26,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import ReferralPanel from '@/components/ReferralPanel';
 import FilterPopup from '@/components/FilterPopup';
+import { summarizeReferralCoupons, type ReferralCouponSummary } from '@/utils/referralBenefits';
 
 type HistoryFilterPeriod = 'all' | 'today' | 'week' | 'month' | 'year';
 type HistoryFilterStatus = 'all' | 'completed' | 'cancelled' | 'confirmed' | 'pending';
@@ -162,6 +163,7 @@ const ClienteDashboard = () => {
   const navigate = useNavigate();
   const [activeDashboardTab, setActiveDashboardTab] = useState('agendamentos');
   const [referralCampaignEnabled, setReferralCampaignEnabled] = useState(false);
+  const [referralCreditSummary, setReferralCreditSummary] = useState<ReferralCouponSummary | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -195,6 +197,44 @@ const ClienteDashboard = () => {
       void supabase.removeChannel(channel);
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || !referralCampaignEnabled) {
+      setReferralCreditSummary(null);
+      return;
+    }
+
+    let active = true;
+    const loadCredits = async () => {
+      const [{ data: configRow }, { data: coupons, error }] = await Promise.all([
+        supabase.from('site_config').select('config_value').eq('config_key', 'referral_program').maybeSingle(),
+        (supabase as any).from('referral_coupons')
+          .select('discount_percent, discount_amount_limit, expires_at')
+          .eq('owner_id', user.id)
+          .eq('status', 'available')
+          .gt('expires_at', new Date().toISOString()),
+      ]);
+      if (!active) return;
+      if (error) {
+        console.error('Erro ao carregar créditos de indicação do cliente:', error);
+        setReferralCreditSummary(null);
+        return;
+      }
+      const config = (configRow?.config_value || {}) as { credit_base_amount?: number };
+      setReferralCreditSummary(summarizeReferralCoupons(coupons || [], Number(config.credit_base_amount || 25)));
+    };
+
+    void loadCredits();
+    const channel = supabase
+      .channel(`client-referral-credit-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'referral_coupons', filter: `owner_id=eq.${user.id}` }, () => { void loadCredits(); })
+      .subscribe();
+
+    return () => {
+      active = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [user, referralCampaignEnabled]);
 
   useEffect(() => {
     const code = localStorage.getItem('pending_referral_code');
@@ -815,6 +855,19 @@ const ClienteDashboard = () => {
 
                     return upcoming ? (
                     <div className="space-y-1.5">
+                      {referralCreditSummary && (
+                        <div className="mb-3 rounded-lg border-2 border-amber-400 bg-amber-400/15 p-3" role="status">
+                          <p className="flex items-center gap-2 font-black text-amber-400">
+                            <Gift className="h-5 w-5" /> CUPOM DE {referralCreditSummary.maxPercent}% NO PRÓXIMO ATENDIMENTO
+                          </p>
+                          <p className="mt-1 text-xs text-foreground">
+                            Você possui crédito de até R$ {referralCreditSummary.maxCredit.toFixed(2)}. Avise o barbeiro antes do pagamento; a aplicação é feita na finalização.
+                          </p>
+                          {referralCreditSummary.count > 1 && (
+                            <p className="mt-1 text-xs text-muted-foreground">Você possui {referralCreditSummary.count} créditos disponíveis, sendo permitido usar um por atendimento.</p>
+                          )}
+                        </div>
+                      )}
                       <p className="font-bold text-base">
                         {upcoming.service.title}
                       </p>

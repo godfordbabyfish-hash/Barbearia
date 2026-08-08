@@ -78,6 +78,7 @@ const getOptimizedStorageAvatarUrl = (imageUrl?: string | null) => {
 
 const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const [currentTime, setCurrentTime] = useState("");
+  const [queueView, setQueueView] = useState<"today" | "future">("today");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [barbers, setBarbers] = useState<any[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
@@ -112,8 +113,9 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const [cancelling, setCancelling] = useState(false);
   const navigate = useNavigate();
   const { operatingHours, getTimeSlotsForDate, isDateOpen, loading: hoursLoading } = useOperatingHours();
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const canManageQueue = role === "admin" || role === "gestor" || role === "barbeiro";
+  const canViewFutureQueue = Boolean(user);
   const isReadOnly = readOnly || !canManageQueue;
 
   const normalizeTime = (value: string | undefined, fallback: string): string => {
@@ -256,11 +258,20 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
             services(title, duration),
             barbers(name, image_url)
           `)
-          .eq("appointment_date", today)
+          .gte("appointment_date", today)
           .neq("status", "completed")
           .neq("status", "cancelled")
+          .order("appointment_date")
           .order("appointment_time")
-      : await (supabase as any).rpc("get_public_daily_queue");
+      : await Promise.all([
+          (supabase as any).rpc("get_public_daily_queue"),
+          canViewFutureQueue
+            ? (supabase as any).rpc("get_public_upcoming_queue")
+            : Promise.resolve({ data: [], error: null }),
+        ]).then(([daily, upcoming]) => ({
+          data: [...(daily.data || []), ...(upcoming.data || [])],
+          error: daily.error || upcoming.error,
+        }));
 
     const error = result.error;
     const data = canManageQueue
@@ -598,14 +609,18 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
 
   // Agrupar agendamentos por barbeiro (similar ao BarbeiroDashboard)
   const getAppointmentsByBarber = () => {
-    // Filtrar agendamentos de hoje e futuros (pendentes e confirmados)
+    // Cada aba trabalha com seu próprio período para não misturar os
+    // contadores nem a ordem da fila atual com compromissos futuros.
     const relevantAppointments = appointments
       .filter(a => {
         const isActiveStatus = a.status === 'pending' || a.status === 'confirmed' || a.status === 'in_progress';
-        return isActiveStatus;
+        const isSelectedPeriod = queueView === 'today'
+          ? a.appointment_date === today
+          : a.appointment_date > today;
+        return isActiveStatus && isSelectedPeriod;
       })
       .sort((a, b) => {
-        return a.appointment_time.localeCompare(b.appointment_time);
+        return `${a.appointment_date} ${a.appointment_time}`.localeCompare(`${b.appointment_date} ${b.appointment_time}`);
       });
 
     // Agrupar por barbeiro
@@ -615,7 +630,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         barber,
         appointments: barberAppointments,
         todayCount: barberAppointments.filter(a => a.appointment_date === today).length,
-        upcomingCount: 0,
+        upcomingCount: barberAppointments.filter(a => a.appointment_date > today).length,
         inProgressCount: barberAppointments.filter(a => a.status === 'in_progress').length
       };
     });
@@ -631,8 +646,10 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
         if (aIsMe && !bIsMe) return -1;
         if (!aIsMe && bIsMe) return 1;
       }
-      if (a.todayCount > 0 && b.todayCount === 0) return -1;
-      if (a.todayCount === 0 && b.todayCount > 0) return 1;
+      const aPeriodCount = queueView === 'today' ? a.todayCount : a.upcomingCount;
+      const bPeriodCount = queueView === 'today' ? b.todayCount : b.upcomingCount;
+      if (aPeriodCount > 0 && bPeriodCount === 0) return -1;
+      if (aPeriodCount === 0 && bPeriodCount > 0) return 1;
       return a.barber.name.localeCompare(b.barber.name);
     });
   };
@@ -811,12 +828,15 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       </header>
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
-        <Tabs defaultValue="barbeiros" className="w-full">
-          <TabsList className="grid w-full grid-cols-1 mb-6">
-            <TabsTrigger value="barbeiros">Agendamentos de Hoje</TabsTrigger>
+        <Tabs value={queueView} onValueChange={(value) => setQueueView(value as "today" | "future")} className="w-full">
+          <TabsList className={`grid w-full ${canViewFutureQueue ? 'grid-cols-2' : 'grid-cols-1'} mb-6 h-auto p-1`}>
+            <TabsTrigger value="today" className="py-2.5">Agendamentos de Hoje</TabsTrigger>
+            {canViewFutureQueue && (
+              <TabsTrigger value="future" className="py-2.5">Agendamentos Futuros</TabsTrigger>
+            )}
           </TabsList>
 
-          <TabsContent value="barbeiros">
+          <TabsContent value={queueView}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
               {appointmentsByBarber.map(({ barber, appointments, todayCount, upcomingCount, inProgressCount }) => {
                 const slots = availableSlotsByBarber[barber.id] ?? [];
@@ -825,8 +845,8 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                 <button
                   key={barber.id}
                   type="button"
-                  onClick={isReadOnly || closedToday ? undefined : () => handleBarberCardClick(barber.id)}
-                  className={`bg-card border-2 rounded-xl shadow-lg transition-all duration-300 flex flex-col text-left ${closedToday ? 'border-destructive/40 opacity-80 cursor-not-allowed' : 'border-border'} ${isReadOnly || closedToday ? '' : 'hover:shadow-xl hover:border-primary hover:bg-primary/5 cursor-pointer'}`} style={{ minHeight: '400px' }}
+                  onClick={queueView === 'future' || isReadOnly || closedToday ? undefined : () => handleBarberCardClick(barber.id)}
+                  className={`bg-card border-2 rounded-xl shadow-lg transition-all duration-300 flex flex-col text-left ${queueView === 'today' && closedToday ? 'border-destructive/40 opacity-80 cursor-not-allowed' : 'border-border'} ${queueView === 'future' || isReadOnly || closedToday ? '' : 'hover:shadow-xl hover:border-primary hover:bg-primary/5 cursor-pointer'}`} style={{ minHeight: '400px' }}
                 >
                   <div className="p-4 border-b border-border">
                     <div className="flex flex-col items-center gap-3">
@@ -844,7 +864,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                       </Avatar>
                       <div className="text-center" translate="no">
                         <h3 className="font-bold text-lg text-primary"><span>{barber.name}</span></h3>
-                        {closedToday && (
+                        {queueView === 'today' && closedToday && (
                           <div className="mt-1">
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-destructive/20 text-destructive border border-destructive/30">
                               <Ban className="h-3 w-3" />
@@ -855,15 +875,15 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                         <div className="flex items-center justify-center gap-4 text-xs text-muted-foreground mt-1">
                           <span className="flex items-center gap-1">
                             <Clock className="h-3 w-3" />
-                            Hoje: {todayCount}
+                            {queueView === 'today' ? `Hoje: ${todayCount}` : `Futuros: ${upcomingCount}`}
                           </span>
-                          {!closedToday && (
+                          {queueView === 'today' && !closedToday && (
                             <span className="flex items-center gap-1">
                               <Clock className="h-3 w-3" />
                               Disponível até {(slots.length > 0 ? slots[slots.length - 1] : getBarberAvailableUntilToday(barber)) || '--:--'}
                             </span>
                           )}
-                          {(() => {
+                          {queueView === 'today' && (() => {
                             const breaks = barberBreaksByBarber[barber.id] || [];
                             const monthly = barberMonthlySchedules[barber.id];
                             const allBreaks = [
@@ -902,7 +922,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                             </span>
                           )}
                         </div>
-                        {(role === "admin" || role === "gestor") && (
+                        {queueView === 'today' && (role === "admin" || role === "gestor") && (
                           <div className="mt-2 flex items-center justify-center gap-2">
                             {closedToday ? (
                               <Button
@@ -933,7 +953,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                     </div>
                   </div>
 
-                  {slots.length > 0 && (
+                  {queueView === 'today' && slots.length > 0 && (
                     <div className="px-4 py-3 border-b border-border/50 flex flex-wrap gap-2 justify-center bg-secondary/10">
                       {slots.slice(0, 5).map((slot) => (
                         <span key={slot} className="px-3 py-1 bg-success text-success-foreground rounded-full text-sm font-bold shadow-sm">
@@ -954,7 +974,9 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                         <div className="text-center py-8 flex-1 flex items-center justify-center">
                           <div>
                             <Scissors className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-                            <p className="text-muted-foreground text-xs font-medium">Sem agendamentos</p>
+                            <p className="text-muted-foreground text-xs font-medium">
+                              {queueView === 'today' ? 'Sem agendamentos hoje' : 'Sem agendamentos futuros'}
+                            </p>
                           </div>
                         </div>
                       ) : (
@@ -1056,7 +1078,9 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                     </div>
                   </div>
                   <div className="p-3 pt-2 border-t border-border text-center">
-                    {isReadOnly ? (
+                    {queueView === 'future' ? (
+                      <p className="text-muted-foreground text-xs font-medium">Agenda futura (visualização informativa)</p>
+                    ) : isReadOnly ? (
                       <p className="text-muted-foreground text-xs font-medium">Visualização da fila (sem ações)</p>
                     ) : (
                       <div className="flex items-center justify-center gap-2">

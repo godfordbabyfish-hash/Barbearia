@@ -2359,6 +2359,20 @@ export type Database = {
           status: string
         }[]
       }
+      get_public_upcoming_queue: {
+        Args: never
+        Returns: {
+          appointment_date: string
+          appointment_id: string
+          appointment_time: string
+          barber_id: string
+          booking_type: string
+          client_display_name: string
+          duration: number
+          service_title: string
+          status: string
+        }[]
+      }
       get_referrer_display_name: { Args: { p_code: string }; Returns: string }
       get_service_booking_counts: {
         Args: never
@@ -2733,4 +2747,3 @@ export const Constants = {
     },
   },
 } as const
-
