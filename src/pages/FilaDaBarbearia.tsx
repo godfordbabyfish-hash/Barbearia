@@ -841,12 +841,26 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
               {appointmentsByBarber.map(({ barber, appointments, todayCount, upcomingCount, inProgressCount }) => {
                 const slots = availableSlotsByBarber[barber.id] ?? [];
                 const closedToday = isBarberClosedToday(barber);
+                const canManageThisBarber = role === "admin"
+                  || role === "gestor"
+                  || (role === "barbeiro" && barber.id === currentUserBarberId);
+                const canOpenBarberCard = queueView === 'today'
+                  && !isReadOnly
+                  && !closedToday
+                  && canManageThisBarber;
                 return (
-                <button
+                <div
                   key={barber.id}
-                  type="button"
-                  onClick={queueView === 'future' || isReadOnly || closedToday ? undefined : () => handleBarberCardClick(barber.id)}
-                  className={`bg-card border-2 rounded-xl shadow-lg transition-all duration-300 flex flex-col text-left ${queueView === 'today' && closedToday ? 'border-destructive/40 opacity-80 cursor-not-allowed' : 'border-border'} ${queueView === 'future' || isReadOnly || closedToday ? '' : 'hover:shadow-xl hover:border-primary hover:bg-primary/5 cursor-pointer'}`} style={{ minHeight: '400px' }}
+                  role={canOpenBarberCard ? "button" : undefined}
+                  tabIndex={canOpenBarberCard ? 0 : undefined}
+                  onClick={canOpenBarberCard ? () => handleBarberCardClick(barber.id) : undefined}
+                  onKeyDown={canOpenBarberCard ? (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handleBarberCardClick(barber.id);
+                    }
+                  } : undefined}
+                  className={`bg-card border-2 rounded-xl shadow-lg transition-all duration-300 flex flex-col text-left ${queueView === 'today' && closedToday ? 'border-destructive/40 opacity-80 cursor-not-allowed' : 'border-border'} ${canOpenBarberCard ? 'hover:shadow-xl hover:border-primary hover:bg-primary/5 cursor-pointer' : ''}`} style={{ minHeight: '400px' }}
                 >
                   <div className="p-4 border-b border-border">
                     <div className="flex flex-col items-center gap-3">
@@ -1080,8 +1094,10 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                   <div className="p-3 pt-2 border-t border-border text-center">
                     {queueView === 'future' ? (
                       <p className="text-muted-foreground text-xs font-medium">Agenda futura (visualização informativa)</p>
-                    ) : isReadOnly ? (
-                      <p className="text-muted-foreground text-xs font-medium">Visualização da fila (sem ações)</p>
+                    ) : isReadOnly || !canManageThisBarber ? (
+                      <p className="text-muted-foreground text-xs font-medium">
+                        {role === 'barbeiro' ? 'Agenda do colega (somente visualização)' : 'Visualização da fila (sem ações)'}
+                      </p>
                     ) : (
                       <div className="flex items-center justify-center gap-2">
                         <Button
@@ -1123,7 +1139,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                       </div>
                     )}
                   </div>
-                </button>
+                </div>
                 );
               })}
             </div>

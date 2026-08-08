@@ -352,42 +352,12 @@ const Booking = () => {
   
   // Estado para nome de cliente personalizado (para agendar para outra pessoa)
   const [customClientName, setCustomClientName] = useState("");
-  const [hasClientNameColumn, setHasClientNameColumn] = useState(true);
-  const [hasBarberBreaks, setHasBarberBreaks] = useState(true);
+  // Esses recursos fazem parte das migrations obrigatórias do sistema. Evita
+  // consultas de detecção antes da autenticação, que geravam 401 no navegador.
+  const hasClientNameColumn = true;
+  const hasBarberBreaks = true;
   const [selectedDateBreaks, setSelectedDateBreaks] = useState<{ start_time: string; end_time: string }[]>([]);
   const [barberHasSlotsToday, setBarberHasSlotsToday] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const { error } = await supabase
-          .from('appointments')
-          .select('client_name')
-          .limit(1);
-        if (error) {
-          setHasClientNameColumn(false);
-        }
-      } catch {
-        setHasClientNameColumn(false);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const { error } = await supabase
-          .from('barber_breaks')
-          .select('start_time')
-          .limit(1);
-        if (error) {
-          setHasBarberBreaks(false);
-        }
-      } catch {
-        setHasBarberBreaks(false);
-      }
-    })();
-  }, []);
 
   // Gerenciar serviço pré-selecionado (separado do carregamento de dados)
   useEffect(() => {

@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Pencil, Trash2, Loader2, Calendar, Clock, User, Scissors, ShoppingBag, Filter, CheckCircle2 } from 'lucide-react';
+import { Pencil, Trash2, Loader2, Calendar, Clock, User, Scissors, ShoppingBag, Filter, CheckCircle2, Search, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
@@ -108,6 +108,8 @@ const HistoricoCP = () => {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
   const [filterPayment, setFilterPayment] = useState<'all' | 'pix' | 'dinheiro' | 'cartao' | 'none'>('all');
+  const [filterClient, setFilterClient] = useState<string>('');
+  const [debouncedClient, setDebouncedClient] = useState<string>('');
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [manualType, setManualType] = useState<'service' | 'product'>('service');
   const [manualBarberId, setManualBarberId] = useState<string>('');
@@ -145,6 +147,11 @@ const HistoricoCP = () => {
   }, []);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedClient(filterClient.trim()), 350);
+    return () => window.clearTimeout(timer);
+  }, [filterClient]);
+
+  useEffect(() => {
     if (activeTab === 'services') {
       loadAppointments(servicesPage);
       return;
@@ -163,6 +170,7 @@ const HistoricoCP = () => {
     filterStatus,
     filterType,
     filterPayment,
+    debouncedClient,
   ]);
 
   useEffect(() => {
@@ -182,6 +190,7 @@ const HistoricoCP = () => {
     filterStatus,
     filterType,
     filterPayment,
+    debouncedClient,
   ]);
 
   const loadBarbers = async () => {
@@ -341,6 +350,35 @@ const HistoricoCP = () => {
       const rangeFrom = (safePage - 1) * HISTORICO_CP_PAGE_SIZE;
       const rangeTo = rangeFrom + HISTORICO_CP_PAGE_SIZE - 1;
 
+      let clientFilterExpression = '';
+      if (debouncedClient) {
+        const safeText = debouncedClient
+          .replace(/[,%()]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const phoneDigits = debouncedClient.replace(/\D/g, '');
+
+        if (safeText) {
+          const profileFilters = [`name.ilike.%${safeText}%`];
+          if (phoneDigits) profileFilters.push(`phone.ilike.%${phoneDigits}%`);
+
+          const { data: matchedProfiles, error: profileSearchError } = await supabase
+            .from('profiles')
+            .select('id')
+            .or(profileFilters.join(','))
+            .limit(500);
+
+          if (profileSearchError) throw profileSearchError;
+
+          const clientClauses = [`client_name.ilike.%${safeText}%`];
+          const matchedIds = (matchedProfiles || []).map((profile) => profile.id);
+          if (matchedIds.length > 0) {
+            clientClauses.push(`client_id.in.(${matchedIds.join(',')})`);
+          }
+          clientFilterExpression = clientClauses.join(',');
+        }
+      }
+
       let query = supabase
         .from('appointments')
         .select(`
@@ -351,6 +389,7 @@ const HistoricoCP = () => {
           status,
           notes,
           client_id,
+          client_name,
           barber_id,
           service_id,
           payment_method,
@@ -378,6 +417,9 @@ const HistoricoCP = () => {
       }
       if (filterType !== 'all') {
         query = query.eq('booking_type', filterType);
+      }
+      if (clientFilterExpression) {
+        query = query.or(clientFilterExpression);
       }
 
       if (filterPayment !== 'all') {
@@ -438,6 +480,9 @@ const HistoricoCP = () => {
         }
         if (filterType !== 'all') {
           totalsQuery = totalsQuery.eq('booking_type', filterType);
+        }
+        if (clientFilterExpression) {
+          totalsQuery = totalsQuery.or(clientFilterExpression);
         }
         if (filterPayment !== 'all') {
           if (filterPayment === 'none') {
@@ -1206,6 +1251,87 @@ const HistoricoCP = () => {
             </div>
           </FilterPopup>
 
+          <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-border bg-muted/20 p-3 sm:grid-cols-[minmax(190px,0.7fr)_minmax(260px,1.3fr)_auto] sm:items-end">
+            <div>
+              <Label htmlFor="history-calendar-date" className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                <Calendar className="h-4 w-4 text-primary" />
+                Calendário
+              </Label>
+              <Input
+                id="history-calendar-date"
+                type="date"
+                value={filterDateFrom && filterDateFrom === filterDateTo ? filterDateFrom : ''}
+                onChange={(event) => {
+                  const selectedDate = event.target.value;
+                  setFilterDateFrom(selectedDate);
+                  setFilterDateTo(selectedDate);
+                }}
+                className="h-10 w-full"
+                aria-label="Selecionar um dia do histórico"
+              />
+            </div>
+
+            {activeTab === 'services' && (
+              <div>
+                <Label htmlFor="history-client-search" className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                  <Search className="h-4 w-4 text-primary" />
+                  Pesquisar cliente
+                </Label>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="history-client-search"
+                    type="search"
+                    value={filterClient}
+                    onChange={(event) => setFilterClient(event.target.value)}
+                    placeholder="Nome ou telefone do cliente"
+                    className="h-10 w-full pl-9 pr-9"
+                  />
+                  {filterClient && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterClient('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      aria-label="Limpar pesquisa de cliente"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2 sm:flex">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-10"
+                onClick={() => {
+                  const todayValue = format(new Date(), 'yyyy-MM-dd');
+                  setFilterDateFrom(todayValue);
+                  setFilterDateTo(todayValue);
+                }}
+              >
+                Hoje
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-10"
+                disabled={!filterDateFrom && !filterDateTo && !filterClient}
+                onClick={() => {
+                  setFilterDateFrom('');
+                  setFilterDateTo('');
+                  setFilterClient('');
+                }}
+              >
+                Limpar
+              </Button>
+            </div>
+          </div>
+
           <div className="mb-4 sm:mb-6">
             <Card className="bg-card border-primary/40">
               <CardHeader className="pb-3">
@@ -1214,8 +1340,8 @@ const HistoricoCP = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-                  <div>
+                <div className="grid grid-cols-1 gap-3 items-end sm:grid-cols-[minmax(220px,1fr)_minmax(0,2fr)]">
+                  <div className="min-w-0">
                     <Label className="text-xs text-muted-foreground mb-1 block">Barbeiro</Label>
                     <Select value={manualBarberId} onValueChange={setManualBarberId}>
                       <SelectTrigger className="h-9 text-xs">
@@ -1230,10 +1356,10 @@ const HistoricoCP = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex flex-col sm:flex-row gap-2 sm:justify-end">
+                  <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2">
                     <Button
                       size="sm"
-                      className="flex-1 sm:flex-none"
+                      className="w-full min-w-0 whitespace-normal px-3"
                       onClick={() => handleOpenManualDialog('service')}
                       disabled={!manualBarberId}
                     >
@@ -1242,7 +1368,7 @@ const HistoricoCP = () => {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="flex-1 sm:flex-none"
+                      className="w-full min-w-0 whitespace-normal px-3"
                       onClick={() => handleOpenManualDialog('product')}
                       disabled={!manualBarberId}
                     >
