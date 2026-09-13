@@ -723,7 +723,7 @@ const ClienteDashboard = () => {
             <div className="absolute inset-0 pointer-events-none [mask-image:radial-gradient(250px_150px_at_10%_10%,black,transparent)] bg-[radial-gradient(ellipse_at_top_left,rgba(255,215,0,0.25),transparent_35%),radial-gradient(ellipse_at_bottom_right,rgba(255,215,0,0.12),transparent_35%)]"></div>
             <div className="relative p-4 sm:p-6 flex items-center gap-3 sm:gap-4">
               <Avatar className="h-10 w-10 sm:h-12 sm:w-12 ring-2 ring-primary/30">
-                <AvatarImage src={profilePhotoUrl || getUserMetadata(user).avatar_url || ''} alt={displayName || 'Usuário'} onError={(e) => { (e.currentTarget as HTMLImageElement).src = ''; }} />
+                <AvatarImage src={profilePhotoUrl || getUserMetadata(user).avatar_url || ''} alt={displayName || 'Usuário'} />
                 <AvatarFallback className="bg-primary/20 text-primary font-semibold">{(displayName || user?.email || 'U').charAt(0).toUpperCase()}</AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
@@ -926,7 +926,7 @@ const ClienteDashboard = () => {
             {/* Services Section */}
             {services.length > 0 && (
               <div className="mb-8">
-                {/* Serviços mais usados (3 cards) */}
+                {/* Serviços mais usados (2 cards) */}
                 {(() => {
                   // Seleciona top 3 por uso do cliente; se vazio, sugere pelo order_index (já aplicado no loadServices)
                   const sortedStats = [...serviceStats].sort((a, b) => b.count - a.count);
@@ -934,33 +934,46 @@ const ClienteDashboard = () => {
                   const topByClient = sortedStats
                     .map((stat) => services.find((s) => s.title === stat.title) || null)
                     .filter((s): s is ServiceRecord => Boolean(s));
-                  let topUsed: ServiceRecord[] = topByClient.slice(0, 3);
-                  if (topUsed.length < 3) {
-                    const extras = services.filter((s) => !topUsed.some((t) => t.id === s.id)).slice(0, 3 - topUsed.length);
+                  let topUsed: ServiceRecord[] = topByClient.slice(0, 2);
+                  if (topUsed.length < 2) {
+                    const extras = services.filter((s) => !topUsed.some((t) => t.id === s.id)).slice(0, 2 - topUsed.length);
                     topUsed = [...topUsed, ...extras];
                   }
                   if (topUsed.length === 0) return null;
                   return (
                     <div className="mb-6">
                       <h2 className="text-xl md:text-2xl font-bold mb-4">Serviços mais usados</h2>
-                      <div className="grid grid-cols-3 gap-2 md:gap-6">
-                        {topUsed.slice(0, 3).map((service) => {
+                      <div className="grid grid-cols-2 gap-3 md:max-w-3xl md:gap-6">
+                        {topUsed.slice(0, 2).map((service) => {
                           const Icon = iconMap[service.icon] || Scissors;
                           const imageUrl = service.image_url || defaultImages[service.title] || haircutImg;
+                          const image400 = getOptimizedStorageImageUrl(imageUrl, { width: 400, height: 300, quality: 60, resize: 'cover' });
+                          const image800 = getOptimizedStorageImageUrl(imageUrl, { width: 800, height: 600, quality: 60, resize: 'cover' });
                           const usage = countByTitle.get(service.title);
                           return (
                             <Card
                               key={`top-${service.id}`}
-                              className="group overflow-hidden border-border hover:border-primary transition-all duration-300 hover:shadow-gold cursor-pointer"
+                              className="group min-w-0 overflow-hidden border-border hover:border-primary transition-all duration-300 hover:shadow-gold cursor-pointer"
                               onClick={() => {
                                 if (blocked) return;
                                 navigate('/', { state: { preSelectedService: service, scrollToBooking: true } });
                               }}
                             >
-                              <div className="relative h-24 md:h-48 overflow-hidden">
+                              <div className="relative h-32 sm:h-36 md:h-48 overflow-hidden">
                                 <img
-                                  src={imageUrl}
+                                  src={image400}
+                                  srcSet={`${image400} 400w, ${image800} 800w`}
+                                  sizes="(max-width: 639px) 50vw, 33vw"
                                   alt={service.title}
+                                  loading="lazy"
+                                  decoding="async"
+                                  fetchPriority="low"
+                                  width={800}
+                                  height={600}
+                                  onError={(event) => {
+                                    event.currentTarget.srcset = '';
+                                    event.currentTarget.src = imageUrl;
+                                  }}
                                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                                 />
                                 {typeof usage === 'number' && usage > 0 && (
@@ -975,15 +988,15 @@ const ClienteDashboard = () => {
                                   <Icon className="w-4 h-4 md:w-6 md:h-6 text-primary" />
                                 </div>
                               </div>
-                              <CardContent className="p-2 md:p-4">
-                                <h3 className="text-base md:text-xl font-bold mb-1 group-hover:text-primary transition-colors flex items-center gap-2 whitespace-normal break-words leading-tight">
-                                  <Icon className="w-5 h-5" />
+                              <CardContent className="flex min-h-40 flex-col p-3 md:min-h-44 md:p-4">
+                                <h3 className="mb-1 flex min-w-0 items-start gap-1.5 text-sm font-bold leading-tight transition-colors group-hover:text-primary sm:text-base md:text-xl">
+                                  <Icon className="mt-0.5 hidden h-4 w-4 shrink-0 sm:block md:h-5 md:w-5" />
                                   {service.title}
                                 </h3>
-                                <p className="text-muted-foreground text-xs md:text-sm mb-2">
+                                <p className="mb-2 line-clamp-4 text-xs text-muted-foreground md:line-clamp-3 md:text-sm">
                                   {service.description}
                                 </p>
-                                <p className="text-sm md:text-2xl font-bold text-primary">
+                                <p className="mt-auto text-base font-bold text-primary md:text-2xl">
                                   R$ {service.price.toFixed(2)}
                                 </p>
                               </CardContent>
@@ -1007,7 +1020,7 @@ const ClienteDashboard = () => {
                   />
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 md:gap-6">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-6">
                   {services
                     .filter((service) =>
                       service.title.toLowerCase().includes(serviceSearch.toLowerCase())
@@ -1015,20 +1028,33 @@ const ClienteDashboard = () => {
                     .map((service) => {
                     const Icon = iconMap[service.icon] || Scissors;
                     const imageUrl = service.image_url || defaultImages[service.title] || haircutImg;
+                    const image400 = getOptimizedStorageImageUrl(imageUrl, { width: 400, height: 300, quality: 60, resize: 'cover' });
+                    const image800 = getOptimizedStorageImageUrl(imageUrl, { width: 800, height: 600, quality: 60, resize: 'cover' });
                     
                     return (
                       <Card 
                         key={service.id} 
-                        className="group overflow-hidden border-border hover:border-primary transition-all duration-300 hover:shadow-gold cursor-pointer"
+                        className="group min-w-0 overflow-hidden border-border hover:border-primary transition-all duration-300 hover:shadow-gold cursor-pointer"
                         onClick={() => {
                           if (blocked) return;
                           navigate('/', { state: { preSelectedService: service, scrollToBooking: true } });
                         }}
                       >
-                        <div className="relative h-24 md:h-48 overflow-hidden">
+                        <div className="relative h-32 sm:h-36 md:h-48 overflow-hidden">
                           <img
-                            src={imageUrl}
+                            src={image400}
+                            srcSet={`${image400} 400w, ${image800} 800w`}
+                            sizes="(max-width: 639px) 50vw, 33vw"
                             alt={service.title}
+                            loading="lazy"
+                            decoding="async"
+                            fetchPriority="low"
+                            width={800}
+                            height={600}
+                            onError={(event) => {
+                              event.currentTarget.srcset = '';
+                              event.currentTarget.src = imageUrl;
+                            }}
                             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-background/90 to-transparent"></div>
@@ -1036,15 +1062,15 @@ const ClienteDashboard = () => {
                             <Icon className="w-4 h-4 md:w-6 md:h-6 text-primary" />
                           </div>
                         </div>
-                        <CardContent className="p-2 md:p-4">
-                          <h3 className="text-base md:text-xl font-bold mb-1 group-hover:text-primary transition-colors flex items-center gap-2 whitespace-normal break-words leading-tight">
-                            <Icon className="w-5 h-5" />
+                        <CardContent className="flex min-h-40 flex-col p-3 md:min-h-44 md:p-4">
+                          <h3 className="mb-1 flex min-w-0 items-start gap-1.5 text-sm font-bold leading-tight transition-colors group-hover:text-primary sm:text-base md:text-xl">
+                            <Icon className="mt-0.5 hidden h-4 w-4 shrink-0 sm:block md:h-5 md:w-5" />
                             {service.title}
                           </h3>
-                          <p className="text-muted-foreground text-xs md:text-sm mb-2">
+                          <p className="mb-2 line-clamp-4 text-xs text-muted-foreground md:line-clamp-3 md:text-sm">
                             {service.description}
                           </p>
-                          <p className="text-sm md:text-2xl font-bold text-primary">
+                          <p className="mt-auto text-base font-bold text-primary md:text-2xl">
                             R$ {service.price.toFixed(2)}
                           </p>
                         </CardContent>
@@ -1054,7 +1080,7 @@ const ClienteDashboard = () => {
                   {services.filter((service) =>
                     service.title.toLowerCase().includes(serviceSearch.toLowerCase())
                   ).length === 0 && (
-                    <p className="col-span-3 text-center text-sm text-muted-foreground">
+                    <p className="col-span-full text-center text-sm text-muted-foreground">
                       Nenhum serviço encontrado com esse nome.
                     </p>
                   )}

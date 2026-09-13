@@ -31,6 +31,7 @@ import ImageManager from '@/components/admin/ImageManager';
 import OperatingHoursEditor from '@/components/admin/OperatingHoursEditor';
 import { UserManager } from '@/components/admin/UserManager';
 import { uploadPublicImage, uploadPublicImageVariants } from '@/utils/storage';
+import { getOptimizedStorageImageUrl } from '@/utils/images';
 import { WhatsAppManager } from '@/components/admin/WhatsAppManager';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
@@ -585,11 +586,11 @@ const AdminDashboard = () => {
 
       {/* Main Content */}
       <main className={cn(
-        "flex-1 bg-background overflow-x-hidden transition-all duration-300 ease-in-out",
+        "min-w-0 flex-1 bg-background overflow-x-hidden transition-all duration-300 ease-in-out",
         sidebarCollapsed ? "md:pl-16" : "md:pl-64"
       )}>
-        <div className="min-h-screen py-4 sm:py-6 px-2 sm:px-4 md:px-6 lg:px-8 pt-20 lg:pt-6 overflow-x-hidden">
-          <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6 w-full overflow-x-hidden">
+        <div className={cn("min-h-screen overflow-x-hidden px-2 py-4 pt-20 sm:px-4 sm:py-6 md:px-6 lg:pt-6", activeTab === 'historico-cp' ? 'lg:px-4' : 'lg:px-8')}>
+          <div className={cn("mx-auto w-full min-w-0 space-y-4 overflow-x-hidden sm:space-y-6", activeTab === 'historico-cp' ? 'max-w-none' : 'max-w-7xl')}>
             {/* Content based on active tab */}
             {activeTab === 'dashboard' && (
               <div className="w-full min-w-0 space-y-4 pl-12 md:pl-0" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
@@ -694,7 +695,7 @@ const AdminDashboard = () => {
                           />
                           {editingService.image_url && (
                             <div className="flex items-center gap-2">
-                              <img src={editingService.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                              <img src={getOptimizedStorageImageUrl(editingService.image_url, { width: 160, height: 160, quality: 65, resize: 'cover' })} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
                               <Button
                                 type="button"
                                 variant="destructive"
@@ -726,7 +727,7 @@ const AdminDashboard = () => {
                     <CardContent className="p-4">
                       <div className="space-y-3">
                         {service.image_url && (
-                          <img src={service.image_url} alt={service.title} className="w-full h-32 object-cover rounded-lg" />
+                          <img src={getOptimizedStorageImageUrl(service.image_url, { width: 480, height: 256, quality: 60, resize: 'cover' })} alt={service.title} loading="lazy" decoding="async" className="w-full h-32 object-cover rounded-lg" />
                         )}
                         <div>
                           <h3 className="text-lg font-bold mb-1">{service.title}</h3>
@@ -832,7 +833,7 @@ const AdminDashboard = () => {
                           className="flex-1"
                         />
                         {editingService.image_url && (
-                          <img src={editingService.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                          <img src={getOptimizedStorageImageUrl(editingService.image_url, { width: 160, height: 160, quality: 65, resize: 'cover' })} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
                         )}
                       </div>
                     </div>
@@ -944,7 +945,7 @@ const AdminDashboard = () => {
                           />
                           {editingProduct.image_url && (
                             <div className="flex items-center gap-2">
-                              <img src={editingProduct.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                              <img src={getOptimizedStorageImageUrl(editingProduct.image_url, { width: 160, height: 160, quality: 65, resize: 'cover' })} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
                               <Button
                                 type="button"
                                 variant="destructive"
@@ -976,7 +977,7 @@ const AdminDashboard = () => {
                     <CardContent className="p-4">
                       <div className="space-y-3">
                         {product.image_url && (
-                          <img src={product.image_url} alt={product.name} className="w-full h-32 object-cover rounded-lg" />
+                          <img src={getOptimizedStorageImageUrl(product.image_url, { width: 480, height: 256, quality: 60, resize: 'cover' })} alt={product.name} loading="lazy" decoding="async" className="w-full h-32 object-cover rounded-lg" />
                         )}
                         <div>
                           <h3 className="text-lg font-bold mb-1">{product.name}</h3>
@@ -1083,7 +1084,7 @@ const AdminDashboard = () => {
                           className="flex-1"
                         />
                         {editingProduct.image_url && (
-                          <img src={editingProduct.image_url} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
+                          <img src={getOptimizedStorageImageUrl(editingProduct.image_url, { width: 160, height: 160, quality: 65, resize: 'cover' })} alt="Preview" className="h-16 w-16 object-cover rounded flex-shrink-0" />
                         )}
                       </div>
                     </div>

@@ -193,8 +193,11 @@ const ClientRegister = () => {
         <CardHeader className="text-center space-y-4 pb-4">
           <div className="flex justify-center">
             <img 
-              src={authLogo || logoRaimundos} 
+              src={authLogo || logoRaimundos}
               alt="Logo da Barbearia" 
+              decoding="async"
+              width={160}
+              height={160}
               className="h-20 w-20 object-contain"
             />
           </div>

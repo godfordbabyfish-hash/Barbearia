@@ -5,6 +5,7 @@ import { getSiteConfig } from '@/lib/siteConfigCache';
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { getOptimizedStorageImageUrl } from "@/utils/images";
 
 interface HeroConfig {
   title: string;
@@ -47,14 +48,30 @@ const Hero = () => {
   };
 
   const backgroundImage = config.image_url || heroImage;
+  const background768 = getOptimizedStorageImageUrl(backgroundImage, { width: 768, quality: 65, resize: 'cover' });
+  const background1280 = getOptimizedStorageImageUrl(backgroundImage, { width: 1280, quality: 65, resize: 'cover' });
+  const background1920 = getOptimizedStorageImageUrl(backgroundImage, { width: 1920, quality: 65, resize: 'cover' });
 
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
       {/* Background Image with Overlay */}
-      <div 
-        className="absolute inset-0 bg-cover bg-center"
-        style={{ backgroundImage: `url(${backgroundImage})` }}
-      >
+      <div className="absolute inset-0">
+        <img
+          src={background1280}
+          srcSet={`${background768} 768w, ${background1280} 1280w, ${background1920} 1920w`}
+          sizes="100vw"
+          alt=""
+          aria-hidden="true"
+          decoding="async"
+          fetchPriority="high"
+          width={1920}
+          height={1080}
+          onError={(event) => {
+            event.currentTarget.srcset = '';
+            event.currentTarget.src = backgroundImage;
+          }}
+          className="h-full w-full object-cover object-center"
+        />
         <div className="absolute inset-0 bg-gradient-to-b from-background/90 via-background/70 to-background"></div>
       </div>
 

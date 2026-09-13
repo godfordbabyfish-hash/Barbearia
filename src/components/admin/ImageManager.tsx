@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { Upload, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { uploadPublicImage, uploadPublicImageVariants } from '@/utils/storage';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
+import { getOptimizedStorageImageUrl } from '@/utils/images';
 
 interface ImageItem {
   id: string;
@@ -229,8 +230,13 @@ const ImageManager = () => {
                       {imageItem.currentUrl && (
                         <div className="w-32 h-32 flex-shrink-0">
                           <img 
-                            src={imageItem.currentUrl} 
+                            src={getOptimizedStorageImageUrl(imageItem.currentUrl, { width: 256, height: 256, quality: 65, resize: 'cover' })}
                             alt={imageItem.label}
+                            loading="lazy"
+                            decoding="async"
+                            onError={(event) => {
+                              if (event.currentTarget.src !== imageItem.currentUrl) event.currentTarget.src = imageItem.currentUrl || '';
+                            }}
                             className="w-full h-full object-cover rounded border border-border"
                           />
                         </div>

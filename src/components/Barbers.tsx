@@ -72,6 +72,10 @@ const Barbers = () => {
                       fetchPriority="low"
                       width={800}
                       height={600}
+                      onError={(event) => {
+                        event.currentTarget.srcset = '';
+                        event.currentTarget.src = baseUrl;
+                      }}
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                     />
                   );
@@ -114,6 +118,10 @@ const Barbers = () => {
                         decoding="async"
                         width={512}
                         height={512}
+                        onError={(event) => {
+                          event.currentTarget.srcset = '';
+                          event.currentTarget.src = baseUrl;
+                        }}
                         className="w-full h-full object-cover"
                       />
                     );

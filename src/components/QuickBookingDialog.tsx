@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { getOptimizedStorageImageUrl } from "@/utils/images";
 import { toast } from "sonner";
 import { Loader2, X, ArrowLeft, Star, Scissors } from "lucide-react";
 import { useOperatingHours, getDayKey } from "@/hooks/useOperatingHours";
@@ -803,7 +804,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full overflow-hidden border-2" style={{ borderColor: "#FFD700" }}>
                     {selectedBarber.image_url ? (
-                      <img src={selectedBarber.image_url} alt={selectedBarber.name} className="w-full h-full object-cover" />
+                      <img src={getOptimizedStorageImageUrl(selectedBarber.image_url, { width: 400, height: 400, quality: 60, resize: 'cover' })} alt={selectedBarber.name} loading="lazy" decoding="async" width={400} height={400} onError={(event) => { event.currentTarget.src = selectedBarber.image_url || ''; }} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full bg-gray-700 flex items-center justify-center">
                         <Scissors className="h-4 w-4 text-gray-500" />
@@ -955,8 +956,13 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
                   <div className="aspect-[3/4] relative overflow-hidden">
                     {barber.image_url ? (
                       <img 
-                        src={barber.image_url} 
+                        src={getOptimizedStorageImageUrl(barber.image_url, { width: 400, height: 400, quality: 60, resize: 'cover' })}
                         alt={barber.name}
+                        loading="lazy"
+                        decoding="async"
+                        width={400}
+                        height={400}
+                        onError={(event) => { event.currentTarget.src = barber.image_url || ''; }}
                         className="w-full h-full object-cover"
                       />
                     ) : (
@@ -997,7 +1003,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full overflow-hidden border-2" style={{ borderColor: "#FFD700" }}>
                     {selectedBarber.image_url ? (
-                      <img src={selectedBarber.image_url} alt={selectedBarber.name} className="w-full h-full object-cover" />
+                      <img src={getOptimizedStorageImageUrl(selectedBarber.image_url, { width: 400, height: 400, quality: 60, resize: 'cover' })} alt={selectedBarber.name} loading="lazy" decoding="async" width={400} height={400} onError={(event) => { event.currentTarget.src = selectedBarber.image_url || ''; }} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full bg-gray-700 flex items-center justify-center">
                         <Scissors className="h-4 w-4 text-gray-500" />
@@ -1068,7 +1074,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full overflow-hidden border-2" style={{ borderColor: "#FFD700" }}>
                     {selectedBarber.image_url ? (
-                      <img src={selectedBarber.image_url} alt={selectedBarber.name} className="w-full h-full object-cover" />
+                      <img src={getOptimizedStorageImageUrl(selectedBarber.image_url, { width: 400, height: 400, quality: 60, resize: 'cover' })} alt={selectedBarber.name} loading="lazy" decoding="async" width={400} height={400} onError={(event) => { event.currentTarget.src = selectedBarber.image_url || ''; }} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full bg-gray-700 flex items-center justify-center">
                         <Scissors className="h-4 w-4 text-gray-500" />
@@ -1091,7 +1097,10 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
             </div>
 
             <div className={`grid gap-4 ${services.length === 1 ? 'grid-cols-1 max-w-sm mx-auto' : services.length === 2 ? 'grid-cols-2 max-w-2xl mx-auto' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'}`}>
-              {services.map((service) => (
+              {services.map((service) => {
+                const image400 = getOptimizedStorageImageUrl(service.image_url, { width: 400, height: 300, quality: 60, resize: 'cover' });
+                const image800 = getOptimizedStorageImageUrl(service.image_url, { width: 800, height: 600, quality: 60, resize: 'cover' });
+                return (
                 <button
                   key={service.id}
                   onClick={() => handleServiceSelect(service.id)}
@@ -1106,8 +1115,19 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
                   <div className="aspect-[4/3] relative overflow-hidden">
                     {service.image_url ? (
                       <img 
-                        src={service.image_url} 
+                        src={image400}
+                        srcSet={`${image400} 400w, ${image800} 800w`}
+                        sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 33vw"
                         alt={service.title}
+                        loading="lazy"
+                        decoding="async"
+                        fetchPriority="low"
+                        width={800}
+                        height={600}
+                        onError={(event) => {
+                          event.currentTarget.srcset = '';
+                          event.currentTarget.src = service.image_url || '';
+                        }}
                         className="w-full h-full object-cover"
                       />
                     ) : (
@@ -1131,7 +1151,8 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
                     </div>
                   </div>
                 </button>
-              ))}
+                );
+              })}
             </div>
           </>
         )}

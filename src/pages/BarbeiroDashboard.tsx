@@ -1883,7 +1883,7 @@ const BarbeiroDashboard = () => {
     const isPastAppointment = appointmentDateTime < now;
 
     // Se não for retroativo, verificar conflitos de horário
-    if (!isPastAppointment) {
+    if (!isPastAppointment && !appointmentToEdit.is_fit) {
       const selectedService = services.find(s => s.id === appointmentToEdit.service_id);
       const serviceDuration = selectedService?.duration || 30;
 
@@ -3654,7 +3654,7 @@ const BarbeiroDashboard = () => {
                 <DialogContent className="sm:max-w-md">
                   <DialogHeader>
                     <DialogTitle>Iniciar Encaixe</DialogTitle>
-                    <DialogDescription>Cria um atendimento rápido entre horários.</DialogDescription>
+                    <DialogDescription>Registre o encaixe mesmo com outro atendimento em andamento. Ele ocupará o horário e impedirá novos agendamentos conflitantes.</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
                     <div>
@@ -3705,8 +3705,6 @@ const BarbeiroDashboard = () => {
                               .select('id')
                               .single();
                             if (profileError || !newProfile?.id) throw profileError || new Error('profile');
-                            const todayStr = new Date().toISOString().split('T')[0];
-                            
                             const notes = JSON.stringify({ fit: true, start_time: fitStartTime });
                             const { error: insertError } = await (supabase as any)
                               .from('appointments')
@@ -3714,10 +3712,11 @@ const BarbeiroDashboard = () => {
                                 client_id: newProfile.id,
                                 barber_id: barberId,
                                 service_id: fitServiceId,
-                                appointment_date: todayStr,
+                                appointment_date: format(new Date(), 'yyyy-MM-dd'),
                                 appointment_time: fitStartTime,
                                 status: 'confirmed',
                                 booking_type: 'local',
+                                is_fit: true,
                                 client_name: name,
                                 notes
                               }]);
@@ -3814,7 +3813,7 @@ const BarbeiroDashboard = () => {
                               {list.length > 0 ? (
                                 <div className="space-y-2">
                                   {list.map((appointment) => {
-                                    const isFit = (() => {
+                                    const isFit = appointment.is_fit || (() => {
                                       try {
                                         if (!appointment.notes) return false;
                                         const n = JSON.parse(appointment.notes);
@@ -3995,7 +3994,7 @@ const BarbeiroDashboard = () => {
                               {list.length > 0 ? (
                                 <div className="space-y-3">
                                   {list.map((appointment) => {
-                                    const isFit = (() => {
+                                    const isFit = appointment.is_fit || (() => {
                                       try {
                                         if (!appointment.notes) return false;
                                         const n = JSON.parse(appointment.notes);

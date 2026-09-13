@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Home, MapPin, Globe, Clock, Users, Scissors, LayoutDashboard, Ban, Trash2 } from "lucide-react";
+import { Home, MapPin, Globe, Clock, Users, Scissors, LayoutDashboard, Ban, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { QuickBookingDialog } from "@/components/QuickBookingDialog";
 import { format, addMinutes } from "date-fns";
@@ -23,6 +23,7 @@ interface Appointment {
   appointment_time: string;
   booking_type: string;
   status: string;
+  is_fit?: boolean;
   client_name?: string;
   notes?: string;
   photo_url?: string | null;
@@ -52,34 +53,11 @@ const debugWarn = (...args: unknown[]) => {
   }
 };
 
-const getOptimizedStorageAvatarUrl = (imageUrl?: string | null) => {
-  if (!imageUrl) return '';
-  try {
-    const parsed = new URL(imageUrl);
-    const objectPathMarker = '/storage/v1/object/public/';
-    const markerIndex = parsed.pathname.indexOf(objectPathMarker);
-
-    if (markerIndex === -1) {
-      return imageUrl;
-    }
-
-    const objectPath = parsed.pathname.slice(markerIndex + objectPathMarker.length);
-    const prefix = parsed.pathname.slice(0, markerIndex);
-    parsed.pathname = `${prefix}/storage/v1/render/image/public/${objectPath}`;
-    parsed.searchParams.set('width', '128');
-    parsed.searchParams.set('height', '128');
-    parsed.searchParams.set('quality', '65');
-    parsed.searchParams.set('resize', 'cover');
-    return parsed.toString();
-  } catch {
-    return imageUrl;
-  }
-};
-
 const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const [currentTime, setCurrentTime] = useState("");
   const [queueView, setQueueView] = useState<"today" | "future">("today");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [queuePages, setQueuePages] = useState<Record<string, number>>({});
   const [barbers, setBarbers] = useState<any[]>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [availableSlotsByBarber, setAvailableSlotsByBarber] = useState<Record<string, string[]>>({});
@@ -284,6 +262,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
           appointment_time: String(row.appointment_time).slice(0, 5),
           booking_type: row.booking_type,
           status: row.status,
+          is_fit: Boolean(row.is_fit),
           client_name: row.client_display_name,
           services: { title: row.service_title, duration: row.duration },
           profiles: { name: row.client_display_name, phone: '', photo_url: null },
@@ -655,6 +634,22 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   };
 
   const appointmentsByBarber = getAppointmentsByBarber();
+  const queuePageSize = 8;
+
+  const isFitAppointment = (appointment: Appointment) => {
+    if (appointment.is_fit) return true;
+    if (!appointment.notes) return false;
+    try {
+      return Boolean(JSON.parse(appointment.notes)?.fit);
+    } catch {
+      return false;
+    }
+  };
+
+  const setBarberQueuePage = (barberId: string, page: number) => {
+    const key = `${queueView}:${barberId}`;
+    setQueuePages((current) => ({ ...current, [key]: page }));
+  };
 
   const calculateWaitTime = (index: number) => {
     let totalMinutes = 0;
@@ -785,8 +780,9 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
+    <div className={readOnly ? "bg-transparent" : "min-h-screen bg-background"}>
+      {/* O painel do cliente já possui título e navegação próprios. */}
+      {!readOnly && (
       <header className="bg-card border-b border-border p-6">
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
@@ -826,8 +822,9 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
           </div>
         </div>
       </header>
+      )}
 
-      <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
+      <main className={readOnly ? "w-full space-y-4 p-3 pt-0 sm:p-4 sm:pt-0" : "max-w-7xl mx-auto p-4 md:p-6 space-y-6"}>
         <Tabs value={queueView} onValueChange={(value) => setQueueView(value as "today" | "future")} className="w-full">
           <TabsList className={`grid w-full ${canViewFutureQueue ? 'grid-cols-2' : 'grid-cols-1'} mb-6 h-auto p-1`}>
             <TabsTrigger value="today" className="py-2.5">Agendamentos de Hoje</TabsTrigger>
@@ -840,6 +837,11 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
               {appointmentsByBarber.map(({ barber, appointments, todayCount, upcomingCount, inProgressCount }) => {
                 const slots = availableSlotsByBarber[barber.id] ?? [];
+                const pageKey = `${queueView}:${barber.id}`;
+                const totalPages = Math.max(1, Math.ceil(appointments.length / queuePageSize));
+                const currentPage = Math.min(queuePages[pageKey] || 1, totalPages);
+                const pageStart = (currentPage - 1) * queuePageSize;
+                const visibleAppointments = appointments.slice(pageStart, pageStart + queuePageSize);
                 const closedToday = isBarberClosedToday(barber);
                 const canManageThisBarber = role === "admin"
                   || role === "gestor"
@@ -983,7 +985,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                   )}
 
                   <div className="flex-1 p-3">
-                    <div className="space-y-2 max-h-80 overflow-y-auto">
+                    <div className="space-y-2">
                       {appointments.length === 0 ? (
                         <div className="text-center py-8 flex-1 flex items-center justify-center">
                           <div>
@@ -995,7 +997,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                         </div>
                       ) : (
                         <>
-                          {appointments.slice(0, 6).map((apt) => {
+                          {visibleAppointments.map((apt, visibleIndex) => {
                             const formattedDate = format(new Date(apt.appointment_date + "T12:00:00"), "dd/MM");
                             const bookingTypeLabel = apt.booking_type === 'local' ? 'Local' : 
                                                    apt.booking_type === 'online' ? 'Online' : 'Manual';
@@ -1004,9 +1006,14 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                                                    'bg-orange-500/20 text-orange-400 border-orange-500/30';
                             const clientAvatar = (apt.photo_url || apt.profiles?.photo_url || '') as string;
                             const barberAvatar = ((apt as any).barbers?.image_url || '') as string;
+                            const fitAppointment = isFitAppointment(apt);
+                            const queuePosition = pageStart + visibleIndex + 1;
 
                             return (
                               <div key={apt.id} className="flex items-center gap-2 p-2 bg-secondary/40 hover:bg-secondary/60 rounded-lg transition-all duration-200 border border-border/50">
+                                <span className="w-5 shrink-0 text-center text-xs font-bold text-muted-foreground" aria-label={`Posição ${queuePosition}`}>
+                                  {queuePosition}
+                                </span>
                                 <div className="flex flex-col items-center justify-center min-w-[45px] p-1 rounded bg-muted/50 flex-shrink-0">
                                   <div className="text-[9px] font-bold text-primary leading-tight text-center">
                                     {formattedDate}
@@ -1029,7 +1036,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                                   <div className="flex items-center gap-1 mb-0.5">
                                     <Avatar className="h-5 w-5 border border-border/50">
                                       <AvatarImage 
-                                        src={clientAvatar} 
+                                        src={clientAvatar}
                                         alt={(apt.client_name || apt.profiles.name) ?? 'Cliente'}
                                         onError={(e) => { (e.currentTarget as HTMLImageElement).src = ''; }}
                                       />
@@ -1042,7 +1049,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                                     </span>
                                     <Avatar className="h-5 w-5 ml-auto border border-border/50">
                                       <AvatarImage 
-                                        src={barberAvatar} 
+                                        src={barberAvatar}
                                         alt={(apt as any).barbers?.name || 'Barbeiro'}
                                         onError={(e) => { (e.currentTarget as HTMLImageElement).src = ''; }}
                                       />
@@ -1057,6 +1064,16 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                                   {apt.status === 'in_progress' && (
                                     <div className="text-warning text-[8px] font-bold mt-0.5">
                                       EM ATENDIMENTO
+                                    </div>
+                                  )}
+                                  {fitAppointment && (
+                                    <div className="mt-0.5 inline-flex w-fit rounded-full border border-orange-500/40 bg-orange-500/15 px-2 py-0.5 text-[8px] font-bold text-orange-400">
+                                      ENCAIXE
+                                    </div>
+                                  )}
+                                  {!fitAppointment && apt.status !== 'in_progress' && (
+                                    <div className="mt-0.5 text-[8px] font-semibold text-muted-foreground">
+                                      AGUARDANDO
                                     </div>
                                   )}
                                 </div>
@@ -1080,11 +1097,37 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
                               </div>
                             );
                           })}
-                          {appointments.length > 6 && (
-                            <div className="text-center py-2">
-                              <span className="text-xs text-muted-foreground">
-                                +{appointments.length - 6} mais agendamentos
-                              </span>
+                          {appointments.length > queuePageSize && (
+                            <div className="space-y-2 border-t border-border/60 pt-3" onClick={(event) => event.stopPropagation()}>
+                              <div className="flex items-center justify-between gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="min-h-10 flex-1 gap-1"
+                                  disabled={currentPage === 1}
+                                  onClick={() => setBarberQueuePage(barber.id, currentPage - 1)}
+                                >
+                                  <ChevronLeft className="h-4 w-4" />
+                                  Anterior
+                                </Button>
+                                <span className="min-w-14 text-center text-xs font-bold text-foreground">
+                                  {currentPage} de {totalPages}
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="min-h-10 flex-1 gap-1"
+                                  disabled={currentPage === totalPages}
+                                  onClick={() => setBarberQueuePage(barber.id, currentPage + 1)}
+                                >
+                                  Próximos
+                                  <ChevronRight className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              <p className="text-center text-[10px] text-muted-foreground">
+                                Mostrando {pageStart + 1}–{Math.min(pageStart + queuePageSize, appointments.length)} de {appointments.length} agendamentos
+                              </p>
                             </div>
                           )}
                         </>

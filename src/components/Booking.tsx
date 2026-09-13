@@ -24,6 +24,7 @@ import barber2Img from "@/assets/barber-2.jpg";
 import barber3Img from "@/assets/barber-3.jpg";
 import ReferralPromotionBanner from "@/components/ReferralPromotionBanner";
 import { getBarberBusySlots, getServiceBookingCounts } from "@/services/appointmentAvailability";
+import { getOptimizedStorageImageUrl } from "@/utils/images";
 
 type ServiceRecord = Tables<"services">;
 type BarberRecord = Tables<"barbers">;
@@ -1472,10 +1473,29 @@ const Booking = () => {
               />
             </div>
             <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6">
-              {filteredServices.map((service, index) => (
+              {filteredServices.map((service, index) => {
+                const originalImage = service.image_url || defaultImages[service.title] || haircutImg;
+                const image400 = getOptimizedStorageImageUrl(originalImage, { width: 400, height: 300, quality: 60, resize: 'cover' });
+                const image800 = getOptimizedStorageImageUrl(originalImage, { width: 800, height: 600, quality: 60, resize: 'cover' });
+                return (
                 <Card key={index} className="group cursor-pointer overflow-hidden" onClick={() => handleServiceSelect(service)}>
                   <div className="relative h-24 md:h-56 overflow-hidden">
-                    <img src={service.image_url || defaultImages[service.title] || haircutImg} alt={service.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                    <img
+                      src={image400}
+                      srcSet={`${image400} 400w, ${image800} 800w`}
+                      sizes="(max-width: 767px) 33vw, 33vw"
+                      alt={service.title}
+                      loading="lazy"
+                      decoding="async"
+                      fetchPriority="low"
+                      width={800}
+                      height={600}
+                      onError={(event) => {
+                        event.currentTarget.srcset = '';
+                        event.currentTarget.src = originalImage;
+                      }}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                    />
                     <div className="absolute bottom-2 left-2">
                       {(() => {
                         const IconComponent = getServiceIcon(service.icon);
@@ -1488,16 +1508,36 @@ const Booking = () => {
                     <span className="text-sm md:text-xl font-bold text-primary">R$ {formatCurrency(service.price)}</span>
                   </CardContent>
                 </Card>
-              ))}
+                );
+              })}
             </div>
           </>
         ) : step === "barber" ? (
           <div className="max-w-7xl mx-auto">
             <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6">
-              {availableBarbers.map((barber, index) => (
+              {availableBarbers.map((barber, index) => {
+                const originalBarberImage = barber.image_url || defaultBarberImages[index] || barber1Img;
+                const barberImage400 = getOptimizedStorageImageUrl(originalBarberImage, { width: 400, height: 400, quality: 60, resize: 'cover' });
+                const barberImage800 = getOptimizedStorageImageUrl(originalBarberImage, { width: 800, height: 800, quality: 60, resize: 'cover' });
+                return (
                 <Card key={index} className="cursor-pointer overflow-hidden" onClick={() => handleBarberSelect(barber)}>
                   <div className="relative h-48 md:h-56 overflow-hidden">
-                    <img src={barber.image_url || defaultBarberImages[index] || barber1Img} alt={barber.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                    <img
+                      src={barberImage400}
+                      srcSet={`${barberImage400} 400w, ${barberImage800} 800w`}
+                      sizes="33vw"
+                      alt={barber.name}
+                      loading="lazy"
+                      decoding="async"
+                      fetchPriority="low"
+                      width={800}
+                      height={800}
+                      onError={(event) => {
+                        event.currentTarget.srcset = '';
+                        event.currentTarget.src = originalBarberImage;
+                      }}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                    />
                     {barberHasSlotsToday[barber.id] === false && (
                       <div className="absolute top-2 right-2"><span className="px-2 py-1 rounded bg-destructive text-white text-[10px] uppercase">Indisponível hoje</span></div>
                     )}
@@ -1507,7 +1547,8 @@ const Booking = () => {
                     <p className="text-xs text-primary">{barber.specialty}</p>
                   </CardContent>
                 </Card>
-              ))}
+                );
+              })}
             </div>
             <div className="flex justify-center mt-8"><Button variant="outline" onClick={handleBack}>Voltar</Button></div>
           </div>

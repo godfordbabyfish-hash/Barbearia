@@ -107,6 +107,7 @@ export type Database = {
           discount_amount: number
           final_price: number | null
           id: string
+          is_fit: boolean
           notes: string | null
           original_price: number | null
           payment_method: string | null
@@ -129,6 +130,7 @@ export type Database = {
           discount_amount?: number
           final_price?: number | null
           id?: string
+          is_fit?: boolean
           notes?: string | null
           original_price?: number | null
           payment_method?: string | null
@@ -151,6 +153,7 @@ export type Database = {
           discount_amount?: number
           final_price?: number | null
           id?: string
+          is_fit?: boolean
           notes?: string | null
           original_price?: number | null
           payment_method?: string | null

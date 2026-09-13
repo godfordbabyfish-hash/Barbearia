@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,9 +9,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Pencil, Trash2, Loader2, Calendar, Clock, User, Scissors, ShoppingBag, Filter, CheckCircle2, Search, X } from 'lucide-react';
+import { Pencil, Trash2, Loader2, Calendar, Clock, User, Scissors, ShoppingBag, Filter, CheckCircle2, Plus } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { getOptimizedStorageImageUrl } from '@/utils/images';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,24 +23,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import FilterPopup from '@/components/FilterPopup';
-
-// Hook para detectar mobile
-const useIsMobile = () => {
-  const [isMobile, setIsMobile] = useState(false);
-  
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-  
-  return isMobile;
-};
 
 interface Appointment {
   id: string;
@@ -79,7 +62,17 @@ interface ProductSale {
 const HISTORICO_CP_PAGE_SIZE = 30;
 
 const HistoricoCP = () => {
-  const isMobile = useIsMobile();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [contentWidth, setContentWidth] = useState(0);
+
+  useEffect(() => {
+    const element = contentRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => setContentWidth(entry.contentRect.width));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(false);
   const [barbers, setBarbers] = useState<any[]>([]);
@@ -111,6 +104,12 @@ const HistoricoCP = () => {
   const [filterClient, setFilterClient] = useState<string>('');
   const [debouncedClient, setDebouncedClient] = useState<string>('');
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
+  const [manualLauncherOpen, setManualLauncherOpen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+
+  useEffect(() => {
+    if (contentWidth >= 1100) setMobileFiltersOpen(false);
+  }, [contentWidth]);
   const [manualType, setManualType] = useState<'service' | 'product'>('service');
   const [manualBarberId, setManualBarberId] = useState<string>('');
   const [manualServiceId, setManualServiceId] = useState<string>('');
@@ -121,7 +120,6 @@ const HistoricoCP = () => {
   const [manualTime, setManualTime] = useState<string>(() => format(new Date(), 'HH:mm'));
   const [manualSaving, setManualSaving] = useState(false);
   const [manualPaymentMethod, setManualPaymentMethod] = useState<'pix' | 'dinheiro' | 'cartao'>('pix');
-  const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState<'services' | 'products'>('services');
   const [completingAppointmentId, setCompletingAppointmentId] = useState<string | null>(null);
   const [completingSaleId, setCompletingSaleId] = useState<string | null>(null);
@@ -193,6 +191,33 @@ const HistoricoCP = () => {
     debouncedClient,
   ]);
 
+  useEffect(() => {
+    let refreshTimer: number | undefined;
+    const refreshVisibleTab = () => {
+      if (document.visibilityState === 'hidden') return;
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        if (activeTab === 'services') loadAppointments(servicesPage, true);
+        else loadProductSales(productsPage, true);
+      }, 250);
+    };
+
+    const channel = supabase.channel('historico-cp-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, refreshVisibleTab)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointment_payments' }, refreshVisibleTab)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'product_sales' }, refreshVisibleTab)
+      .subscribe();
+    const interval = window.setInterval(refreshVisibleTab, 10000);
+    document.addEventListener('visibilitychange', refreshVisibleTab);
+
+    return () => {
+      window.clearTimeout(refreshTimer);
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshVisibleTab);
+      void supabase.removeChannel(channel);
+    };
+  }, [activeTab, servicesPage, productsPage, filterDateFrom, filterDateTo, filterBarber, filterService, filterProduct, filterStatus, filterType, filterPayment, debouncedClient]);
+
   const loadBarbers = async () => {
     const { data, error } = await supabase
       .from('barbers')
@@ -208,8 +233,8 @@ const HistoricoCP = () => {
     }
   };
 
-  const loadProductSales = async (page: number = 1) => {
-    setLoadingProductSales(true);
+  const loadProductSales = async (page: number = 1, silent = false) => {
+    if (!silent) setLoadingProductSales(true);
     try {
       const safePage = Math.max(1, page);
       const rangeFrom = (safePage - 1) * HISTORICO_CP_PAGE_SIZE;
@@ -309,7 +334,7 @@ const HistoricoCP = () => {
       setProductsTotalCount(0);
       setProductsTotal(0);
     } finally {
-      setLoadingProductSales(false);
+      if (!silent) setLoadingProductSales(false);
     }
   };
 
@@ -343,8 +368,8 @@ const HistoricoCP = () => {
     }
   };
 
-  const loadAppointments = async (page: number = 1) => {
-    setLoading(true);
+  const loadAppointments = async (page: number = 1, silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const safePage = Math.max(1, page);
       const rangeFrom = (safePage - 1) * HISTORICO_CP_PAGE_SIZE;
@@ -519,7 +544,7 @@ const HistoricoCP = () => {
       setServicesTotalCount(0);
       setServicesTotal(0);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -742,10 +767,10 @@ const HistoricoCP = () => {
 
   // Componentes Mobile
   const MobileAppointmentCard = ({ appointment }: { appointment: Appointment }) => (
-    <Card className="mb-3 border-border/50">
+    <Card className={contentWidth >= 900 ? 'min-w-0 rounded-none border-x-0 border-t-0 border-border/50 shadow-none' : 'min-w-0 border-border/50'}>
       <CardContent className="p-3">
-        <div className="flex justify-between items-start mb-2">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Calendar className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">
               {format(new Date(appointment.appointment_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
@@ -753,29 +778,33 @@ const HistoricoCP = () => {
             <Clock className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm">{appointment.appointment_time}</span>
           </div>
-          <div className="flex gap-1">
+          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
             {appointment.status !== 'completed' && (
               <Button
                 size="sm"
-                variant="secondary"
+                variant="default"
                 onClick={() => handleCompleteAppointment(appointment)}
                 disabled={completingAppointmentId === appointment.id}
-                className="h-6 w-6 p-0"
+                className="h-11 min-w-[96px] bg-emerald-600 px-3 text-xs text-white hover:bg-emerald-700"
+                aria-label="Concluir agendamento"
               >
                 {completingAppointmentId === appointment.id ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
-                  <CheckCircle2 className="h-3 w-3" />
+                  <CheckCircle2 className="h-4 w-4" />
                 )}
+                <span>Concluir</span>
               </Button>
             )}
             <Button
               size="sm"
               variant="outline"
               onClick={() => handleEdit(appointment)}
-              className="h-6 w-6 p-0"
+              className="h-11 min-w-[84px] border-sky-500/40 bg-sky-500/10 px-3 text-xs text-sky-300 hover:bg-sky-500/20"
+              aria-label="Editar agendamento"
             >
-              <Pencil className="h-3 w-3" />
+              <Pencil className="h-4 w-4" />
+              <span>Editar</span>
             </Button>
             <Button
               size="sm"
@@ -784,19 +813,21 @@ const HistoricoCP = () => {
                 setDeletingAppointment(appointment);
                 setDeleteDialogOpen(true);
               }}
-              className="h-6 w-6 p-0"
+              className="h-11 min-w-[84px] px-3 text-xs"
+              aria-label="Excluir agendamento"
             >
-              <Trash2 className="h-3 w-3" />
+              <Trash2 className="h-4 w-4" />
+              <span>Excluir</span>
             </Button>
           </div>
         </div>
         
-        <div className="space-y-2">
+        <div className={contentWidth >= 900 ? 'grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)] items-start gap-4' : 'space-y-2'}>
           <div className="flex items-center gap-2">
             <User className="h-4 w-4 text-muted-foreground" />
             <div>
               <div className="flex flex-col gap-1">
-                <div className="text-sm font-medium">{appointment.client_name || appointment.client?.name || 'N/A'}</div>
+                <div className="break-words text-sm font-medium">{appointment.client_name || appointment.client?.name || 'N/A'}</div>
                 {(() => {
                   try {
                     const n = appointment.notes ? JSON.parse(appointment.notes) : null;
@@ -820,8 +851,8 @@ const HistoricoCP = () => {
           <div className="flex items-center gap-2">
             <Scissors className="h-4 w-4 text-muted-foreground" />
             <div>
-              <div className="text-sm">{appointment.barber?.name || 'N/A'}</div>
-              <div className="text-xs text-muted-foreground">{appointment.service?.title || 'N/A'}</div>
+              <div className="break-words text-sm">{appointment.barber?.name || 'N/A'}</div>
+              <div className="break-words text-xs text-muted-foreground">{appointment.service?.title || 'N/A'}</div>
               {appointment.service?.price && (
                 <div className="text-xs font-medium text-primary">R$ {appointment.service.price.toFixed(2)}</div>
               )}
@@ -829,7 +860,7 @@ const HistoricoCP = () => {
           </div>
           
           <div className="flex items-center gap-2">
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               {getStatusBadge(appointment.status)}
               {getTypeBadge(appointment.booking_type)}
             </div>
@@ -843,35 +874,37 @@ const HistoricoCP = () => {
                 className="ml-auto"
               >
                 <img
-                  src={appointment.photo_url}
+                  src={getOptimizedStorageImageUrl(appointment.photo_url, { width: 96, height: 96, quality: 60, resize: 'cover' })}
                   alt="Foto do atendimento"
+                  onError={(event) => { if (event.currentTarget.src !== appointment.photo_url) event.currentTarget.src = appointment.photo_url || ''; }}
                   className="w-8 h-8 rounded-md object-cover border border-border"
                 />
               </button>
             )}
           </div>
           
-          {appointment.appointment_payments && appointment.appointment_payments.length > 0 && (
-            <div className="text-xs text-muted-foreground">
-              {appointment.appointment_payments.map((p, idx) => (
-                <div key={idx}>
-                  {p.payment_method === 'pix' ? 'Pix' : 
-                   p.payment_method === 'cartao' ? 'Cartão' : 
-                   p.payment_method === 'dinheiro' ? 'Dinheiro' : 'Outro'}: R$ {Number(p.amount).toFixed(2)}
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Pagamento: </span>
+            {appointment.appointment_payments && appointment.appointment_payments.length > 0
+              ? appointment.appointment_payments.map((p, idx) => (
+                  <span key={idx} className="mr-2 inline-block">
+                    {p.payment_method === 'pix' ? 'Pix' : p.payment_method === 'cartao' ? 'Cartão' : p.payment_method === 'dinheiro' ? 'Dinheiro' : 'Outro'}: R$ {Number(p.amount).toFixed(2)}
+                  </span>
+                ))
+              : appointment.payment_method
+                ? appointment.payment_method === 'pix' ? 'Pix' : appointment.payment_method === 'cartao' ? 'Cartão' : appointment.payment_method === 'dinheiro' ? 'Dinheiro' : appointment.payment_method
+                : '-'}
+          </div>
         </div>
       </CardContent>
     </Card>
   );
 
   const MobileProductCard = ({ sale }: { sale: ProductSale }) => (
-    <Card className="mb-3 border-border/50">
+    <Card className={contentWidth >= 900 ? 'min-w-0 rounded-none border-x-0 border-t-0 border-border/50 shadow-none' : 'min-w-0 border-border/50'}>
       <CardContent className="p-3">
-        <div className="flex justify-between items-start mb-2">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Calendar className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">
               {format(new Date(sale.sale_date + 'T00:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
@@ -879,20 +912,22 @@ const HistoricoCP = () => {
             <Clock className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm">{sale.sale_time}</span>
           </div>
-          <div className="flex gap-1">
+          <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
             {sale.status !== 'confirmed' && (
               <Button
                 size="sm"
-                variant="secondary"
+                variant="default"
                 onClick={() => handleCompleteProductSale(sale)}
                 disabled={completingSaleId === sale.id}
-                className="h-6 w-6 p-0"
+                className="h-11 min-w-[106px] bg-emerald-600 px-3 text-xs text-white hover:bg-emerald-700"
+                aria-label="Confirmar venda"
               >
                 {completingSaleId === sale.id ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
-                  <CheckCircle2 className="h-3 w-3" />
+                  <CheckCircle2 className="h-4 w-4" />
                 )}
+                <span>Confirmar</span>
               </Button>
             )}
             <Button
@@ -902,18 +937,20 @@ const HistoricoCP = () => {
                 setDeletingSale(sale);
                 setDeleteSaleDialogOpen(true);
               }}
-              className="h-6 w-6 p-0"
+              className="h-11 min-w-[84px] px-3 text-xs"
+              aria-label="Excluir venda"
             >
-              <Trash2 className="h-3 w-3" />
+              <Trash2 className="h-4 w-4" />
+              <span>Excluir</span>
             </Button>
           </div>
         </div>
         
-        <div className="space-y-2">
+        <div className={contentWidth >= 900 ? 'grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-start gap-4' : 'space-y-2'}>
           <div className="flex items-center gap-2">
             <ShoppingBag className="h-4 w-4 text-muted-foreground" />
             <div>
-              <div className="text-sm font-medium">{sale.product?.name || 'Produto'}</div>
+              <div className="break-words text-sm font-medium">{sale.product?.name || 'Produto'}</div>
               <div className="text-xs text-muted-foreground">Qtd: {sale.quantity}</div>
               <div className="text-sm font-medium text-primary">R$ {Number(sale.total_price).toFixed(2)}</div>
             </div>
@@ -921,10 +958,10 @@ const HistoricoCP = () => {
           
           <div className="flex items-center gap-2">
             <User className="h-4 w-4 text-muted-foreground" />
-            <div className="text-sm">{sale.barber?.name || barbers.find(b => b.id === sale.barber_id)?.name || 'N/A'}</div>
+            <div className="break-words text-sm">{sale.barber?.name || barbers.find(b => b.id === sale.barber_id)?.name || 'N/A'}</div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {sale.status === 'confirmed' && (
               <Badge className="bg-green-500/20 text-green-600 text-xs">Confirmado</Badge>
             )}
@@ -943,11 +980,12 @@ const HistoricoCP = () => {
             {sale.payment_method === 'cartao' && (
               <Badge className="bg-blue-500/20 text-blue-600 text-xs">Cartão</Badge>
             )}
+            {!sale.payment_method && <span className="text-xs text-muted-foreground">Pagamento: -</span>}
           </div>
           
           {sale.notes && (
-            <div className="text-xs text-muted-foreground truncate" title={sale.notes}>
-              {sale.notes}
+            <div className="break-words text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Observação: </span>{sale.notes}
             </div>
           )}
         </div>
@@ -967,6 +1005,7 @@ const HistoricoCP = () => {
     setManualProductId('');
     setManualQuantity(1);
     setManualClientName('');
+    setManualLauncherOpen(false);
     setManualDialogOpen(true);
   };
 
@@ -1108,280 +1147,124 @@ const HistoricoCP = () => {
     }
   };
 
+  const activeHistoryFilterCount = [
+    filterDateFrom,
+    filterDateTo,
+    activeTab === 'services' ? filterClient : '',
+    filterBarber !== 'all',
+    activeTab === 'services' ? filterService !== 'all' : filterProduct !== 'all',
+    filterStatus !== 'all',
+    activeTab === 'services' && filterType !== 'all',
+    filterPayment !== 'all',
+  ].filter(Boolean).length;
+
+  const historyFilters = (
+            <div className="mt-3 rounded-xl border border-border bg-muted/20 p-3 sm:p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <span className="flex items-center gap-2 text-sm font-semibold"><Filter className="h-4 w-4 text-primary" /> Filtros do histórico</span>
+                <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setFilterClient(''); setFilterBarber('all'); setFilterService('all'); setFilterProduct('all'); setFilterStatus('all'); setFilterType('all'); setFilterPayment('all'); }}>Limpar</Button>
+              </div>
+              <div className={contentWidth >= 1100
+                ? activeTab === 'services'
+                  ? 'grid grid-cols-[minmax(135px,0.9fr)_minmax(135px,0.9fr)_minmax(160px,1.3fr)_repeat(5,minmax(110px,1fr))] items-end gap-2'
+                  : 'grid grid-cols-[repeat(2,minmax(135px,1fr))_repeat(4,minmax(145px,1fr))] items-end gap-2'
+                : 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3'}>
+                <div className="min-w-0">
+                  <Label htmlFor="history-date-from" className="mb-1.5 block text-xs text-muted-foreground">De</Label>
+                  <Input id="history-date-from" type="date" value={filterDateFrom} max={filterDateTo || undefined} onChange={(event) => setFilterDateFrom(event.target.value)} className="h-10 w-full min-w-0 [color-scheme:dark]" />
+                </div>
+                <div className="min-w-0">
+                  <Label htmlFor="history-date-to" className="mb-1.5 block text-xs text-muted-foreground">Até</Label>
+                  <Input id="history-date-to" type="date" value={filterDateTo} min={filterDateFrom || undefined} onChange={(event) => setFilterDateTo(event.target.value)} className="h-10 w-full min-w-0 [color-scheme:dark]" />
+                </div>
+                {activeTab === 'services' && (
+                  <div className="min-w-0">
+                    <Label htmlFor="history-client-search" className="mb-1.5 block text-xs text-muted-foreground">Cliente</Label>
+                    <Input id="history-client-search" type="search" value={filterClient} onChange={(event) => setFilterClient(event.target.value)} placeholder="Nome ou telefone" className="h-10 w-full min-w-0" />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <Label className="mb-1.5 block text-xs text-muted-foreground">Barbeiro</Label>
+                  <Select value={filterBarber} onValueChange={setFilterBarber}>
+                    <SelectTrigger className="h-10 w-full min-w-0"><SelectValue placeholder="Todos" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      {barbers.map((barber) => <SelectItem key={barber.id} value={barber.id}>{barber.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0">
+                  <Label className="mb-1.5 block text-xs text-muted-foreground">{activeTab === 'services' ? 'Serviço' : 'Produto'}</Label>
+                  <Select value={activeTab === 'services' ? filterService : filterProduct} onValueChange={activeTab === 'services' ? setFilterService : setFilterProduct}>
+                    <SelectTrigger className="h-10 w-full min-w-0"><SelectValue placeholder="Todos" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      {activeTab === 'services' ? services.map((service) => <SelectItem key={service.id} value={service.id}>{service.title}</SelectItem>) : products.map((product) => <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0">
+                  <Label className="mb-1.5 block text-xs text-muted-foreground">Status</Label>
+                  <Select value={filterStatus} onValueChange={setFilterStatus}>
+                    <SelectTrigger className="h-10 w-full min-w-0"><SelectValue placeholder="Todos" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="confirmed">Confirmado</SelectItem>
+                      {activeTab === 'services' && <SelectItem value="completed">Concluído</SelectItem>}
+                      <SelectItem value="cancelled">Cancelado</SelectItem>
+                      <SelectItem value="pending">Pendente</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {activeTab === 'services' && (
+                  <div className="min-w-0">
+                    <Label className="mb-1.5 block text-xs text-muted-foreground">Tipo</Label>
+                    <Select value={filterType} onValueChange={(value) => setFilterType(value as typeof filterType)}>
+                      <SelectTrigger className="h-10 w-full min-w-0"><SelectValue placeholder="Todos" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos</SelectItem>
+                        <SelectItem value="local">Local</SelectItem>
+                        <SelectItem value="online">Online</SelectItem>
+                        <SelectItem value="manual">Manual</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <Label className="mb-1.5 block text-xs text-muted-foreground">Pagamento</Label>
+                  <Select value={filterPayment} onValueChange={(value) => setFilterPayment(value as typeof filterPayment)}>
+                    <SelectTrigger className="h-10 w-full min-w-0"><SelectValue placeholder="Todos" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="pix">Pix</SelectItem>
+                      <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                      <SelectItem value="cartao">Cartão</SelectItem>
+                      <SelectItem value="none">Sem pagamento</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+  );
+
   return (
     <div className="space-y-4 sm:space-y-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       <Card className="bg-card border-border shadow-lg w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
         <CardHeader className="p-3 sm:p-4 md:p-6">
-          <CardTitle className="flex items-center justify-between gap-2 text-lg sm:text-xl">
-            <Calendar className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-            <span className="hidden sm:inline">Histórico CP</span>
-            <span className="sm:hidden">Histórico CP</span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2 text-xs ml-auto"
-              onClick={() => setShowFilters(v => !v)}
-            >
-              <Filter className="h-3 w-3 mr-1" />
-              Filtros
+          <CardTitle className="flex flex-wrap items-center gap-3 text-lg sm:text-xl">
+            <Calendar className="h-4 w-4 shrink-0 text-primary sm:h-5 sm:w-5" />
+            <span>Histórico CP</span>
+            <Button type="button" className="h-11 w-full gap-2 px-4 sm:ml-auto sm:w-auto" onClick={() => setManualLauncherOpen(true)}>
+              <Plus className="h-4 w-4" />
+              Novo lançamento manual
             </Button>
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
-          <FilterPopup open={showFilters} onOpenChange={setShowFilters} title="Filtros do histórico">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3 sm:gap-4">
-            <div>
-              <Label className="text-sm text-muted-foreground mb-1 block">Data Inicial</Label>
-              <Input
-                type="date"
-                value={filterDateFrom}
-                onChange={(e) => setFilterDateFrom(e.target.value)}
-                className="w-full"
-              />
-            </div>
-            <div>
-              <Label className="text-sm text-muted-foreground mb-1 block">Data Final</Label>
-              <Input
-                type="date"
-                value={filterDateTo}
-                onChange={(e) => setFilterDateTo(e.target.value)}
-                className="w-full"
-              />
-            </div>
-            <div>
-              <Label className="text-sm text-muted-foreground mb-1 block">Barbeiro</Label>
-              <Select value={filterBarber} onValueChange={setFilterBarber}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {barbers.map((barber) => (
-                    <SelectItem key={barber.id} value={barber.id}>
-                      {barber.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-sm text-muted-foreground mb-1 block">
-                {activeTab === 'services' ? 'Serviço' : 'Produto'}
-              </Label>
-              <Select value={activeTab === 'services' ? filterService : filterProduct} onValueChange={activeTab === 'services' ? setFilterService : setFilterProduct}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {activeTab === 'services' ? (
-                    services.map((service) => (
-                      <SelectItem key={service.id} value={service.id}>
-                        {service.title}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    products.map((product) => (
-                      <SelectItem key={product.id} value={product.id}>
-                        {product.name}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-sm text-muted-foreground mb-1 block">Status</Label>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {activeTab === 'services' ? (
-                    <>
-                      <SelectItem value="confirmed">Confirmado</SelectItem>
-                      <SelectItem value="completed">Concluído</SelectItem>
-                      <SelectItem value="cancelled">Cancelado</SelectItem>
-                      <SelectItem value="pending">Pendente</SelectItem>
-                    </>
-                  ) : (
-                    <>
-                      <SelectItem value="confirmed">Confirmado</SelectItem>
-                      <SelectItem value="pending">Pendente</SelectItem>
-                      <SelectItem value="cancelled">Cancelado</SelectItem>
-                    </>
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-sm text-muted-foreground mb-1 block">Tipo</Label>
-              <Select value={filterType} onValueChange={(v) => setFilterType(v as any)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {activeTab === 'services' && (
-                    <>
-                      <SelectItem value="local">Local</SelectItem>
-                      <SelectItem value="online">Online</SelectItem>
-                      <SelectItem value="manual">Manual</SelectItem>
-                    </>
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-sm text-muted-foreground mb-1 block">Pagamento</Label>
-              <Select value={filterPayment} onValueChange={(v) => setFilterPayment(v as any)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="pix">Pix</SelectItem>
-                  <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                  <SelectItem value="cartao">Cartão</SelectItem>
-                  <SelectItem value="none">Sem pagamento</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            </div>
-          </FilterPopup>
+        <CardContent ref={contentRef} className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
 
-          <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-border bg-muted/20 p-3 sm:grid-cols-[minmax(190px,0.7fr)_minmax(260px,1.3fr)_auto] sm:items-end">
-            <div>
-              <Label htmlFor="history-calendar-date" className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                <Calendar className="h-4 w-4 text-primary" />
-                Calendário
-              </Label>
-              <Input
-                id="history-calendar-date"
-                type="date"
-                value={filterDateFrom && filterDateFrom === filterDateTo ? filterDateFrom : ''}
-                onChange={(event) => {
-                  const selectedDate = event.target.value;
-                  setFilterDateFrom(selectedDate);
-                  setFilterDateTo(selectedDate);
-                }}
-                className="h-10 w-full"
-                aria-label="Selecionar um dia do histórico"
-              />
-            </div>
-
-            {activeTab === 'services' && (
-              <div>
-                <Label htmlFor="history-client-search" className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                  <Search className="h-4 w-4 text-primary" />
-                  Pesquisar cliente
-                </Label>
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="history-client-search"
-                    type="search"
-                    value={filterClient}
-                    onChange={(event) => setFilterClient(event.target.value)}
-                    placeholder="Nome ou telefone do cliente"
-                    className="h-10 w-full pl-9 pr-9"
-                  />
-                  {filterClient && (
-                    <button
-                      type="button"
-                      onClick={() => setFilterClient('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      aria-label="Limpar pesquisa de cliente"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2 sm:flex">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-10"
-                onClick={() => {
-                  const todayValue = format(new Date(), 'yyyy-MM-dd');
-                  setFilterDateFrom(todayValue);
-                  setFilterDateTo(todayValue);
-                }}
-              >
-                Hoje
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-10"
-                disabled={!filterDateFrom && !filterDateTo && !filterClient}
-                onClick={() => {
-                  setFilterDateFrom('');
-                  setFilterDateTo('');
-                  setFilterClient('');
-                }}
-              >
-                Limpar
-              </Button>
-            </div>
-          </div>
-
-          <div className="mb-4 sm:mb-6">
-            <Card className="bg-card border-primary/40">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm sm:text-base flex items-center justify-between">
-                  <span>Lançamentos manuais para barbeiros</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 gap-3 items-end sm:grid-cols-[minmax(220px,1fr)_minmax(0,2fr)]">
-                  <div className="min-w-0">
-                    <Label className="text-xs text-muted-foreground mb-1 block">Barbeiro</Label>
-                    <Select value={manualBarberId} onValueChange={setManualBarberId}>
-                      <SelectTrigger className="h-9 text-xs">
-                        <SelectValue placeholder="Selecione um barbeiro" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {barbers.map((barber) => (
-                          <SelectItem key={barber.id} value={barber.id}>
-                            {barber.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2">
-                    <Button
-                      size="sm"
-                      className="w-full min-w-0 whitespace-normal px-3"
-                      onClick={() => handleOpenManualDialog('service')}
-                      disabled={!manualBarberId}
-                    >
-                      Registrar serviço manual
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="w-full min-w-0 whitespace-normal px-3"
-                      onClick={() => handleOpenManualDialog('product')}
-                      disabled={!manualBarberId}
-                    >
-                      Registrar venda de produto
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
 
           {/* Abas */}
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'services' | 'products')} className="w-full">
+          <Tabs value={activeTab} onValueChange={(value) => { setActiveTab(value as 'services' | 'products'); if (value === 'products' && filterStatus === 'completed') setFilterStatus('all'); }} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="services" className="flex items-center gap-2">
                 <Scissors className="h-4 w-4" />
@@ -1392,6 +1275,25 @@ const HistoricoCP = () => {
                 Produtos
               </TabsTrigger>
             </TabsList>
+            {contentWidth < 1100 ? (
+              <>
+                <Button type="button" variant="outline" className="mt-3 h-11 w-full justify-center gap-2" onClick={() => setMobileFiltersOpen(true)}>
+                  <Filter className="h-4 w-4 text-primary" />
+                  Filtros do histórico
+                  {activeHistoryFilterCount > 0 && <Badge className="ml-1 h-5 min-w-5 justify-center px-1 text-xs">{activeHistoryFilterCount}</Badge>}
+                </Button>
+                <Dialog open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+                  <DialogContent className="max-h-[90dvh] w-[calc(100vw-1.5rem)] max-w-2xl overflow-y-auto p-3 sm:p-5">
+                    <DialogHeader>
+                      <DialogTitle className="sr-only">Filtros do histórico</DialogTitle>
+                      <DialogDescription className="sr-only">Filtre os registros do histórico por período, cliente, barbeiro e outros critérios.</DialogDescription>
+                    </DialogHeader>
+                    {historyFilters}
+                    <Button type="button" className="w-full" onClick={() => setMobileFiltersOpen(false)}>Ver resultados</Button>
+                  </DialogContent>
+                </Dialog>
+              </>
+            ) : historyFilters}
 
             {/* Aba de Serviços */}
             <TabsContent value="services" className="mt-4">
@@ -1405,9 +1307,8 @@ const HistoricoCP = () => {
                 </p>
               ) : (
                 <>
-                  {isMobile ? (
-                    // Mobile: Cards
-                    <div className="space-y-0">
+                  {contentWidth < 1600 ? (
+                    <div className="grid grid-cols-1 gap-3">
                       {appointments.map((apt) => (
                         <MobileAppointmentCard key={apt.id} appointment={apt} />
                       ))}
@@ -1416,7 +1317,7 @@ const HistoricoCP = () => {
                     // Desktop: Tabela
                     <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '860px' }}>
+                        <table className="w-full min-w-[1600px] table-fixed text-sm">
                           <thead>
                             <tr className="border-b border-border">
                               <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Data</th>
@@ -1426,9 +1327,9 @@ const HistoricoCP = () => {
                               <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[150px]">Serviço</th>
                               <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[100px] sm:w-[120px]">Pagamento</th>
                               <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[70px] sm:w-[80px]">Tipo</th>
-                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Status</th>
+                              <th className="w-[140px] whitespace-nowrap px-2 py-3 text-left">Status</th>
                               <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[70px] sm:w-[80px]">Foto</th>
-                              <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Ações</th>
+                              <th className="sticky right-0 z-20 w-[440px] border-l border-border bg-card px-2 py-3 text-right shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.45)]">Ações</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1508,7 +1409,7 @@ const HistoricoCP = () => {
                                   )}
                                 </td>
                                 <td className="py-2 sm:py-3 px-1 sm:px-2">{getTypeBadge(apt.booking_type)}</td>
-                                <td className="py-2 sm:py-3 px-1 sm:px-2">{getStatusBadge(apt.status)}</td>
+                                <td className="whitespace-nowrap px-2 py-3">{getStatusBadge(apt.status)}</td>
                                 <td className="py-2 sm:py-3 px-1 sm:px-2">
                                   {apt.photo_url ? (
                                     <button
@@ -1521,8 +1422,9 @@ const HistoricoCP = () => {
                                       title="Ver foto"
                                     >
                                       <img
-                                        src={apt.photo_url}
+                                        src={getOptimizedStorageImageUrl(apt.photo_url, { width: 128, height: 128, quality: 60, resize: 'cover' })}
                                         alt="Foto do atendimento"
+                                        onError={(event) => { if (event.currentTarget.src !== apt.photo_url) event.currentTarget.src = apt.photo_url || ''; }}
                                         className="w-10 h-10 sm:w-12 sm:h-12 rounded-md object-cover border border-border"
                                       />
                                     </button>
@@ -1530,30 +1432,34 @@ const HistoricoCP = () => {
                                     <span className="text-xs text-muted-foreground">-</span>
                                   )}
                                 </td>
-                                <td className="py-2 sm:py-3 px-1 sm:px-2">
-                                  <div className="flex items-center justify-end gap-1">
+                                <td className="sticky right-0 z-10 border-l border-border bg-card px-2 py-3 align-middle shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.45)]">
+                                  <div className="flex w-full items-center justify-end gap-2 whitespace-nowrap">
                                     {apt.status !== 'completed' && (
                                       <Button
                                         size="sm"
-                                        variant="secondary"
+                                        variant="default"
                                         onClick={() => handleCompleteAppointment(apt)}
                                         disabled={completingAppointmentId === apt.id}
-                                        className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                                        className="h-11 min-w-[96px] bg-emerald-600 px-3 text-xs text-white hover:bg-emerald-700"
+                                        aria-label="Concluir agendamento"
                                       >
                                         {completingAppointmentId === apt.id ? (
                                           <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
                                         ) : (
                                           <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4" />
                                         )}
+                                        <span>Concluir</span>
                                       </Button>
                                     )}
                                     <Button
                                       size="sm"
                                       variant="outline"
                                       onClick={() => handleEdit(apt)}
-                                      className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                                      className="h-11 min-w-[84px] border-sky-500/40 bg-sky-500/10 px-3 text-xs text-sky-300 hover:bg-sky-500/20"
+                                      aria-label="Editar agendamento"
                                     >
                                       <Pencil className="h-3 w-3 sm:h-4 sm:w-4" />
+                                      <span>Editar</span>
                                     </Button>
                                     <Button
                                       size="sm"
@@ -1562,9 +1468,11 @@ const HistoricoCP = () => {
                                         setDeletingAppointment(apt);
                                         setDeleteDialogOpen(true);
                                       }}
-                                      className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                                      className="h-11 min-w-[84px] px-3 text-xs"
+                                      aria-label="Excluir agendamento"
                                     >
                                       <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                                      <span>Excluir</span>
                                     </Button>
                                   </div>
                                 </td>
@@ -1627,9 +1535,8 @@ const HistoricoCP = () => {
                 </p>
               ) : (
                 <>
-                  {isMobile ? (
-                    // Mobile: Cards
-                    <div className="space-y-0">
+                  {contentWidth < 1300 ? (
+                    <div className="grid grid-cols-1 gap-3">
                       {productSales.map((sale) => (
                         <MobileProductCard key={sale.id} sale={sale} />
                       ))}
@@ -1638,7 +1545,7 @@ const HistoricoCP = () => {
                     // Desktop: Tabela
                     <div className="w-full overflow-hidden" style={{ maxWidth: '100%' }}>
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '800px' }}>
+                        <table className="w-full min-w-[1300px] table-fixed text-sm">
                           <thead>
                             <tr className="border-b border-border">
                               <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Data</th>
@@ -1648,9 +1555,9 @@ const HistoricoCP = () => {
                               <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[110px] sm:w-[130px]">Total</th>
                               <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[120px] sm:w-[140px]">Barbeiro</th>
                               <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[110px] sm:w-[130px]">Pagamento</th>
-                              <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[90px] sm:w-[110px]">Status</th>
+                              <th className="w-[140px] whitespace-nowrap px-2 py-3 text-left">Status</th>
                               <th className="text-left py-2 sm:py-3 px-1 sm:px-2">Observação</th>
-                              <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[80px] sm:w-[100px]">Ações</th>
+                              <th className="sticky right-0 z-20 w-[300px] border-l border-border bg-card px-2 py-3 text-right shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.45)]">Ações</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1704,21 +1611,23 @@ const HistoricoCP = () => {
                                     {sale.notes || '-'}
                                   </div>
                                 </td>
-                                <td className="py-2 sm:py-3 px-1 sm:px-2">
-                                  <div className="flex items-center justify-end">
+                                <td className="sticky right-0 z-10 border-l border-border bg-card px-2 py-3 align-middle shadow-[-8px_0_12px_-8px_rgba(0,0,0,0.45)]">
+                                  <div className="flex w-full items-center justify-end gap-2 whitespace-nowrap">
                                     {sale.status !== 'confirmed' && (
                                       <Button
                                         size="sm"
-                                        variant="secondary"
+                                        variant="default"
                                         onClick={() => handleCompleteProductSale(sale)}
                                         disabled={completingSaleId === sale.id}
-                                        className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                                        className="h-11 min-w-[106px] bg-emerald-600 px-3 text-xs text-white hover:bg-emerald-700"
+                                        aria-label="Confirmar venda"
                                       >
                                         {completingSaleId === sale.id ? (
                                           <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
                                         ) : (
                                           <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4" />
                                         )}
+                                        <span>Confirmar</span>
                                       </Button>
                                     )}
                                     <Button
@@ -1728,9 +1637,11 @@ const HistoricoCP = () => {
                                         setDeletingSale(sale);
                                         setDeleteSaleDialogOpen(true);
                                       }}
-                                      className="h-7 w-7 sm:h-8 sm:w-8 p-0"
+                                      className="h-11 min-w-[84px] px-3 text-xs"
+                                      aria-label="Excluir venda"
                                     >
                                       <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                                      <span>Excluir</span>
                                     </Button>
                                   </div>
                                 </td>
@@ -1905,6 +1816,36 @@ const HistoricoCP = () => {
             alt="Foto do atendimento"
             className="w-full h-full max-h-[85vh] object-contain bg-black"
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={manualLauncherOpen} onOpenChange={setManualLauncherOpen}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Novo lançamento manual</DialogTitle>
+            <DialogDescription>Selecione o barbeiro e o tipo de registro que deseja criar.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <Label className="mb-1.5 block text-sm" htmlFor="manual-launcher-barber">Barbeiro</Label>
+              <Select value={manualBarberId} onValueChange={setManualBarberId}>
+                <SelectTrigger id="manual-launcher-barber" className="h-11 w-full">
+                  <SelectValue placeholder="Selecione um barbeiro" />
+                </SelectTrigger>
+                <SelectContent>
+                  {barbers.map((barber) => <SelectItem key={barber.id} value={barber.id}>{barber.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Button type="button" className="h-11 w-full" disabled={!manualBarberId} onClick={() => handleOpenManualDialog('service')}>
+                <Scissors className="h-4 w-4" /> Registrar serviço
+              </Button>
+              <Button type="button" variant="outline" className="h-11 w-full" disabled={!manualBarberId} onClick={() => handleOpenManualDialog('product')}>
+                <ShoppingBag className="h-4 w-4" /> Registrar produto
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
