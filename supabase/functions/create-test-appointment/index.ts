@@ -130,7 +130,7 @@ serve(async (req) => {
         'apikey': legacyInvokeKey,
         'Authorization': `Bearer ${legacyInvokeKey}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ appointmentId: appointmentData.id, action: 'created' }),
       });
     } catch (e) {
       console.log('Queue processing may happen automatically');

@@ -25,7 +25,7 @@ const Barbers = () => {
   const loadBarbers = async () => {
     const { data, error } = await (supabase as any)
       .from('barbers')
-      .select('*')
+      .select('id, name, specialty, rating, image_url')
       .eq('visible', true)
       .order('order_index');
 

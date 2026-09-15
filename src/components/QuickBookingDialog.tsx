@@ -581,7 +581,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
                 'apikey': supabaseAnonKey || '',
                 'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
               },
-              body: JSON.stringify({}),
+              body: JSON.stringify({ appointmentId: appointmentData.id, action: 'created' }),
             });
 
             if (!response.ok) {

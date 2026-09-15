@@ -1,6 +1,8 @@
 export type OptimizeOptions = { width?: number; height?: number; quality?: number; resize?: 'cover' | 'contain' };
 
-// Builds a Supabase Storage transform URL from a public object URL
+// Selects a physical upload variant when available. The current Supabase plan
+// does not provide dynamic image transformations, so legacy/original URLs are
+// returned unchanged instead of causing a failed render request plus fallback.
 export const getOptimizedStorageImageUrl = (
   imageUrl?: string | null,
   options?: OptimizeOptions
@@ -9,25 +11,13 @@ export const getOptimizedStorageImageUrl = (
 
   try {
     const parsed = new URL(imageUrl);
-    const objectPathMarker = '/storage/v1/object/public/';
-    const markerIndex = parsed.pathname.indexOf(objectPathMarker);
+    if (!parsed.pathname.includes('/storage/v1/object/public/')) return imageUrl;
 
-    if (markerIndex === -1) {
-      return imageUrl;
-    }
+    const targetWidth = (options?.width ?? 480) <= 400 ? 400 : 800;
+    const variantPattern = /-w(?:400|800)(\.(?:webp|jpe?g|png))$/i;
+    if (!variantPattern.test(parsed.pathname)) return imageUrl;
 
-    const objectPath = parsed.pathname.slice(markerIndex + objectPathMarker.length);
-    const prefix = parsed.pathname.slice(0, markerIndex);
-    parsed.pathname = `${prefix}/storage/v1/render/image/public/${objectPath}`;
-
-    parsed.searchParams.set('width', String(options?.width ?? 480));
-    if (options?.height) {
-      parsed.searchParams.set('height', String(options.height));
-    } else {
-      parsed.searchParams.delete('height');
-    }
-    parsed.searchParams.set('quality', String(options?.quality ?? 60));
-    parsed.searchParams.set('resize', options?.resize ?? 'cover');
+    parsed.pathname = parsed.pathname.replace(variantPattern, `-w${targetWidth}$1`);
     return parsed.toString();
   } catch {
     return imageUrl;

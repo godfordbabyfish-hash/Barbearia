@@ -348,8 +348,15 @@ const sendWhatsAppMessage = async (phone: string, message: string, instanceName:
   return { success: false, error: 'Falha após todas as tentativas' };
 };
 
-// Process queue from database
-const processQueue = async (supabase: any) => {
+type QueueFilter = {
+  queueId?: string;
+  appointmentId?: string;
+  action?: WhatsAppMessage['action'];
+};
+
+// Process only the notification that caused this invocation. Legacy calls
+// without a scope may only consume fresh rows, never an old backlog.
+const processQueue = async (supabase: any, filter: QueueFilter = {}) => {
   console.log('[Queue] Iniciando processamento da fila...');
   
   // Get active instance name
@@ -369,13 +376,26 @@ const processQueue = async (supabase: any) => {
     console.log('[Queue] Barbershop maps link loaded:', mapsLink);
   }
   
-  // Get pending notifications (limit 10 at a time)
-  const { data: queue, error } = await supabase
+  const freshCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  let queueQuery = supabase
     .from('whatsapp_notifications_queue')
-    .select('*')
+    .select('id, appointment_id, client_phone, message_action, payload, target_type, target_phone, status, attempts, created_at')
     .eq('status', 'pending')
-    .order('created_at', { ascending: true })
-    .limit(10);
+    .order('created_at', { ascending: true });
+
+  if (filter.queueId) {
+    queueQuery = queueQuery.eq('id', filter.queueId);
+  } else if (filter.appointmentId) {
+    queueQuery = queueQuery.eq('appointment_id', filter.appointmentId);
+  } else {
+    queueQuery = queueQuery.gte('created_at', freshCutoff);
+  }
+
+  if (filter.action) {
+    queueQuery = queueQuery.eq('message_action', filter.action);
+  }
+
+  const { data: queue, error } = await queueQuery.limit(10);
 
   if (error) {
     console.error('[Queue] Erro ao buscar fila:', error);
@@ -394,6 +414,28 @@ const processQueue = async (supabase: any) => {
   
   for (const item of queue) {
     try {
+      const currentAttempts = item.attempts || 0;
+      const claimedAttempts = currentAttempts + 1;
+      const { data: claimed, error: claimError } = await supabase
+        .from('whatsapp_notifications_queue')
+        .update({ attempts: claimedAttempts })
+        .eq('id', item.id)
+        .eq('status', 'pending')
+        .eq('attempts', currentAttempts)
+        .select('id')
+        .maybeSingle();
+
+      if (claimError) {
+        console.error(`[Queue] Erro ao reservar item ${item.id}:`, claimError);
+        failed++;
+        continue;
+      }
+
+      if (!claimed) {
+        console.log(`[Queue] Item ${item.id} já foi reservado por outro processo`);
+        continue;
+      }
+
       const targetPhone = item.target_phone || item.client_phone;
       const payload = item.payload as WhatsAppMessage;
       const targetType = (item.target_type as 'client' | 'barber') || payload.targetType || 'client';
@@ -407,7 +449,7 @@ const processQueue = async (supabase: any) => {
           .update({
             status: 'sent',
             processed_at: new Date().toISOString(),
-            attempts: item.attempts,
+            attempts: claimedAttempts,
             error_message: 'Envio desativado pelo administrador',
           })
           .eq('id', item.id);
@@ -427,7 +469,7 @@ const processQueue = async (supabase: any) => {
       // Update queue status
       const updateData: any = {
         processed_at: new Date().toISOString(),
-        attempts: item.attempts + 1
+        attempts: claimedAttempts
       };
 
       if (result.success) {
@@ -438,13 +480,13 @@ const processQueue = async (supabase: any) => {
       } else {
         updateData.error_message = result.error || 'Erro desconhecido';
         // If failed after 3 attempts, mark as failed
-        if (item.attempts + 1 >= 3) {
+        if (claimedAttempts >= 3) {
           updateData.status = 'failed';
           failed++;
           console.error(`[Queue] Item ${item.id} failed after 3 attempts: ${result.error}`);
         } else {
           updateData.status = 'pending';
-          console.warn(`[Queue] Item ${item.id} will retry (attempt ${item.attempts + 1}/3): ${result.error}`);
+          console.warn(`[Queue] Item ${item.id} will retry (attempt ${claimedAttempts}/3): ${result.error}`);
         }
       }
 
@@ -468,7 +510,6 @@ const processQueue = async (supabase: any) => {
         await supabase
           .from('whatsapp_notifications_queue')
           .update({
-            attempts: item.attempts + 1,
             error_message: error.message || 'Erro desconhecido',
             status: item.attempts + 1 >= 3 ? 'failed' : 'pending'
           })
@@ -522,7 +563,12 @@ serve(async (req) => {
 
     // Process queue endpoint
     if (req.method === 'POST' && path === 'process-queue') {
-      const result = await processQueue(supabase);
+      const requestBody = await req.json().catch(() => ({}));
+      const result = await processQueue(supabase, {
+        queueId: typeof requestBody.queueId === 'string' ? requestBody.queueId : undefined,
+        appointmentId: typeof requestBody.appointmentId === 'string' ? requestBody.appointmentId : undefined,
+        action: typeof requestBody.action === 'string' ? requestBody.action : undefined,
+      });
       return new Response(
         JSON.stringify({ success: true, ...result }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

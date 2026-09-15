@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import ReferralPanel from '@/components/ReferralPanel';
 import FilterPopup from '@/components/FilterPopup';
 import { summarizeReferralCoupons, type ReferralCouponSummary } from '@/utils/referralBenefits';
+import { getOptimizedStorageImageUrl } from '@/utils/images';
 
 type HistoryFilterPeriod = 'all' | 'today' | 'week' | 'month' | 'year';
 type HistoryFilterStatus = 'all' | 'completed' | 'cancelled' | 'confirmed' | 'pending';
@@ -83,39 +84,6 @@ const defaultImages: Record<string, string> = {
   "Corte de Cabelo": haircutImg,
   "Barba & Bigode": beardImg,
   "Finalização": stylingImg,
-};
-
-const getOptimizedStorageImageUrl = (
-  imageUrl?: string | null,
-  options?: { width?: number; height?: number; quality?: number; resize?: 'cover' | 'contain' }
-) => {
-  if (!imageUrl) return '';
-
-  try {
-    const parsed = new URL(imageUrl);
-    const objectPathMarker = '/storage/v1/object/public/';
-    const markerIndex = parsed.pathname.indexOf(objectPathMarker);
-
-    if (markerIndex === -1) {
-      return imageUrl;
-    }
-
-    const objectPath = parsed.pathname.slice(markerIndex + objectPathMarker.length);
-    const prefix = parsed.pathname.slice(0, markerIndex);
-    parsed.pathname = `${prefix}/storage/v1/render/image/public/${objectPath}`;
-
-    parsed.searchParams.set('width', String(options?.width ?? 240));
-    if (options?.height) {
-      parsed.searchParams.set('height', String(options.height));
-    } else {
-      parsed.searchParams.delete('height');
-    }
-    parsed.searchParams.set('quality', String(options?.quality ?? 65));
-    parsed.searchParams.set('resize', options?.resize ?? 'cover');
-    return parsed.toString();
-  } catch {
-    return imageUrl;
-  }
 };
 
 const historyFilterPeriods: readonly HistoryFilterPeriod[] = ['all', 'today', 'week', 'month', 'year'];
@@ -690,7 +658,7 @@ const ClienteDashboard = () => {
               'apikey': supabaseAnonKey || '',
               'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
             },
-            body: JSON.stringify({}),
+            body: JSON.stringify({ appointmentId: appointmentToCancel, action: 'cancelled' }),
             signal: controller.signal,
           });
 

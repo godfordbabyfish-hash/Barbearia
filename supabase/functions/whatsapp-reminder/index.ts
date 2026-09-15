@@ -153,15 +153,6 @@ const sendReminder = async (phone: string, message: string, instanceName: string
 };
 
 const processReminders = async (supabase: any) => {
-  const activeInstanceName = await getActiveInstanceName(supabase);
-  if (!activeInstanceName) {
-    console.log('[Reminder] No active WhatsApp instance configured');
-    return { processed: 0, error: 'No active instance' };
-  }
-
-  const mapsLink = await getBarbershopMapsLink(supabase);
-  const reminderTemplate = await loadReminderTemplate(supabase);
-
   const timeZone = 'America/Sao_Paulo';
 
   const getLocalDateAndTime = (date: Date) => {
@@ -196,8 +187,6 @@ const processReminders = async (supabase: any) => {
   const currentMinute = parseInt(currentMinuteStr, 10);
   const currentTotalMinutes = currentHour * 60 + currentMinute;
 
-  console.log(`[Reminder] Checking appointments for ${today} at local time ${currentTime} (target: ~10 minutes ahead)`);
-
   // Find appointments that:
   // 1. Are today
   // 2. Are confirmed or pending
@@ -218,7 +207,6 @@ const processReminders = async (supabase: any) => {
   }
 
   if (!appointmentsData || appointmentsData.length === 0) {
-    console.log('[Reminder] No appointments found for reminder (raw query)');
     return { processed: 0 };
   }
 
@@ -238,11 +226,21 @@ const processReminders = async (supabase: any) => {
   });
 
   if (timeFilteredAppointments.length === 0) {
-    console.log('[Reminder] No appointments in ~10-minute window; skipping this run');
     return { processed: 0 };
   }
 
-  console.log(`[Reminder] Found ${timeFilteredAppointments.length} appointment(s) after time filter`);
+  // Most minute-by-minute executions finish above with one query. Message
+  // configuration is loaded only when a reminder is actually eligible.
+  const activeInstanceName = await getActiveInstanceName(supabase);
+  if (!activeInstanceName) {
+    console.warn('[Reminder] No active Baileys instance configured');
+    return { processed: 0, error: 'No active instance' };
+  }
+
+  const [mapsLink, reminderTemplate] = await Promise.all([
+    getBarbershopMapsLink(supabase),
+    loadReminderTemplate(supabase),
+  ]);
 
   // Fetch related data separately - prioritize 'whatsapp' field, fallback to 'phone'
   const appointmentsWithDetails = await Promise.all(
@@ -298,11 +296,8 @@ const processReminders = async (supabase: any) => {
     .filter(apt => apt.formattedWhatsApp !== null);
 
   if (!appointments || appointments.length === 0) {
-    console.log('[Reminder] No appointments found for reminder');
     return { processed: 0 };
   }
-
-  console.log(`[Reminder] Found ${appointments.length} appointment(s) to remind`);
 
   let processed = 0;
   let failed = 0;

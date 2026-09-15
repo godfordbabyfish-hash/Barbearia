@@ -207,12 +207,10 @@ const HistoricoCP = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'appointment_payments' }, refreshVisibleTab)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'product_sales' }, refreshVisibleTab)
       .subscribe();
-    const interval = window.setInterval(refreshVisibleTab, 10000);
     document.addEventListener('visibilitychange', refreshVisibleTab);
 
     return () => {
       window.clearTimeout(refreshTimer);
-      window.clearInterval(interval);
       document.removeEventListener('visibilitychange', refreshVisibleTab);
       void supabase.removeChannel(channel);
     };

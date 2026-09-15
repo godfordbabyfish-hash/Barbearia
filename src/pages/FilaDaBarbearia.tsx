@@ -155,40 +155,53 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
 
     // Subscribe to realtime updates
     let removed = false;
-    const channel = supabase
-      .channel("appointments-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "appointments",
-        },
-        () => {
-          loadAppointments();
-          calculateAvailableSlots();
-        }
-      )
-      .subscribe((status: string) => {
-        if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !removed) {
-          removed = true;
-          setTimeout(() => { try { supabase.removeChannel(channel); } catch { /* ignore */ } }, 0);
-        }
-      });
-
-    // Anonymous viewers cannot subscribe to protected appointment rows.
-    // Refresh the deliberately limited public queue periodically instead.
-    const publicRefresh = !canManageQueue && !hoursLoading
-      ? window.setInterval(() => {
-          loadAppointments();
-          calculateAvailableSlots();
-        }, 30_000)
+    let refreshTimer: number | undefined;
+    const refreshVisibleQueue = () => {
+      if (document.visibilityState === "hidden" || hoursLoading) return;
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        loadAppointments();
+        calculateAvailableSlots();
+      }, 250);
+    };
+    const channel = canManageQueue
+      ? supabase
+          .channel("appointments-changes")
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "appointments",
+            },
+            refreshVisibleQueue
+          )
+          .subscribe((status: string) => {
+            if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') && !removed) {
+              removed = true;
+              setTimeout(() => { try { supabase.removeChannel(channel); } catch { /* ignore */ } }, 0);
+            }
+          })
       : null;
+
+    // Public/client viewers cannot observe every protected appointment row.
+    // Keep a conservative fallback only while the queue is visible.
+    const publicRefresh = !canManageQueue && !hoursLoading
+      ? window.setInterval(refreshVisibleQueue, 60_000)
+      : null;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshVisibleQueue();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       removed = true;
+      window.clearTimeout(refreshTimer);
       if (publicRefresh) window.clearInterval(publicRefresh);
-      try { supabase.removeChannel(channel); } catch { /* ignore */ }
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (channel) {
+        try { supabase.removeChannel(channel); } catch { /* ignore */ }
+      }
     };
   }, [hoursLoading, canManageQueue]);
 
@@ -232,7 +245,18 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       ? await supabase
           .from("appointments")
           .select(`
-            *,
+            id,
+            client_id,
+            barber_id,
+            service_id,
+            appointment_date,
+            appointment_time,
+            booking_type,
+            status,
+            is_fit,
+            client_name,
+            notes,
+            photo_url,
             services(title, duration),
             barbers(name, image_url)
           `)
@@ -342,7 +366,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
   const loadBarbers = async () => {
     const { data, error } = await supabase
       .from("barbers")
-      .select("*")
+      .select("id, user_id, name, image_url, availability, order_index")
       .eq("visible", true)
       .order("order_index");
 
@@ -361,7 +385,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
       if (barberIds.length > 0) {
         const { data: schedules } = await supabase
           .from('barber_schedules' as any)
-          .select('*')
+          .select('barber_id, open, close, closed, has_lunch, lunch_start, lunch_end, has_pause, pause_start, pause_end')
           .in('barber_id', barberIds)
           .eq('date', todayStr);
         const trimTime = (t: string) => t ? String(t).substring(0, 5) : t;

@@ -1409,7 +1409,7 @@ const Booking = () => {
               'apikey': supabaseAnonKey || '',
               'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
             },
-            body: JSON.stringify({}),
+            body: JSON.stringify({ appointmentId, action: 'created' }),
           });
         })();
     } catch (error) {

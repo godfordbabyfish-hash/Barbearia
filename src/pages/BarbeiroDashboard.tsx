@@ -41,6 +41,7 @@ import { calculateReferralPrice } from '@/utils/referrals';
 import { getReferralCouponCredit, summarizeReferralCoupons, type ReferralCouponSummary } from '@/utils/referralBenefits';
 import FilterPopup from '@/components/FilterPopup';
 import SupplyConsumptionPanel from '@/components/SupplyConsumptionPanel';
+import { getOptimizedStorageImageUrl } from '@/utils/images';
 
 type BarberRecord = Tables<'barbers'>;
 type ServiceRecord = Tables<'services'>;
@@ -2300,7 +2301,7 @@ const BarbeiroDashboard = () => {
                 'apikey': supabaseAnonKey || '',
                 'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
               },
-              body: JSON.stringify({}),
+              body: JSON.stringify({ appointmentId, action: 'created' }),
             });
 
             if (response.ok) {
@@ -2375,7 +2376,7 @@ const BarbeiroDashboard = () => {
               'apikey': supabaseAnonKey || '',
               'Authorization': session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`,
             },
-            body: JSON.stringify({}),
+            body: JSON.stringify({ appointmentId: appointmentToCancel, action: 'cancelled' }),
             signal: controller.signal,
           });
 
@@ -2607,27 +2608,17 @@ const BarbeiroDashboard = () => {
         duration: 2000,
       });
 
-      // Enviar mensagem WhatsApp de atendimento concluído ao cliente
+      // Processar somente a conclusão enfileirada pelo gatilho do banco.
+      // A fila permanece como fonte única e evita envio duplicado.
       try {
-        const completedApt = appointments.find(a => a.id === appointmentToComplete);
-        const clientPhone = completedApt?.client?.phone || '';
-        if (clientPhone) {
-          await supabase.functions.invoke('whatsapp-notify', {
-            body: {
-              appointmentId: appointmentToComplete,
-              clientName: completedApt?.client?.name || 'Cliente',
-              phone: clientPhone,
-              action: 'completed',
-              appointmentDate: completedApt?.appointment_date,
-              appointmentTime: completedApt?.appointment_time,
-              serviceName: completedApt?.service?.title,
-              barberName: completedApt?.barber?.name || currentUserBarber?.name,
-              targetType: 'client',
-            },
-          });
-        }
+        await supabase.functions.invoke('whatsapp-process-queue', {
+          body: {
+            appointmentId: appointmentToComplete,
+            action: 'completed',
+          },
+        });
       } catch (waErr) {
-        console.error('Erro ao enviar WhatsApp de conclusão:', waErr);
+        console.error('Erro ao processar WhatsApp de conclusão:', waErr);
       }
 
       setCompleteDialogOpen(false);
@@ -3003,42 +2994,6 @@ const BarbeiroDashboard = () => {
       rowCount: 1,
       filters: { barberId: targetBarber, appointmentId },
     });
-  };
-
-  const getSupabaseImagePreviewUrl = (
-    photoUrl?: string | null,
-    options?: { width?: number; height?: number; quality?: number; resize?: 'cover' | 'contain' }
-  ) => {
-    if (!photoUrl) return '';
-    try {
-      const parsed = new URL(photoUrl);
-      const objectPathMarker = '/storage/v1/object/public/';
-      const markerIndex = parsed.pathname.indexOf(objectPathMarker);
-
-      if (markerIndex === -1) {
-        return photoUrl;
-      }
-
-      const objectPath = parsed.pathname.slice(markerIndex + objectPathMarker.length);
-      const prefix = parsed.pathname.slice(0, markerIndex);
-      parsed.pathname = `${prefix}/storage/v1/render/image/public/${objectPath}`;
-
-      const width = options?.width ?? 256;
-      const quality = options?.quality ?? 55;
-      const resize = options?.resize ?? 'cover';
-
-      parsed.searchParams.set('width', String(width));
-      if (options?.height) {
-        parsed.searchParams.set('height', String(options.height));
-      } else {
-        parsed.searchParams.delete('height');
-      }
-      parsed.searchParams.set('resize', resize);
-      parsed.searchParams.set('quality', String(quality));
-      return parsed.toString();
-    } catch {
-      return photoUrl;
-    }
   };
 
   const completedAppointments = useMemo(() => {
@@ -4980,7 +4935,7 @@ const BarbeiroDashboard = () => {
                                       className="h-7 px-2 text-xs"
                                       onClick={() => {
                                         setPhotoModalUrl(
-                                          getSupabaseImagePreviewUrl(appointment.photo_url as string, {
+                                          getOptimizedStorageImageUrl(appointment.photo_url as string, {
                                             width: 960,
                                             quality: 70,
                                             resize: 'contain',
@@ -5164,7 +5119,7 @@ const BarbeiroDashboard = () => {
                                         className="h-6 px-2 text-xs"
                                         onClick={() => {
                                           setPhotoModalUrl(
-                                            getSupabaseImagePreviewUrl(sale.photo_url, {
+                                            getOptimizedStorageImageUrl(sale.photo_url, {
                                               width: 960,
                                               quality: 70,
                                               resize: 'contain',

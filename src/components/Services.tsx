@@ -43,7 +43,7 @@ const Services = () => {
   const loadServices = async () => {
     const { data, error } = await supabase
       .from('services')
-      .select('*')
+      .select('id, title, description, price, icon, image_url')
       .eq('visible', true)
       .order('order_index');
 

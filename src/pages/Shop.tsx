@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { getOptimizedStorageImageUrl } from "@/utils/images";
+import { getSiteConfig } from "@/lib/siteConfigCache";
 
 interface Product {
   id: string;
@@ -106,7 +107,7 @@ const Shop = () => {
   const loadProducts = async () => {
     const { data, error } = await supabase
       .from('products')
-      .select('*')
+      .select('id, name, description, price, image_url, category, stock')
       .eq('visible', true)
       .order('order_index');
 
@@ -132,19 +133,11 @@ const Shop = () => {
   };
 
   const loadWhatsappNumber = async () => {
-    const { data, error } = await supabase
-      .from('site_config')
-      .select('config_value')
-      .eq('config_key', 'footer_info')
-      .maybeSingle();
-
-    if (data && !error) {
-      const footerInfo = data.config_value as FooterInfoConfig;
-      if (footerInfo?.social?.whatsapp) {
-        // Clean up the number
-        const number = footerInfo.social.whatsapp.replace(/\D/g, '');
-        setWhatsappNumber(number);
-      }
+    const footerInfo = await getSiteConfig('footer_info') as FooterInfoConfig | null;
+    if (footerInfo?.social?.whatsapp) {
+      // Clean up the number
+      const number = footerInfo.social.whatsapp.replace(/\D/g, '');
+      setWhatsappNumber(number);
     }
   };
 

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { Palette, MapPin } from 'lucide-react';
+import { invalidateSiteConfig } from '@/lib/siteConfigCache';
 
 const hslToHex = (hsl: string): string => {
   try {
@@ -172,6 +173,7 @@ const SiteConfigEditor = () => {
     if (error) {
       toast.error('Erro ao salvar cores');
     } else {
+      invalidateSiteConfig('theme_colors');
       // Update CSS variables
       const root = document.documentElement;
       root.style.setProperty('--primary', themeColors.primary);
@@ -207,6 +209,7 @@ const SiteConfigEditor = () => {
     if (error) {
       toast.error('Erro ao salvar Hero');
     } else {
+      invalidateSiteConfig('hero_section');
       toast.success('Hero salvo!');
     }
   };
@@ -222,6 +225,7 @@ const SiteConfigEditor = () => {
     if (error) {
       toast.error('Erro ao salvar Footer');
     } else {
+      invalidateSiteConfig('footer_info');
       toast.success('Footer salvo!');
     }
   };

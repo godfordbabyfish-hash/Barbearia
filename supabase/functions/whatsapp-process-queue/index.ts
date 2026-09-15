@@ -43,6 +43,7 @@ serve(async (req) => {
 
     console.log('[WhatsApp Queue] Iniciando processamento da fila...');
     
+    const requestBody = await req.json().catch(() => ({}));
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -50,7 +51,7 @@ serve(async (req) => {
         'apikey': legacyInvokeKey,
         'Authorization': `Bearer ${legacyInvokeKey}`,
       },
-      body: JSON.stringify({}), // corpo vazio, apenas para disparar o processamento
+      body: JSON.stringify(requestBody),
     });
 
     const data = await response.json().catch((err) => {
