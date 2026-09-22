@@ -43,8 +43,11 @@ interface ProductSalesManagerProps {
 }
 
 export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
-  const { getCommissionPercentage: getIndividualCommissionPercentage } = useBarberProductCommissions(barberId);
+  const { commissions: individualProductCommissions } = useBarberProductCommissions(barberId);
   const { getProductCommissionPercentage: getFixedCommissionPercentage } = useBarberFixedCommissions(barberId);
+  const getProductCommissionPercentage = (productId: string) =>
+    individualProductCommissions.find((rule) => rule.barber_id === barberId && rule.product_id === productId)?.commission_percentage
+      ?? getFixedCommissionPercentage(barberId);
   const [products, setProducts] = useState<Product[]>([]);
   const [sales, setSales] = useState<ProductSale[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,13 +152,13 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
     try {
       let updateData: any = { status: newStatus };
 
-      // Se estiver confirmando, recalcula a comissão com as taxas atuais
+      // Capture the rate when a pending sale is first confirmed. A confirmed
+      // sale keeps its recorded percentage even if the panel changes later.
       if (newStatus === 'confirmed') {
         const sale = sales.find(s => s.id === saleId);
-        if (sale) {
-          const individualCommission = getIndividualCommissionPercentage(barberId, sale.product_id);
-          const fixedCommission = getFixedCommissionPercentage(barberId);
-          const commissionPercentage = individualCommission > 0 ? individualCommission : fixedCommission;
+        if (!sale) throw new Error('Venda não carregada; atualize a lista antes de confirmar.');
+        if (sale.status !== 'confirmed') {
+          const commissionPercentage = getProductCommissionPercentage(sale.product_id);
           const commissionValue = (sale.total_price * commissionPercentage) / 100;
 
           updateData = {
@@ -212,9 +215,7 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
       const unitPrice = product.price;
       const totalPrice = unitPrice * quantity;
       // Tenta usar comissão individual, se não houver usa comissão fixa
-      const individualCommission = getIndividualCommissionPercentage(barberId, selectedProduct);
-      const fixedCommission = getFixedCommissionPercentage(barberId);
-      const commissionPercentage = individualCommission > 0 ? individualCommission : fixedCommission;
+      const commissionPercentage = getProductCommissionPercentage(selectedProduct);
       const commissionValue = (totalPrice * commissionPercentage) / 100;
 
       const { error } = await supabase
@@ -262,16 +263,12 @@ export const ProductSalesManager = ({ barberId }: ProductSalesManagerProps) => {
   const selectedProductData = products.find(p => p.id === selectedProduct);
   const estimatedTotal = selectedProductData ? selectedProductData.price * quantity : 0;
   const estimatedCommission = selectedProductData ? (() => {
-    const individualCommission = getIndividualCommissionPercentage(barberId, selectedProduct);
-    const fixedCommission = getFixedCommissionPercentage(barberId);
-    const commissionPercentage = individualCommission > 0 ? individualCommission : fixedCommission;
+    const commissionPercentage = getProductCommissionPercentage(selectedProduct);
     return (estimatedTotal * commissionPercentage) / 100;
   })() : 0;
   
   const estimatedCommissionPercentage = selectedProductData ? (() => {
-    const individualCommission = getIndividualCommissionPercentage(barberId, selectedProduct);
-    const fixedCommission = getFixedCommissionPercentage(barberId);
-    return individualCommission > 0 ? individualCommission : fixedCommission;
+    return getProductCommissionPercentage(selectedProduct);
   })() : 0;
 
   return (

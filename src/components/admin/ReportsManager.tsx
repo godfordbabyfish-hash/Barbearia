@@ -14,6 +14,7 @@ import autoTable from 'jspdf-autotable';
 import WeeklyClosingManager from '@/components/WeeklyClosingManager';
 import FilterPopup from '@/components/FilterPopup';
 import WeeklyOverviewSelector from '@/components/WeeklyOverviewSelector';
+import { calculateServiceReportAmount } from '@/lib/reportCommission';
 
 interface ReportData {
   period: string;
@@ -22,15 +23,16 @@ interface ReportData {
   appointments: any[];
   productSales: any[];
   advances: any[];
+  legacyRateCount: number;
   summary: {
     totalAppointments: number;
     grossRevenue: number;
     totalCommissions: number;
-      serviceCommissions: number;
-      productCommissions: number;
+    serviceCommissions: number;
+    productCommissions: number;
     barbershopProfit: number;
     totalAdvances: number;
-    netProfit: number;
+    netCommission: number;
   };
   barberDetails?: {
     [barberId: string]: {
@@ -53,7 +55,6 @@ const ReportsManager = () => {
   const [customDateTo, setCustomDateTo] = useState<string>(() => format(new Date(), 'yyyy-MM-dd'));
   const [generating, setGenerating] = useState(false);
   const [generatingManagerial, setGeneratingManagerial] = useState(false);
-  const [recalculatingProducts, setRecalculatingProducts] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
   const parseLocalISODate = (iso: string): Date => {
@@ -135,20 +136,28 @@ const ReportsManager = () => {
           status,
           barber_id,
           service_id,
-          client_id
-        `)
+          client_id,
+          client_name,
+          commission_percentage_applied,
+          original_price,
+          final_price,
+          commission_basis
+        `, { count: 'exact' })
         .gte('appointment_date', startDate)
         .lte('appointment_date', endDate)
-        .in('status', ['completed', 'confirmed']);
+        .eq('status', 'completed');
 
       if (selectedBarber !== 'all') {
         appointmentsQuery = appointmentsQuery.eq('barber_id', selectedBarber);
       }
 
-      const { data: appointments, error: appointmentsError } = await appointmentsQuery;
+      const { data: appointments, error: appointmentsError, count: appointmentCount } = await appointmentsQuery;
       if (appointmentsError) {
         console.error('Appointments query error:', appointmentsError);
         throw new Error(`Erro ao carregar agendamentos: ${appointmentsError.message}`);
+      }
+      if (appointmentCount !== null && (appointments?.length || 0) !== appointmentCount) {
+        throw new Error('O período contém mais agendamentos do que a consulta retornou. O PDF parcial não foi gerado.');
       }
 
       // Load related data separately to avoid join issues
@@ -166,7 +175,7 @@ const ReportsManager = () => {
             .in('id', serviceIds);
           
           if (servicesError) {
-            console.error('Services query error:', servicesError);
+            throw new Error(`Erro ao carregar preços dos serviços: ${servicesError.message}`);
           } else {
             services = servicesData || [];
           }
@@ -203,13 +212,58 @@ const ReportsManager = () => {
         }
       }
 
+      const appointmentIds = (appointments || []).map((apt) => apt.id);
+      const appointmentBarberIds = [...new Set((appointments || []).map((apt) => apt.barber_id))];
+      const [paymentsResult, individualResult, fixedResult] = await Promise.all([
+        appointmentIds.length
+          ? supabase.from('appointment_payments').select('appointment_id, amount').in('appointment_id', appointmentIds)
+          : Promise.resolve({ data: [], error: null }),
+        appointmentBarberIds.length
+          ? supabase.from('barber_commissions').select('barber_id, service_id, commission_percentage').in('barber_id', appointmentBarberIds)
+          : Promise.resolve({ data: [], error: null }),
+        appointmentBarberIds.length
+          ? supabase.from('barber_fixed_commissions').select('barber_id, service_commission_percentage').in('barber_id', appointmentBarberIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (paymentsResult.error || individualResult.error || fixedResult.error) {
+        throw new Error('Erro ao carregar pagamentos ou regras de comissão. O PDF não foi gerado para evitar valores incorretos.');
+      }
+
+      const paymentsByAppointment = new Map<string, number[]>();
+      for (const payment of paymentsResult.data || []) {
+        const amounts = paymentsByAppointment.get(payment.appointment_id) || [];
+        amounts.push(Number(payment.amount));
+        paymentsByAppointment.set(payment.appointment_id, amounts);
+      }
+      const individualByBarberService = new Map(
+        (individualResult.data || []).map((rule) => [`${rule.barber_id}:${rule.service_id}`, Number(rule.commission_percentage)]),
+      );
+      const fixedByBarber = new Map(
+        (fixedResult.data || []).map((rule) => [rule.barber_id, Number(rule.service_commission_percentage)]),
+      );
+
       // Combine data
-      const appointmentsWithDetails = (appointments || []).map((apt: any) => ({
-        ...apt,
-        service: services.find(s => s.id === apt.service_id),
-        barber: barbers.find(b => b.id === apt.barber_id),
-        client: clients.find(c => c.id === apt.client_id)
-      }));
+      const appointmentsWithDetails = (appointments || []).map((apt) => {
+        const service = services.find((item) => item.id === apt.service_id);
+        if (!service) throw new Error(`Serviço não encontrado para o agendamento ${apt.id}. O PDF não foi gerado.`);
+        const amounts = calculateServiceReportAmount({
+          servicePrice: Number(service.price),
+          originalPrice: apt.original_price,
+          finalPrice: apt.final_price,
+          commissionBasis: apt.commission_basis,
+          payments: paymentsByAppointment.get(apt.id) || [],
+          capturedPercentage: apt.commission_percentage_applied,
+          individualPercentage: individualByBarberService.get(`${apt.barber_id}:${apt.service_id}`),
+          fixedPercentage: fixedByBarber.get(apt.barber_id),
+        });
+        return {
+          ...apt,
+          service,
+          barber: barbers.find((item) => item.id === apt.barber_id),
+          client: clients.find((item) => item.id === apt.client_id),
+          ...amounts,
+        };
+      });
       appointmentsWithDetails.sort((a: any, b: any) => {
         if (a.appointment_date !== b.appointment_date) {
           return a.appointment_date.localeCompare(b.appointment_date);
@@ -230,18 +284,31 @@ const ReportsManager = () => {
           commission_value,
           sale_date,
           sale_time
-        `)
+        `, { count: 'exact' })
         .gte('sale_date', startDate)
-        .lte('sale_date', endDate);
+        .lte('sale_date', endDate)
+        .eq('status', 'confirmed');
 
       if (selectedBarber !== 'all') {
         productSalesQuery = productSalesQuery.eq('barber_id', selectedBarber);
       }
 
-      const { data: productSales, error: productSalesError } = await productSalesQuery;
+      const { data: productSales, error: productSalesError, count: productSaleCount } = await productSalesQuery;
       if (productSalesError) {
         console.error('Product sales query error:', productSalesError);
         throw new Error(`Erro ao carregar vendas de produtos: ${productSalesError.message}`);
+      }
+      if (productSaleCount !== null && (productSales?.length || 0) !== productSaleCount) {
+        throw new Error('O período contém mais vendas do que a consulta retornou. O PDF parcial não foi gerado.');
+      }
+
+      const saleBarberIds = [...new Set((productSales || []).map((sale: any) => sale.barber_id))]
+        .filter((id) => !barbers.some((barber) => barber.id === id));
+      if (saleBarberIds.length) {
+        const { data: saleBarbers, error: saleBarbersError } = await supabase
+          .from('barbers').select('id, name').in('id', saleBarberIds);
+        if (saleBarbersError) throw saleBarbersError;
+        barbers.push(...(saleBarbers || []));
       }
 
       // Load product details separately
@@ -285,7 +352,7 @@ const ReportsManager = () => {
           effective_date,
           status,
           description
-        `)
+        `, { count: 'exact' })
         .gte('effective_date', startDate)
         .lte('effective_date', endDate)
         .eq('status', 'approved');
@@ -294,10 +361,22 @@ const ReportsManager = () => {
         advancesQuery = advancesQuery.eq('barber_id', selectedBarber);
       }
 
-      const { data: advances, error: advancesError } = await advancesQuery;
+      const { data: advances, error: advancesError, count: advanceCount } = await advancesQuery;
       if (advancesError) {
         console.error('Advances query error:', advancesError);
         throw new Error(`Erro ao carregar vales: ${advancesError.message}`);
+      }
+      if (advanceCount !== null && (advances?.length || 0) !== advanceCount) {
+        throw new Error('O período contém mais vales do que a consulta retornou. O PDF parcial não foi gerado.');
+      }
+
+      const advanceBarberIds = [...new Set((advances || []).map((advance: any) => advance.barber_id))]
+        .filter((id) => !barbers.some((barber) => barber.id === id));
+      if (advanceBarberIds.length) {
+        const { data: advanceBarbers, error: advanceBarbersError } = await supabase
+          .from('barbers').select('id, name').in('id', advanceBarberIds);
+        if (advanceBarbersError) throw advanceBarbersError;
+        barbers.push(...(advanceBarbers || []));
       }
 
       // Combine advances with barber details
@@ -311,30 +390,31 @@ const ReportsManager = () => {
 
       // Calculate summary
       const grossRevenue =
-        appointmentsWithDetails.reduce((sum: number, apt: any) => sum + (apt.service?.price || 0), 0) +
-        productSalesWithDetails.reduce((sum: number, sale: any) => sum + sale.total_price, 0);
+        appointmentsWithDetails.reduce((sum: number, apt: any) => sum + apt.received, 0) +
+        productSalesWithDetails.reduce((sum: number, sale: any) => sum + Number(sale.total_price || 0), 0);
 
       const serviceCommissions = appointmentsWithDetails.reduce((sum: number, apt: any) => {
-        return sum + (apt.service?.price || 0) * 0.5;
+        return sum + apt.commission;
       }, 0);
 
       const productCommissions = productSalesWithDetails.reduce(
-        (sum: number, sale: any) => sum + sale.commission_value,
+        (sum: number, sale: any) => sum + Number(sale.commission_value || 0),
         0
       );
 
       const totalCommissions = serviceCommissions + productCommissions;
 
-      const totalAdvances = advancesWithDetails.reduce((sum: number, adv: any) => sum + adv.amount, 0);
+      const totalAdvances = advancesWithDetails.reduce((sum: number, adv: any) => sum + Number(adv.amount || 0), 0);
       const barbershopProfit = grossRevenue - totalCommissions;
-      const netProfit = barbershopProfit - totalAdvances;
+      const netCommission = totalCommissions - totalAdvances;
 
       // Calculate barber details if showing all barbers
       let barberDetails: any = {};
       if (selectedBarber === 'all') {
         const barberIds = [...new Set([
           ...appointmentsWithDetails.map((apt: any) => apt.barber_id),
-          ...productSalesWithDetails.map((sale: any) => sale.barber_id)
+          ...productSalesWithDetails.map((sale: any) => sale.barber_id),
+          ...advancesWithDetails.map((advance: any) => advance.barber_id),
         ])];
 
         for (const barberId of barberIds) {
@@ -342,16 +422,16 @@ const ReportsManager = () => {
           const barberProductSales = productSalesWithDetails.filter((sale: any) => sale.barber_id === barberId);
           const barberAdvances = advancesWithDetails.filter((adv: any) => adv.barber_id === barberId);
 
-          const barberGrossRevenue = barberAppointments.reduce((sum: number, apt: any) => sum + (apt.service?.price || 0), 0) +
-                                    barberProductSales.reduce((sum: number, sale: any) => sum + sale.total_price, 0);
+          const barberGrossRevenue = barberAppointments.reduce((sum: number, apt: any) => sum + apt.received, 0) +
+                                    barberProductSales.reduce((sum: number, sale: any) => sum + Number(sale.total_price || 0), 0);
 
-          const barberCommission = barberAppointments.reduce((sum: number, apt: any) => sum + ((apt.service?.price || 0) * 0.5), 0) +
-                                  barberProductSales.reduce((sum: number, sale: any) => sum + sale.commission_value, 0);
+          const barberCommission = barberAppointments.reduce((sum: number, apt: any) => sum + apt.commission, 0) +
+                                  barberProductSales.reduce((sum: number, sale: any) => sum + Number(sale.commission_value || 0), 0);
 
-          const barberAdvancesTotal = barberAdvances.reduce((sum: number, adv: any) => sum + adv.amount, 0);
+          const barberAdvancesTotal = barberAdvances.reduce((sum: number, adv: any) => sum + Number(adv.amount || 0), 0);
 
           barberDetails[barberId] = {
-            name: barberAppointments[0]?.barber?.name || barberProductSales[0]?.barber?.name || 'Barbeiro',
+            name: barbers.find((barber) => barber.id === barberId)?.name || 'Barbeiro',
             appointments: barberAppointments.length,
             grossRevenue: barberGrossRevenue,
             commission: barberCommission,
@@ -374,6 +454,7 @@ const ReportsManager = () => {
         appointments: appointmentsWithDetails,
         productSales: productSalesWithDetails,
         advances: advancesWithDetails,
+        legacyRateCount: appointmentsWithDetails.filter((apt) => apt.commission_percentage_applied == null).length,
         summary: {
           totalAppointments: appointmentsWithDetails.length,
           grossRevenue,
@@ -382,7 +463,7 @@ const ReportsManager = () => {
           productCommissions,
           barbershopProfit,
           totalAdvances,
-          netProfit
+          netCommission
         },
         barberDetails: selectedBarber === 'all' ? barberDetails : undefined
       };
@@ -463,31 +544,30 @@ const ReportsManager = () => {
     const productCom = data.summary.productCommissions;
     const barbershopProfit = data.summary.barbershopProfit;
     const totalAdvances = data.summary.totalAdvances;
-    const net = data.summary.netProfit;
+    const netCommission = data.summary.netCommission;
 
     const commissionRate = gross > 0 ? (totalCom / gross) * 100 : 0;
-    const profitMargin = gross > 0 ? (barbershopProfit / gross) * 100 : 0;
-    const roi = gross > 0 ? (net / gross) * 100 : 0;
+    const barbershopShareRate = gross > 0 ? (barbershopProfit / gross) * 100 : 0;
 
     const barberNetCommission = totalCom - totalAdvances;
     const barbershopShareFromBarber = gross - totalCom;
 
     const summaryData = isBarbershopReport
       ? [
-          ['Agendamentos no período', data.summary.totalAppointments.toString()],
+          ['Atendimentos concluídos no período', data.summary.totalAppointments.toString()],
           ['Fat. bruto (serviços + produtos)', `R$ ${gross.toFixed(2)}`],
           ['Comissão serviços (todos barbeiros)', `R$ ${serviceCom.toFixed(2)}`],
           ['Comissão produtos (todos barbeiros)', `R$ ${productCom.toFixed(2)}`],
           ['Total comissões (serv. + prod.)', `R$ ${totalCom.toFixed(2)}`],
           ['Comissões / faturamento', `${commissionRate.toFixed(2)}%`],
-          ['Lucro antes de vales (fat. - comissões)', `R$ ${barbershopProfit.toFixed(2)}`],
-          ['Margem de lucro', `${profitMargin.toFixed(2)}%`],
+          ['Parte da barbearia (fat. - comissões)', `R$ ${barbershopProfit.toFixed(2)}`],
+          ['Participação da barbearia', `${barbershopShareRate.toFixed(2)}%`],
           ['Vales / adiantamentos (todos barbeiros)', `R$ ${totalAdvances.toFixed(2)}`],
-          ['Lucro líquido (lucro - vales)', `R$ ${net.toFixed(2)}`],
-          ['ROI (lucro líquido / faturamento)', `${roi.toFixed(2)}%`],
+          ['Comissões líquidas a pagar (comissões - vales)', `R$ ${netCommission.toFixed(2)}`],
+          ['Taxas históricas não registradas (estimativas)', data.legacyRateCount.toString()],
         ]
       : [
-          ['Agendamentos do barbeiro no período', data.summary.totalAppointments.toString()],
+          ['Atendimentos concluídos do barbeiro', data.summary.totalAppointments.toString()],
           ['Faturamento (serviços + produtos)', `R$ ${gross.toFixed(2)}`],
           ['Comissão serviços do barbeiro', `R$ ${serviceCom.toFixed(2)}`],
           ['Comissão produtos do barbeiro', `R$ ${productCom.toFixed(2)}`],
@@ -495,6 +575,7 @@ const ReportsManager = () => {
           ['Parte da barbearia (fat. - comissão bruta)', `R$ ${barbershopShareFromBarber.toFixed(2)}`],
           ['Vales / adiantamentos no período', `R$ ${totalAdvances.toFixed(2)}`],
           ['Comissão líquida (bruta - vales)', `R$ ${barberNetCommission.toFixed(2)}`],
+          ['Taxas históricas não registradas (estimativas)', data.legacyRateCount.toString()],
         ];
 
     autoTable(doc, {
@@ -540,11 +621,11 @@ const ReportsManager = () => {
               hookData.cell.styles.fillColor = [220, 247, 223];
             } else if (label.startsWith('Total comissões (serv. + prod.)')) {
               hookData.cell.styles.fillColor = [208, 240, 192];
-            } else if (label.startsWith('Lucro antes de vales')) {
+            } else if (label.startsWith('Parte da barbearia')) {
               hookData.cell.styles.fillColor = [208, 240, 192];
             } else if (label.startsWith('Vales / adiantamentos (todos barbeiros)')) {
               hookData.cell.styles.fillColor = [252, 228, 214];
-            } else if (label.startsWith('Lucro líquido (lucro - vales)')) {
+            } else if (label.startsWith('Comissões líquidas a pagar')) {
               hookData.cell.styles.fillColor = [199, 230, 204];
               hookData.cell.styles.fontStyle = 'bold';
             }
@@ -606,25 +687,34 @@ const ReportsManager = () => {
       const appointmentData = data.appointments.map((apt: any) => [
         format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM/yyyy'),
         apt.appointment_time.slice(0, 5),
-        apt.client?.name || 'Cliente',
+        apt.client_name || apt.client?.name || 'Cliente',
         apt.service?.title || 'Serviço',
         data.barberName || apt.barber?.name || 'Barbeiro',
-        `R$ ${(apt.service?.price || 0).toFixed(2)}`,
-        apt.status === 'completed' ? 'Concluído' : 'Confirmado'
+        `R$ ${apt.received.toFixed(2)}`,
+        `${apt.commissionPercentage.toFixed(2)}%${apt.commission_percentage_applied == null ? '*' : ''}`,
+        `R$ ${apt.commission.toFixed(2)}`,
       ]);
 
       autoTable(doc, {
         startY: yPosition,
-        head: [['Data', 'Hora', 'Cliente', 'Serviço', 'Barbeiro', 'Valor', 'Status']],
+        head: [['Data', 'Hora', 'Cliente', 'Serviço', 'Barbeiro', 'Recebido', 'Taxa', 'Comissão']],
         body: appointmentData,
         theme: 'striped',
         headStyles: { fillColor: primaryColor, textColor: 255 },
         styles: { fontSize: 7, cellPadding: 2 },
         alternateRowStyles: { fillColor: [248, 249, 251] },
         columnStyles: {
-          5: { halign: 'right' }
+          5: { halign: 'right' },
+          6: { halign: 'right' },
+          7: { halign: 'right' }
         }
       });
+
+      if (data.legacyRateCount > 0) {
+        doc.setFontSize(8);
+        doc.setTextColor(80, 80, 80);
+        doc.text('* Taxa estimada com a configuração atual: o atendimento antigo não possui taxa histórica gravada.', 20, (doc as any).lastAutoTable.finalY + 5);
+      }
 
       yPosition = (doc as any).lastAutoTable.finalY + 20;
     }
@@ -754,7 +844,7 @@ const ReportsManager = () => {
       ['Comissões brutas', currency(summary.totalCommissions), blue],
       ['Parte da barbearia', currency(summary.barbershopProfit), green],
       ['Vales / adiantamentos', currency(summary.totalAdvances), red],
-      ['Comissão líquida', currency(summary.netProfit), gold],
+      ['Comissão líquida', currency(summary.netCommission), gold],
       ['Atendimentos', String(summary.totalAppointments), blue],
     ] as const;
     metrics.forEach(([label, value, color], index) => {
@@ -820,7 +910,7 @@ const ReportsManager = () => {
       const name = item.service?.title || item.service_title || 'Serviço';
       const current = serviceCounts.get(name) || { count: 0, revenue: 0 };
       current.count += 1;
-      current.revenue += Number(item.final_price ?? item.service?.price ?? item.service_price ?? 0);
+      current.revenue += Number(item.received || 0);
       serviceCounts.set(name, current);
     });
     const rankedServices = [...serviceCounts.entries()].sort((a, b) => b[1].revenue - a[1].revenue);
@@ -844,7 +934,7 @@ const ReportsManager = () => {
     });
     autoTable(doc, {
       startY: 88,
-      head: [['Serviço', 'Quantidade', 'Receita estimada']],
+      head: [['Serviço', 'Quantidade', 'Receita registrada']],
       body: rankedServices.map(([name, value]) => [name, value.count, currency(value.revenue)]),
       theme: 'grid',
       headStyles: { fillColor: dark },
@@ -857,7 +947,8 @@ const ReportsManager = () => {
       `• O período registrou ${operational.total} agendamentos, ${operational.completed} contabilizados e faturamento de ${currency(summary.grossRevenue)}.`,
       `• A taxa de conclusão foi de ${completion}% e o ticket médio ficou em ${currency(summary.totalAppointments ? summary.grossRevenue / summary.totalAppointments : 0)}.`,
       `• As comissões representaram ${summary.grossRevenue ? ((summary.totalCommissions / summary.grossRevenue) * 100).toFixed(1) : '0,0'}% do faturamento.`,
-      `• Foram descontados ${currency(summary.totalAdvances)} em vales/adiantamentos, resultando em ${currency(summary.netProfit)} de comissão líquida.`,
+      `• Foram descontados ${currency(summary.totalAdvances)} em vales/adiantamentos, resultando em ${currency(summary.netCommission)} de comissão líquida.`,
+      ...(data.legacyRateCount ? [`• ${data.legacyRateCount} atendimento(s) antigos usam taxa atual estimada, pois a taxa histórica não foi registrada.`] : []),
     ];
     doc.text(observations, 14, finalY + 8);
     doc.addPage('a4', 'landscape');
@@ -933,92 +1024,7 @@ const ReportsManager = () => {
     }
   };
 
-  const handleRecalculateProductCommissions = async () => {
-    try {
-      setRecalculatingProducts(true);
 
-      let salesQuery = supabase
-        .from('product_sales')
-        .select('id, barber_id, product_id, total_price, status')
-        .eq('status', 'confirmed');
-
-      if (selectedBarber !== 'all') {
-        salesQuery = salesQuery.eq('barber_id', selectedBarber);
-      }
-
-      const { data: sales, error: salesError } = await salesQuery;
-      if (salesError) {
-        throw new Error('Erro ao carregar vendas de produtos para recalcular comissões');
-      }
-
-      if (!sales || sales.length === 0) {
-        toast.info('Nenhuma venda de produto confirmada encontrada para este barbeiro/histórico.');
-        return;
-      }
-
-      const barberIds = Array.from(new Set((sales as any[]).map((s) => s.barber_id).filter(Boolean)));
-
-      let individualCommissions: any[] = [];
-      let fixedCommissions: any[] = [];
-
-      if (barberIds.length > 0) {
-        const { data: individualData, error: individualError } = await supabase
-          .from('barber_product_commissions')
-          .select('barber_id, product_id, commission_percentage')
-          .in('barber_id', barberIds);
-
-        if (individualError) {
-          throw new Error('Erro ao carregar comissões individuais de produtos');
-        }
-
-        individualCommissions = individualData || [];
-
-        const { data: fixedData, error: fixedError } = await supabase
-          .from('barber_fixed_commissions')
-          .select('barber_id, product_commission_percentage')
-          .in('barber_id', barberIds);
-
-        if (fixedError) {
-          throw new Error('Erro ao carregar comissões fixas de produtos');
-        }
-
-        fixedCommissions = fixedData || [];
-      }
-
-      for (const sale of sales as any[]) {
-        const existingTotal = Number(sale.total_price || 0);
-        const individual = individualCommissions.find(
-          (c) => c.barber_id === sale.barber_id && c.product_id === sale.product_id
-        )?.commission_percentage || 0;
-
-        const fixed = fixedCommissions.find(
-          (c) => c.barber_id === sale.barber_id
-        )?.product_commission_percentage || 0;
-
-        const commissionPercentage = individual > 0 ? individual : fixed;
-        const commissionValue = (existingTotal * commissionPercentage) / 100;
-
-        const { error: updateError } = await supabase
-          .from('product_sales')
-          .update({
-            commission_percentage: commissionPercentage,
-            commission_value: commissionValue,
-          })
-          .eq('id', sale.id);
-
-        if (updateError) {
-          throw new Error('Erro ao atualizar comissões de vendas de produtos');
-        }
-      }
-
-      toast.success('Comissões de produtos recalculadas com sucesso para todo o histórico selecionado!');
-    } catch (error: any) {
-      console.error('Error recalculating product commissions:', error);
-      toast.error(error.message || 'Erro ao recalcular comissões de produtos');
-    } finally {
-      setRecalculatingProducts(false);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -1138,14 +1144,6 @@ const ReportsManager = () => {
                   </>
                 )}
               </Button>
-              <Button
-                onClick={handleRecalculateProductCommissions}
-                disabled={recalculatingProducts}
-                variant="outline"
-                className="w-full text-xs sm:text-sm"
-              >
-                {recalculatingProducts ? 'Recalculando comissões...' : 'Recalcular comissões de produtos'}
-              </Button>
             </div>
           </div>
 
@@ -1193,7 +1191,7 @@ const ReportsManager = () => {
                 <div className="flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-green-500 flex-shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium">Lucro da Barbearia</p>
+                    <p className="text-sm font-medium">Parte da Barbearia</p>
                     <p className="text-xs text-muted-foreground">Faturamento - Comissões</p>
                   </div>
                 </div>
@@ -1206,7 +1204,7 @@ const ReportsManager = () => {
                   <Users className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500 flex-shrink-0" />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium">Comissões dos Barbeiros</p>
-                    <p className="text-xs text-muted-foreground">Total pago aos barbeiros</p>
+                    <p className="text-xs text-muted-foreground">Comissões calculadas no período</p>
                   </div>
                 </div>
               </CardContent>
@@ -1216,7 +1214,7 @@ const ReportsManager = () => {
           <div className="text-sm text-muted-foreground bg-secondary/30 p-3 sm:p-4 rounded-lg">
             <h4 className="font-medium mb-2">📋 O que inclui o relatório:</h4>
             <ul className="space-y-1 text-xs">
-              <li>• <strong>Resumo Geral:</strong> Faturamento bruto, comissões, lucro da barbearia</li>
+              <li>• <strong>Resumo Geral:</strong> Faturamento recebido, comissões e parte da barbearia antes das despesas</li>
               <li>• <strong>Detalhes por Barbeiro:</strong> Agendamentos, faturamento individual, comissões</li>
               <li>• <strong>Lista de Agendamentos:</strong> Data, hora, cliente, serviço, valor</li>
               <li>• <strong>Vendas de Produtos:</strong> Produtos vendidos e comissões</li>

@@ -28,6 +28,10 @@ export function CommissionConfigurationManager() {
           Individual
         </TabsTrigger>
       </TabsList>
+      <p className="mt-3 text-sm text-muted-foreground">
+        A comissão individual do serviço prevalece sobre a taxa fixa. Após a atualização do sistema, a taxa é
+        preservada na conclusão; atendimentos antigos sem registro histórico aparecem como estimativa nos relatórios.
+      </p>
       <TabsContent value="general" className="mt-4">
         <BulkCommissionManager />
       </TabsContent>

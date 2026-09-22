@@ -103,6 +103,8 @@ export type Database = {
           client_id: string
           client_name: string | null
           commission_basis: string | null
+          commission_captured_at: string | null
+          commission_percentage_applied: number | null
           created_at: string | null
           discount_amount: number
           final_price: number | null
@@ -126,6 +128,8 @@ export type Database = {
           client_id: string
           client_name?: string | null
           commission_basis?: string | null
+          commission_captured_at?: string | null
+          commission_percentage_applied?: number | null
           created_at?: string | null
           discount_amount?: number
           final_price?: number | null
@@ -149,6 +153,8 @@ export type Database = {
           client_id?: string
           client_name?: string | null
           commission_basis?: string | null
+          commission_captured_at?: string | null
+          commission_percentage_applied?: number | null
           created_at?: string | null
           discount_amount?: number
           final_price?: number | null

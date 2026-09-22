@@ -23,7 +23,7 @@ import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
-import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
+import { calculateServiceReportAmount } from '@/lib/reportCommission';
 import WeeklyClosingManager from '@/components/WeeklyClosingManager';
 import FilterPopup from '@/components/FilterPopup';
 import WeeklyOverviewSelector from '@/components/WeeklyOverviewSelector';
@@ -42,6 +42,7 @@ interface Appointment {
   final_price?: number | null;
   discount_amount?: number;
   commission_basis?: 'original' | 'final' | null;
+  commission_percentage_applied?: number | null;
 }
 
 interface Service {
@@ -68,9 +69,8 @@ interface BarberFinancialDashboardProps {
 
 const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancialDashboardProps) => {
   // Hooks for different commission types (priority: individual > fixed)
-  const { calculateCommission: calculateIndividualCommission } = useBarberCommissions(barberId);
-  const { calculateServiceCommission: calculateFixedServiceCommission, calculateProductCommission: calculateFixedProductCommission } = useBarberFixedCommissions(barberId);
-  const { calculateCommission: calculateIndividualProductCommission } = useBarberProductCommissions(barberId);
+  const { commissions: individualServiceCommissions } = useBarberCommissions(barberId);
+  const { getServiceCommissionPercentage: getFixedServiceCommissionPercentage } = useBarberFixedCommissions(barberId);
   
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [productSales, setProductSales] = useState<ProductSale[]>([]);
@@ -109,21 +109,16 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
   // Priority: 1) Individual commission per service, 2) Fixed commission
   const getCommissionValue = (apt: Appointment): number => {
     if (!apt.service || !apt.service_id) return 0;
-    
-    // Determine the base value for commission: sum of payments or service price
-    const paymentsTotal = apt.appointment_payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-    const servicePrice = apt.commission_basis === 'original'
-      ? Number(apt.original_price ?? apt.service.price ?? 0)
-      : Number(apt.final_price ?? (paymentsTotal > 0 ? paymentsTotal : apt.service.price || 0));
-    
-    // Try individual commission first
-    const individualCommission = calculateIndividualCommission(barberId, apt.service_id, servicePrice);
-    if (individualCommission > 0) {
-      return individualCommission;
-    }
-    
-    // Fallback to fixed commission
-    return calculateFixedServiceCommission(barberId, servicePrice);
+    return calculateServiceReportAmount({
+      servicePrice: Number(apt.service.price),
+      originalPrice: apt.original_price ?? null,
+      finalPrice: apt.final_price ?? null,
+      commissionBasis: apt.commission_basis ?? null,
+      payments: (apt.appointment_payments || []).map((payment) => Number(payment.amount)),
+      capturedPercentage: apt.commission_percentage_applied,
+      individualPercentage: individualServiceCommissions.find((rule) => rule.barber_id === barberId && rule.service_id === apt.service_id)?.commission_percentage,
+      fixedPercentage: getFixedServiceCommissionPercentage(barberId),
+    }).commission;
   };
 
   useEffect(() => {
@@ -271,6 +266,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
         final_price,
         discount_amount,
         commission_basis,
+        commission_percentage_applied,
         service:services(price, title),
         appointment_payments(amount, payment_method)
       `)
@@ -318,7 +314,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
         sale_time,
         total_price,
         commission_value,
-      product_id,
+        product_id,
         product:products(name)
       `)
       .eq('barber_id', barberId)
@@ -450,20 +446,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
     return sum + commission;
   }, 0);
   
-  const productCommission = productSales.reduce((sum, sale) => {
-    const existing = Number(sale.commission_value || 0);
-    const price = Number(sale.total_price || 0);
-    if (existing > 0) {
-      return sum + existing;
-    }
-    const individual = sale.product_id 
-      ? calculateIndividualProductCommission(barberId, sale.product_id, price)
-      : 0;
-    if (individual > 0) {
-      return sum + individual;
-    }
-    return sum + calculateFixedProductCommission(barberId, price);
-  }, 0);
+  const productCommission = productSales.reduce((sum, sale) => sum + Number(sale.commission_value || 0), 0);
   const totalCommission = serviceCommission + productCommission;
   const netCommission = totalCommission - totalAdvances;
   

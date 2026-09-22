@@ -61,7 +61,7 @@ export async function buildWeeklyClosureSnapshot(params: {
   const db = supabase as any;
   const [barberResult, appointmentsResult, productsResult, advancesResult, individualResult, fixedResult] = await Promise.all([
     db.from('barbers').select('id,name').eq('id', params.barberId).single(),
-    db.from('appointments').select('id,appointment_date,appointment_time,status,service_id,client_id,client_name,payment_method,original_price,final_price,commission_basis').eq('barber_id', params.barberId).gte('appointment_date', params.start).lte('appointment_date', params.end),
+    db.from('appointments').select('id,appointment_date,appointment_time,status,service_id,client_id,client_name,payment_method,original_price,final_price,commission_basis,commission_percentage_applied').eq('barber_id', params.barberId).gte('appointment_date', params.start).lte('appointment_date', params.end),
     db.from('product_sales').select('id,sale_date,product_id,total_price,commission_value,status').eq('barber_id', params.barberId).gte('sale_date', params.start).lte('sale_date', params.end).eq('status', 'confirmed'),
     db.from('barber_advances').select('id,effective_date,description,amount,status').eq('barber_id', params.barberId).gte('effective_date', params.start).lte('effective_date', params.end).eq('status', 'approved'),
     db.from('barber_commissions').select('service_id,commission_percentage').eq('barber_id', params.barberId),
@@ -114,7 +114,9 @@ export async function buildWeeklyClosureSnapshot(params: {
     if (received <= 0) return [];
     const original = money(appointment.original_price) || money(servicesById.get(appointment.service_id)?.price);
     const commissionBase = appointment.commission_basis === 'original' ? original : received;
-    const percentage = commissionByService.has(appointment.service_id)
+    const percentage = appointment.commission_percentage_applied != null
+      ? money(appointment.commission_percentage_applied)
+      : commissionByService.has(appointment.service_id)
       ? money(commissionByService.get(appointment.service_id))
       : fixedService;
     return [{

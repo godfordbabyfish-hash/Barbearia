@@ -339,8 +339,11 @@ const BarbeiroDashboard = () => {
   
   // Hooks for commission calculation
   const barberIdForCommissions = currentUserBarber?.id || selectedBarber;
-  const { getCommissionPercentage: getIndividualProductCommissionPercentage } = useBarberProductCommissions(barberIdForCommissions);
+  const { commissions: individualProductCommissions } = useBarberProductCommissions(barberIdForCommissions);
   const { getProductCommissionPercentage: getFixedProductCommissionPercentage } = useBarberFixedCommissions(barberIdForCommissions);
+  const getProductCommissionPercentage = (productId: string) =>
+    individualProductCommissions.find((rule) => rule.barber_id === barberIdForCommissions && rule.product_id === productId)?.commission_percentage
+      ?? getFixedProductCommissionPercentage(barberIdForCommissions || '');
 
   const pastPendingCount = useMemo(() => {
     const now = new Date();
@@ -1199,9 +1202,7 @@ const BarbeiroDashboard = () => {
       const totalPrice = unitPrice * productQuantity;
       
       // Calcular comissão (prioridade: individual > fixa)
-      const individualCommission = getIndividualProductCommissionPercentage(barberIdForCommissions, selectedProductId);
-      const fixedCommission = getFixedProductCommissionPercentage(barberIdForCommissions);
-      const commissionPercentage = individualCommission > 0 ? individualCommission : fixedCommission;
+      const commissionPercentage = getProductCommissionPercentage(selectedProductId);
       const commissionValue = (totalPrice * commissionPercentage) / 100;
 
       // Upload optional photo
@@ -3524,18 +3525,14 @@ const BarbeiroDashboard = () => {
                             <>
                               <div className="flex justify-between text-sm">
                                 <span className="text-muted-foreground">Comissão ({(() => {
-                                  const individual = getIndividualProductCommissionPercentage(barberIdForCommissions, selectedProductId);
-                                  const fixed = getFixedProductCommissionPercentage(barberIdForCommissions);
-                                  return individual > 0 ? individual : fixed;
+                                  return getProductCommissionPercentage(selectedProductId);
                                 })()}%):</span>
                                 <span className="font-bold text-green-400">
                                   R$ {((() => {
                                     const product = availableProducts.find(p => p.id === selectedProductId);
                                     if (!product) return 0;
                                     const totalPrice = product.price * productQuantity;
-                                    const individual = getIndividualProductCommissionPercentage(barberIdForCommissions, selectedProductId);
-                                    const fixed = getFixedProductCommissionPercentage(barberIdForCommissions);
-                                    const commissionPercentage = individual > 0 ? individual : fixed;
+                                    const commissionPercentage = getProductCommissionPercentage(selectedProductId);
                                     return (totalPrice * commissionPercentage) / 100;
                                   })()).toFixed(2)}
                                 </span>

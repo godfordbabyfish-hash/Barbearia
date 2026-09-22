@@ -30,6 +30,7 @@ import ManagerialClosingManager from '@/components/admin/ManagerialClosingManage
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { useBarberProductCommissions } from '@/hooks/useBarberProductCommissions';
+import { calculateServiceReportAmount } from '@/lib/reportCommission';
 import { toast } from 'sonner';
 
 interface Appointment {
@@ -49,6 +50,7 @@ interface Appointment {
   final_price?: number | null;
   discount_amount?: number;
   commission_basis?: 'original' | 'final' | null;
+  commission_percentage_applied?: number | null;
 }
 
 interface Barber {
@@ -114,12 +116,12 @@ const FinancialDashboard = () => {
   const isManager = role === 'admin' || role === 'gestor';
 
   const { 
-    calculateCommission: calculateIndividualCommission,
+    commissions: individualServiceCommissions,
     loadAllCommissions: loadAllIndividualCommissions,
   } = useBarberCommissions(null);
 
   const {
-    calculateServiceCommission: calculateFixedServiceCommission,
+    getServiceCommissionPercentage: getFixedServiceCommissionPercentage,
     loadAllCommissions: loadAllFixedCommissions,
     getProductCommissionPercentage: getFixedProductCommissionPercentage,
   } = useBarberFixedCommissions(null);
@@ -246,6 +248,7 @@ const FinancialDashboard = () => {
         final_price,
         discount_amount,
         commission_basis,
+        commission_percentage_applied,
         barber_id,
         service_id,
         service:services(price, title),
@@ -327,13 +330,16 @@ const FinancialDashboard = () => {
 
   const getServiceCommissionValue = (apt: Appointment): number => {
     if (!apt.service || !apt.service_id || !apt.barber_id) return 0;
-    const paymentsTotal = apt.appointment_payments?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-    const servicePrice = apt.commission_basis === 'original'
-      ? Number(apt.original_price ?? apt.service.price ?? 0)
-      : Number(apt.final_price ?? (paymentsTotal > 0 ? paymentsTotal : apt.service.price || 0));
-    const individual = calculateIndividualCommission(apt.barber_id, apt.service_id, servicePrice);
-    if (individual > 0) return individual;
-    return calculateFixedServiceCommission(apt.barber_id, servicePrice);
+    return calculateServiceReportAmount({
+      servicePrice: Number(apt.service.price),
+      originalPrice: apt.original_price ?? null,
+      finalPrice: apt.final_price ?? null,
+      commissionBasis: apt.commission_basis ?? null,
+      payments: (apt.appointment_payments || []).map((payment) => Number(payment.amount)),
+      capturedPercentage: apt.commission_percentage_applied,
+      individualPercentage: individualServiceCommissions.find((rule) => rule.barber_id === apt.barber_id && rule.service_id === apt.service_id)?.commission_percentage,
+      fixedPercentage: getFixedServiceCommissionPercentage(apt.barber_id),
+    }).commission;
   };
 
   // Calculate stats

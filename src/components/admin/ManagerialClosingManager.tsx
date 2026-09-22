@@ -30,6 +30,7 @@ type Snapshot = {
   cash_difference: number;
   net_profit: number;
   service_count: number;
+  estimated_commission_rate_count?: number;
   product_sale_count: number;
   expense_count: number;
   supply_consumption_count: number;
@@ -144,6 +145,7 @@ export default function ManagerialClosingManager() {
         ['Receita de serviços', money(snapshot.service_revenue)],
         ['Receita de produtos', money(snapshot.product_revenue)],
         ['Comissões brutas', money(snapshot.gross_commissions)],
+        ['Atendimentos com taxa histórica estimada', String(snapshot.estimated_commission_rate_count || 0)],
         ['Despesas operacionais', money(snapshot.operational_expenses)],
         ['Consumo de insumos', money(snapshot.supply_consumption_cost)],
         ['Descontos concedidos', money(snapshot.discounts_granted)],
@@ -188,6 +190,9 @@ export default function ManagerialClosingManager() {
           </div>
 
           {preview && <>
+            {!!preview.estimated_commission_rate_count && <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600">
+              {preview.estimated_commission_rate_count} atendimento(s) antigo(s) não têm a taxa histórica registrada. A prévia usa a configuração atual como estimativa; confira antes de fechar.
+            </p>}
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">{metrics.map(([label, value]) => <div key={label} className="min-w-0 rounded-lg border bg-muted/20 p-3"><p className="text-[11px] leading-tight text-muted-foreground sm:text-xs">{label}</p><p className={`mt-1 break-words text-base font-bold sm:text-lg ${label === 'Lucro líquido' ? 'text-primary' : ''}`}>{money(value)}</p></div>)}</div>
             <div className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_auto]">
               <div><Label>Observações do fechamento</Label><Textarea className="mt-1 min-h-20" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Conferências, ocorrências ou justificativas do período" /></div>

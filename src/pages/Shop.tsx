@@ -262,9 +262,7 @@ const Shop = () => {
           c => c.product_id === item.product.id
         )?.commission_percentage;
 
-        const commissionPercentage = individualCommission !== undefined && individualCommission > 0
-          ? individualCommission
-          : fixedCommissionPercentage;
+        const commissionPercentage = individualCommission ?? fixedCommissionPercentage;
 
         const commissionValue = (totalPrice * commissionPercentage) / 100;
 
