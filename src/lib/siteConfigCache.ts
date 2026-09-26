@@ -13,6 +13,7 @@ interface CacheEntry {
 }
 
 const cache: Record<string, CacheEntry> = {};
+const pending = new Map<string, Promise<any | null>>();
 
 export async function getSiteConfig(key: string): Promise<any | null> {
   const now = Date.now();
@@ -21,22 +22,37 @@ export async function getSiteConfig(key: string): Promise<any | null> {
     return entry.value;
   }
 
-  const { data, error } = await supabase
-    .from('site_config')
-    .select('config_value')
-    .eq('config_key', key)
-    .maybeSingle();
+  const existing = pending.get(key);
+  if (existing) return existing;
 
-  if (error || !data) return null;
+  const request = (async () => {
+    const { data, error } = await supabase
+      .from('site_config')
+      .select('config_value')
+      .eq('config_key', key)
+      .maybeSingle();
 
-  cache[key] = { value: data.config_value, expiresAt: now + TTL_MS };
-  return data.config_value;
+    if (error || !data) return null;
+    // An invalidation during the request must not repopulate stale cache.
+    if (pending.get(key) === request) {
+      cache[key] = { value: data.config_value, expiresAt: Date.now() + TTL_MS };
+    }
+    return data.config_value;
+  })();
+  pending.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (pending.get(key) === request) pending.delete(key);
+  }
 }
 
 export function invalidateSiteConfig(key: string) {
   delete cache[key];
+  pending.delete(key);
 }
 
 export function invalidateAllSiteConfig() {
   Object.keys(cache).forEach(k => delete cache[k]);
+  pending.clear();
 }

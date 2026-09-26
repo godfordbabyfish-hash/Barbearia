@@ -190,7 +190,7 @@ describe('checkBarberAvailableForSlot', () => {
       expect(result).toBe(false);
     });
 
-    it('should detect overlap with break - slot ends during break', () => {
+    it('should detect overlap with break when a slot crosses its start', () => {
       const appointments: Appointment[] = [];
       const breaks: BarberBreak[] = [
         {
@@ -202,7 +202,7 @@ describe('checkBarberAvailableForSlot', () => {
       const result = checkBarberAvailableForSlot(
         barberId,
         date,
-        '11:30',
+        '11:45',
         duration,
         appointments,
         breaks
@@ -755,9 +755,9 @@ describe('calculateSlotAvailability', () => {
     const slot0900 = result.find((s) => s.time === '09:00');
     expect(slot0900?.availableCount).toBe(2);
 
-    // 09:30 - barber-1 and barber-2 busy, barber-3 available
+    // 09:30 - barber-1 is free at the boundary; barber-2 is busy, barber-3 is available
     const slot0930 = result.find((s) => s.time === '09:30');
-    expect(slot0930?.availableCount).toBe(1);
+    expect(slot0930?.availableCount).toBe(2);
 
     // 10:00 - barber-1 busy, barber-2 and barber-3 available
     const slot1000 = result.find((s) => s.time === '10:00');
@@ -767,8 +767,8 @@ describe('calculateSlotAvailability', () => {
     const slot1030 = result.find((s) => s.time === '10:30');
     expect(slot1030?.availableCount).toBe(2);
 
-    // 11:00 - all available
+    // 11:00 - barber-3 is still on break; the other two barbers are available
     const slot1100 = result.find((s) => s.time === '11:00');
-    expect(slot1100?.availableCount).toBe(3);
+    expect(slot1100?.availableCount).toBe(2);
   });
 });

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { getSiteConfig, invalidateSiteConfig } from '@/lib/siteConfigCache';
 
@@ -83,7 +83,7 @@ export const useOperatingHours = () => {
   };
 
   // Generate time slots based on operating hours for a specific date
-  const getTimeSlotsForDate = (date: Date): string[] => {
+  const getTimeSlotsForDate = useCallback((date: Date): string[] => {
     const dayKey = getDayKey(date);
     const dayHours = operatingHours[dayKey];
 
@@ -131,14 +131,14 @@ export const useOperatingHours = () => {
     }
     
     return slots;
-  };
+  }, [operatingHours]);
 
   // Generate all slots without filtering shop lunch break.
   // Use this when generating slots for a specific barber — the barber's own
   // breaks (from barber_schedules) are applied separately in combinedBreaks,
   // so the shop lunch must NOT pre-filter the base list or the slot at the
   // exact end of the lunch (e.g. 13:00 when lunch ends at 13:00) gets lost.
-  const getTimeSlotsForDateRaw = (date: Date): string[] => {
+  const getTimeSlotsForDateRaw = useCallback((date: Date): string[] => {
     const dayKey = getDayKey(date);
     const dayHours = operatingHours[dayKey];
 
@@ -162,12 +162,12 @@ export const useOperatingHours = () => {
     }
 
     return slots;
-  };
+  }, [operatingHours]);
 
-  const isDateOpen = (date: Date): boolean => {
+  const isDateOpen = useCallback((date: Date): boolean => {
     const dayKey = getDayKey(date);
     return !operatingHours[dayKey].closed;
-  };
+  }, [operatingHours]);
 
   return {
     operatingHours,

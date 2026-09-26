@@ -23,6 +23,7 @@ import barber1Img from "@/assets/barber-1.jpg";
 import barber2Img from "@/assets/barber-2.jpg";
 import barber3Img from "@/assets/barber-3.jpg";
 import ReferralPromotionBanner from "@/components/ReferralPromotionBanner";
+import { getSiteConfig } from "@/lib/siteConfigCache";
 import { getBarberBusySlots } from "@/services/appointmentAvailability";
 import { getOptimizedStorageImageUrl } from "@/utils/images";
 
@@ -437,14 +438,10 @@ const Booking = () => {
   }, [user]);
 
   const loadBarbershopAddress = async () => {
-    const { data, error } = await supabase
-      .from('site_config')
-      .select('config_value')
-      .eq('config_key', 'footer_info')
-      .maybeSingle();
+    const value = await getSiteConfig('footer_info');
 
-    if (!error && data) {
-      const footerInfo = getFooterInfo(data.config_value);
+    if (value) {
+      const footerInfo = getFooterInfo(value);
       if (footerInfo?.address) {
         setBarbershopAddress(footerInfo.address);
       }
@@ -1056,8 +1053,15 @@ const Booking = () => {
     }
   }, [barbers, formData.barber, formData.date, formData.service, getTimeSlotsForDate, getTimeSlotsForDateRaw, hoursLoading, isDateOpen, services]);
 
+  const loadingSlotsRef = useRef(false);
+  const reloadSlotsAfterCurrentRef = useRef(false);
+  const loadAvailableSlotsRef = useRef<(() => Promise<void>) | null>(null);
   const loadAvailableSlots = useCallback(async () => {
-    if (loadingSlots) return; // Prevenir múltiplas chamadas simultâneas
+    if (loadingSlotsRef.current) {
+      reloadSlotsAfterCurrentRef.current = true;
+      return;
+    }
+    loadingSlotsRef.current = true;
     setLoadingSlots(true);
     try {
       const slots = await getAvailableSlotsForDate();
@@ -1068,12 +1072,10 @@ const Booking = () => {
       // confirmation screen can show the next free slot instead of the real booking.
       if (slots.length > 0) {
         // Check if current selected time is still available in new slots
-        const currentTimeStillAvailable = formData.time && slots.includes(formData.time);
-        
-        if (step === "time" && !currentTimeStillAvailable) {
+        if (step === "time") {
           setFormData(prev => ({
             ...prev,
-            time: slots[0],
+            time: prev.time && slots.includes(prev.time) ? prev.time : slots[0],
           }));
         }
       } else if (step === "time") {
@@ -1090,19 +1092,24 @@ const Booking = () => {
       });
       setAvailableSlots([]);
     } finally {
+      loadingSlotsRef.current = false;
       setLoadingSlots(false);
+      if (reloadSlotsAfterCurrentRef.current) {
+        reloadSlotsAfterCurrentRef.current = false;
+        setTimeout(() => { void loadAvailableSlotsRef.current?.(); }, 0);
+      }
     }
-  }, [formData.time, getAvailableSlotsForDate, loadingSlots, step]);
+  }, [getAvailableSlotsForDate, step]);
+
+  useEffect(() => { loadAvailableSlotsRef.current = loadAvailableSlots; }, [loadAvailableSlots]);
 
   useEffect(() => {
-    if (step !== "success" && formData.date && formData.barber && formData.service && !hoursLoading) {
+    if (step === "time" && formData.date && formData.barber && formData.service && !hoursLoading) {
       loadAvailableSlots();
     }
   }, [formData.date, formData.barber, formData.service, hoursLoading, loadAvailableSlots, step]);
 
   // Subscription Realtime separada — recriada só quando o barbeiro muda
-  const loadAvailableSlotsRef = useRef(loadAvailableSlots);
-  useEffect(() => { loadAvailableSlotsRef.current = loadAvailableSlots; }, [loadAvailableSlots]);
 
   useEffect(() => {
     if (!formData.barber) return;
