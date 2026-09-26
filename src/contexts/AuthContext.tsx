@@ -72,15 +72,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         if (event === 'TOKEN_REFRESH_FAILED') {
           toast.error('Sua sessão expirou. Faça login novamente.');
-          await supabase.auth.signOut();
           setSession(null);
           setUser(null);
           setRole(null);
           navigate('/auth');
           setLoading(false);
+          // Supabase Auth holds an internal lock while this callback runs.
+          // Defer signOut so it cannot block subsequent auth/API requests.
+          setTimeout(() => {
+            void supabase.auth.signOut().catch((error) => {
+              console.warn('Não foi possível limpar a sessão expirada:', error);
+            });
+          }, 0);
           return;
         }
 
@@ -110,28 +116,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setLoading(false);
       }
     );
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        const userRole = await fetchUserRole(session.user.id);
-        setRole(userRole);
-        try {
-          const { data: prof } = await (supabase as any)
-            .from('profiles')
-            .select('blocked')
-            .eq('id', session.user.id)
-            .maybeSingle();
-          setBlocked(Boolean(prof?.blocked));
-        } catch {
-          setBlocked(false);
-        }
-      }
-      
-      setLoading(false);
-    });
 
     return () => subscription.unsubscribe();
   }, []);
