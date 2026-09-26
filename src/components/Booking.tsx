@@ -23,7 +23,7 @@ import barber1Img from "@/assets/barber-1.jpg";
 import barber2Img from "@/assets/barber-2.jpg";
 import barber3Img from "@/assets/barber-3.jpg";
 import ReferralPromotionBanner from "@/components/ReferralPromotionBanner";
-import { getBarberBusySlots, getServiceBookingCounts } from "@/services/appointmentAvailability";
+import { getBarberBusySlots } from "@/services/appointmentAvailability";
 import { getOptimizedStorageImageUrl } from "@/utils/images";
 
 type ServiceRecord = Tables<"services">;
@@ -490,26 +490,10 @@ const Booking = () => {
       return;
     }
 
-    let serviceCounts = new Map<string, number>();
-    try {
-      serviceCounts = await getServiceBookingCounts();
-    } catch (error) {
-      console.error('Error loading aggregate service counts:', error);
-    }
-
-    // Sort services by usage count (most used first), then by order_index
-    const sortedServices = [...servicesData].sort((a, b) => {
-      const countA = serviceCounts.get(a.id) || 0;
-      const countB = serviceCounts.get(b.id) || 0;
-      
-      // First sort by usage count (descending)
-      if (countB !== countA) {
-        return countB - countA;
-      }
-      
-      // If same count, sort by order_index
-      return (a.order_index || 0) - (b.order_index || 0);
-    });
+    // Popularity is optional; avoid a full-history aggregate that can time out.
+    const sortedServices = [...servicesData].sort(
+      (a, b) => (a.order_index || 0) - (b.order_index || 0),
+    );
 
     setServices(sortedServices);
   };

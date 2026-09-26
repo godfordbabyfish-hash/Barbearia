@@ -18,15 +18,3 @@ export async function getBarberBusySlots(barberId: string, date: string): Promis
     service: { duration: Number(row.duration) || 30 },
   }));
 }
-
-export async function getServiceBookingCounts(): Promise<Map<string, number>> {
-  const { data, error } = await (supabase as any).rpc('get_service_booking_counts');
-  if (error) throw error;
-
-  return new Map(
-    (data || []).map((row: { service_id: string; booking_count: number | string }) => [
-      row.service_id,
-      Number(row.booking_count) || 0,
-    ]),
-  );
-}

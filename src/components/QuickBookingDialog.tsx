@@ -9,7 +9,7 @@ import { Loader2, X, ArrowLeft, Star, Scissors } from "lucide-react";
 import { useOperatingHours, getDayKey } from "@/hooks/useOperatingHours";
 import { useAuth } from "@/contexts/AuthContext";
 import { getAvailableSlotsForBarber } from "@/utils/availability";
-import { getBarberBusySlots, getServiceBookingCounts } from "@/services/appointmentAvailability";
+import { getBarberBusySlots } from "@/services/appointmentAvailability";
 
 interface Barber {
   id: string;
@@ -280,26 +280,10 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       return;
     }
 
-    let serviceCounts = new Map<string, number>();
-    try {
-      serviceCounts = await getServiceBookingCounts();
-    } catch (error) {
-      console.error("Error loading aggregate service counts:", error);
-    }
-
-    // Sort services by usage count (most used first), then by order_index
-    const sortedServices = servicesData.sort((a: any, b: any) => {
-      const countA = serviceCounts.get(a.id) || 0;
-      const countB = serviceCounts.get(b.id) || 0;
-      
-      // First sort by usage count (descending)
-      if (countB !== countA) {
-        return countB - countA;
-      }
-      
-      // If same count, sort by order_index
-      return (a.order_index || 0) - (b.order_index || 0);
-    });
+    // Use the configured order; popularity counts require scanning appointment history.
+    const sortedServices = [...servicesData].sort(
+      (a: any, b: any) => (a.order_index || 0) - (b.order_index || 0),
+    );
 
     setServices(sortedServices);
   };
