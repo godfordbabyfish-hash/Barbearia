@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -205,7 +205,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     };
   }, [hoursLoading, canManageQueue]);
 
-  const loadBreaksForToday = async () => {
+  const loadBreaksForToday = useCallback(async () => {
     try {
       const todayStr = format(new Date(), "yyyy-MM-dd");
       const barberIds = barbers.map((b) => b.id);
@@ -236,7 +236,7 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     } catch {
       setBarberBreaksByBarber({});
     }
-  };
+  }, [barbers]);
 
   const loadAppointments = async () => {
     const today = format(new Date(), "yyyy-MM-dd");
@@ -525,13 +525,20 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     }
   };
 
+  // Pausas são dados de entrada para o cálculo, não devem ser recarregadas
+  // pelo efeito que depende delas. Mantemos a consulta vinculada à lista de
+  // barbeiros/data e às atualizações explícitas após alterações de pausa.
+  useEffect(() => {
+    if (hoursLoading || barbers.length === 0 || !isDateOpen(todayDate)) return;
+    void loadBreaksForToday();
+  }, [loadBreaksForToday, today, hoursLoading]);
+
   // Compute available slots per barber (for barber cards)
   useEffect(() => {
     if (hoursLoading || barbers.length === 0 || !isDateOpen(todayDate)) {
       setAvailableSlotsByBarber({});
       return;
     }
-    loadBreaksForToday();
     const next: Record<string, string[]> = {};
     barbers.forEach((barber: any) => {
       // Respeitar disponibilidade do barbeiro (dia fechado)
