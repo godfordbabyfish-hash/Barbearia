@@ -548,6 +548,18 @@ O diagnóstico identifica defeitos concretos e falhas reais, mas não declara re
 
 Regra de continuidade: ler este documento antes de consultar novamente. Para cada nova consulta, registrar objetivo, fonte/janela, resultado, limitação e próximo passo. Não repetir consultas já respondidas; repetir apenas para medir mudança de estado ou preencher lacuna explícita. Falha de consulta deve ser registrada como inconclusiva, nunca como ausência de problema. Não incluir credenciais ou dados pessoais.
 
+### 30/09/2026 — Dashboard financeiro publicado e verificação pós-publicação
+
+- Objetivo: concluir as funções analíticas somente de leitura, validar equivalência financeira, publicar o Dashboard Gerencial e medir o estado imediatamente posterior sem alterar agendamentos, valores ou notificações.
+- Migrações aplicadas no projeto `wabefmgfsatlusevxyfo`: evolução de receita/ociosidade por barbeiro, resumo financeiro mensal e correção da ocupação por união de intervalos. O resumo anual foi otimizado para agregar cada tabela uma vez; a versão anterior chamava a prévia completa de fechamento até doze vezes.
+- Segurança verificada: `anon` não possui `EXECUTE` nas duas RPCs; `authenticated` possui. A evolução de receita usa `SECURITY INVOKER`. O resumo financeiro usa `SECURITY DEFINER`, revoga acesso público e valida `auth.uid()` com papel `admin` ou `gestor` antes de consultar dados.
+- Correção financeira: agosto/2026 foi comparado com `preview_managerial_financial_closure`. Receita de serviços, receita de produtos, comissões de serviços e produtos, despesas, insumos, lucro líquido e quantidade de taxas históricas estimadas apresentaram igualdade em todos os campos.
+- Desempenho medido com `EXPLAIN ANALYZE`: resumo anual retornou 12 linhas em 14,204 ms e 451 buffers compartilhados; evolução diária de agosto retornou 93 linhas em 38,173 ms e 1.455 buffers compartilhados. Em `pg_stat_statements`, 59 chamadas relacionadas registravam média de 15,3 ms e máximo de 220,7 ms no instante da consulta.
+- Conexões no instante da leitura: 18 totais, 2 ativas e nenhuma `idle in transaction`. Esta é uma fotografia pontual, não garantia de comportamento futuro.
+- Publicação: commit `62dbb26` enviado para `origin/main`; implantação Vercel correspondente ficou `Ready`. O domínio de produção respondeu HTTP 200 com o bundle `index-CFpVW7R9.js`, contendo as novas telas e RPCs.
+- Painel Supabase após a publicação: projeto `Healthy`, CPU 5%, disco 5%, RAM 59% e 10/60 conexões. Últimos 60 minutos: 1.242 requisições, 98,3% de sucesso, API Gateway com zero erros, Edge Functions/Auth/Storage/Realtime com zero erros. Postgres exibiu três erros na janela agregada; a visão geral não identifica seus comandos. Advisor não encontrou problema ativo.
+- Limites: a janela inclui tráfego anterior à publicação e as próprias consultas controladas de validação. O resultado não comprova a meta mensal de logs nem substitui acompanhamento diário. Próximo passo é observar consumo e erros sem reexecutar consultas pesadas, investigando apenas se os indicadores voltarem a subir.
+
 ### 26/09/2026 — Alertas de saúde informados pelo usuário
 
 - Fonte: texto dos alertas do painel Supabase fornecido pelo usuário; instante exato e janela absoluta não informados. Não foi executada nova consulta ao banco para este registro.
