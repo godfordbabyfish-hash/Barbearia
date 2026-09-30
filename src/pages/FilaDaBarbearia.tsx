@@ -525,14 +525,6 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     }
   };
 
-  // Pausas são dados de entrada para o cálculo, não devem ser recarregadas
-  // pelo efeito que depende delas. Mantemos a consulta vinculada à lista de
-  // barbeiros/data e às atualizações explícitas após alterações de pausa.
-  useEffect(() => {
-    if (hoursLoading || barbers.length === 0 || !isDateOpen(todayDate)) return;
-    void loadBreaksForToday();
-  }, [loadBreaksForToday, today, hoursLoading]);
-
   // Compute available slots per barber (for barber cards)
   useEffect(() => {
     if (hoursLoading || barbers.length === 0 || !isDateOpen(todayDate)) {
@@ -610,6 +602,13 @@ const FilaDaBarbearia = ({ readOnly = false }: FilaProps) => {
     });
     setAvailableSlotsByBarber(next);
   }, [barbers, appointments, today, hoursLoading, barberBreaksByBarber, barberMonthlySchedules]);
+
+  // Pause reads are independent of the slot calculation and its state updates.
+  useEffect(() => {
+    if (!hoursLoading && barbers.length > 0 && isDateOpen(todayDate)) {
+      void loadBreaksForToday();
+    }
+  }, [loadBreaksForToday, today, hoursLoading]);
 
   const localAppointments = appointments.filter((apt) => apt.booking_type === "local");
   const onlineAppointments = appointments.filter((apt) => apt.booking_type === "online");

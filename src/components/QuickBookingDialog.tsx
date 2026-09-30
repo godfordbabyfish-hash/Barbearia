@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +9,17 @@ import { Loader2, X, ArrowLeft, Star, Scissors } from "lucide-react";
 import { useOperatingHours, getDayKey } from "@/hooks/useOperatingHours";
 import { useAuth } from "@/contexts/AuthContext";
 import { getAvailableSlotsForBarber } from "@/utils/availability";
-import { getBarberBusySlots } from "@/services/appointmentAvailability";
+import { resolveQuickBookingHours } from "@/utils/quickBookingHours";
+import {
+  getBarberBreaks,
+  getBarberBusySlots,
+  getBarberSchedule,
+  getBarberWeeklyAvailability,
+  invalidateBarberBreaks,
+  invalidateBarberBusySlots,
+  invalidateBarberSchedule,
+  invalidateBarberWeeklyAvailability,
+} from "@/services/appointmentAvailability";
 
 interface Barber {
   id: string;
@@ -59,6 +69,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
   const [pauseStart, setPauseStart] = useState("");
   const [pauseEnd, setPauseEnd] = useState("");
   const [showReleaseMode, setShowReleaseMode] = useState(false);
+  const quickBookingStepRef = useRef(step);
 
   const isBarberPreselected = Boolean(preselectedBarberId);
   const effectiveTimeSlot = isBarberPreselected ? selectedTimeSlot : timeSlot;
@@ -91,7 +102,30 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
     }
   }, [open, preselectedBarberId]);
 
-  const loadSlotsForBarber = async (barberId: string) => {
+  const getBarberHoursForDate = async (barberId: string, fresh = false) => {
+    const dayKey = getDayKey(new Date(date + "T12:00:00"));
+    const shopDay = operatingHours[dayKey];
+    try {
+      const { data: monthly } = await getBarberSchedule(barberId, date, fresh);
+      if (monthly) return resolveQuickBookingHours(monthly, null, shopDay);
+    } catch {
+      // Mantém o fallback semanal quando a escala datada não puder ser lida.
+    }
+    const barber = barbers.find(b => b.id === barberId) as (Barber & { availability?: unknown }) | undefined;
+    let weeklyAvailability = barber?.availability;
+    try {
+      const { data: currentBarber } = await getBarberWeeklyAvailability(barberId, fresh);
+      weeklyAvailability = currentBarber?.availability ?? weeklyAvailability;
+    } catch {
+      // Mantém a disponibilidade já carregada se a leitura falhar.
+    }
+    const availability = typeof weeklyAvailability === "string"
+      ? JSON.parse(weeklyAvailability) : weeklyAvailability;
+    const day = (availability as Record<string, typeof shopDay> | undefined)?.[dayKey];
+    return resolveQuickBookingHours(null, day, shopDay);
+  };
+
+  const loadSlotsForBarber = async (barberId: string, serviceId = selectedServiceId) => {
     setLoadingSlots(true);
     try {
       const dateObj = new Date(date + "T12:00:00");
@@ -100,62 +134,18 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         setSlotState({});
         return;
       }
-      // Respeitar disponibilidade diária do barbeiro (dias fechados e almoço)
-      let lunchBreak: { start_time: string; end_time: string } | null = null;
-      try {
-        const barber = barbers.find(b => b.id === barberId) as any;
-        if (barber?.availability) {
-          const availability = typeof barber.availability === "string"
-            ? JSON.parse(barber.availability)
-            : barber.availability;
-          const dayKey = getDayKey(dateObj) as any;
-          const dayAvailability = availability?.[dayKey];
-          if (dayAvailability?.closed) {
-            setBarberSlots([]);
-            setSlotState({});
-            return;
-          }
-          if (dayAvailability?.hasLunchBreak && dayAvailability.lunchStart && dayAvailability.lunchEnd) {
-            lunchBreak = {
-              start_time: dayAvailability.lunchStart,
-              end_time: dayAvailability.lunchEnd,
-            };
-          }
-        }
-        
-        // Fallback para horário de almoço da loja se o barbeiro não tiver configurado
-        if (!lunchBreak) {
-          const { data: shopHours } = await supabase
-            .from('site_config')
-            .select('config_value')
-            .eq('config_key', 'operating_hours')
-            .maybeSingle();
-          
-          if (shopHours?.config_value) {
-            const operatingHours = shopHours.config_value as any;
-            const dayKey = getDayKey(dateObj) as any;
-            const dayHours = operatingHours?.[dayKey];
-            if (dayHours?.hasLunchBreak && dayHours.lunchStart && dayHours.lunchEnd) {
-              lunchBreak = {
-                start_time: dayHours.lunchStart,
-                end_time: dayHours.lunchEnd,
-              };
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("Falha ao validar disponibilidade do barbeiro no dia selecionado:", e);
+      const barberHours = await getBarberHoursForDate(barberId);
+      if (barberHours.closed) {
+        setBarberSlots([]);
+        setSlotState({});
+        return;
       }
       const appts = await getBarberBusySlots(barberId, date);
       const barberAppointments = (appts ?? []).map((a: any) => ({
         appointment_time: a.appointment_time,
         duration: a.service?.duration,
       }));
-      const { data: breaks } = await (supabase as any)
-        .from("barber_breaks")
-        .select("start_time, end_time")
-        .eq("barber_id", barberId)
-        .eq("date", date);
+      const { data: breaks } = await getBarberBreaks(barberId, date);
 
       const allSlots = getTimeSlotsForDate(dateObj);
       const now = new Date();
@@ -175,19 +165,12 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       }));
       const combinedBreaks = [
         ...(breaks || []),
-        ...(lunchBreak ? [lunchBreak] : []),
+        ...barberHours.breaks,
       ];
       const breakRanges = combinedBreaks.map((b: any) => ({ start: b.start_time, end: b.end_time }));
       
-      const barber = barbers.find(b => b.id === barberId) as any;
-      const availability = typeof barber?.availability === "string"
-        ? JSON.parse(barber.availability)
-        : barber?.availability;
-      const dayKey = getDayKey(dateObj);
-      const shopHours = operatingHours[dayKey];
-      const dayAvailability = availability?.[dayKey];
-      const barberOpen = dayAvailability?.open || shopHours.open;
-      const barberClose = dayAvailability?.close || shopHours.close;
+      const barberOpen = barberHours.open;
+      const barberClose = barberHours.close;
 
       const computeState = (slot: string): 'available'|'break'|'booked'|'past' => {
          // Check if slot is within barber's working hours
@@ -217,8 +200,8 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       let futureSlots = allSlots.filter(s => states[s] !== 'past');
 
       // Se um serviço foi selecionado, garantir que o bloco completo caiba sem conflito
-      if (selectedServiceId) {
-        const service = services.find(s => s.id === selectedServiceId);
+      if (serviceId) {
+        const service = services.find(s => s.id === serviceId);
         const duration = service?.duration ?? 30;
         const steps = Math.max(1, Math.ceil(duration / 30));
         const hasContinuousAvailability = (slot: string) => {
@@ -247,6 +230,64 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       setLoadingSlots(false);
     }
   };
+
+  useEffect(() => {
+    quickBookingStepRef.current = step;
+  }, [step]);
+
+  const loadSlotsForBarberRef = useRef(loadSlotsForBarber);
+  useEffect(() => {
+    loadSlotsForBarberRef.current = loadSlotsForBarber;
+  }, [loadSlotsForBarber]);
+
+  const lastFocusRefreshRef = useRef(Date.now());
+  const refreshQuickSlots = useCallback(() => {
+    if (!open || !selectedBarberId || quickBookingStepRef.current !== 'time') return;
+    invalidateBarberBusySlots(selectedBarberId, date);
+    invalidateBarberBreaks(selectedBarberId, date);
+    invalidateBarberSchedule(selectedBarberId, date);
+    invalidateBarberWeeklyAvailability(selectedBarberId);
+    void loadSlotsForBarberRef.current(selectedBarberId);
+  }, [date, open, selectedBarberId]);
+
+  useEffect(() => {
+    if (!open || step !== 'time' || !selectedBarberId) return;
+    lastFocusRefreshRef.current = Date.now();
+    const refreshOnReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - lastFocusRefreshRef.current < 15_000) return;
+      lastFocusRefreshRef.current = now;
+      refreshQuickSlots();
+    };
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    window.addEventListener('focus', refreshOnReturn);
+    return () => {
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+      window.removeEventListener('focus', refreshOnReturn);
+    };
+  }, [open, refreshQuickSlots, selectedBarberId, step]);
+
+  useEffect(() => {
+    if (!open || !selectedBarberId) return;
+
+    const refreshSlots = (invalidate: () => void) => {
+      invalidate();
+      if (quickBookingStepRef.current === "time") {
+        setTimeout(() => loadSlotsForBarberRef.current(selectedBarberId), 300);
+      }
+    };
+
+    const channel = supabase
+      .channel(`quick-booking-availability-${selectedBarberId}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'appointments',
+        filter: `barber_id=eq.${selectedBarberId}`,
+      }, () => refreshSlots(() => invalidateBarberBusySlots(selectedBarberId, date)))
+      .subscribe();
+
+    return () => { void supabase.removeChannel(channel); };
+  }, [date, open, selectedBarberId]);
 
   const loadBarbers = async () => {
     const { data, error } = await supabase
@@ -280,7 +321,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       return;
     }
 
-    // Use the configured order; popularity counts require scanning appointment history.
+    // Use the configured order; popularity counts require a full-history query.
     const sortedServices = [...servicesData].sort(
       (a: any, b: any) => (a.order_index || 0) - (b.order_index || 0),
     );
@@ -360,7 +401,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       setStep("barber");
       return;
     }
-    await loadSlotsForBarber(selectedBarberId);
+    await loadSlotsForBarber(selectedBarberId, serviceId);
     if (role === "gestor" || role === "admin") {
       setStep("client");
     } else {
@@ -384,52 +425,10 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
     setLoading(true);
 
     try {
-      // Verificar se o dia está fechado para o barbeiro
-      let lunchBreak: { start_time: string; end_time: string } | null = null;
-      try {
-        const barber = barbers.find(b => b.id === selectedBarberId) as any;
-        const selectedDate = new Date(date + "T12:00:00");
-        if (barber?.availability) {
-          const availability = typeof barber.availability === "string"
-            ? JSON.parse(barber.availability)
-            : barber.availability;
-          const dayKey = getDayKey(selectedDate) as any;
-          if (availability?.[dayKey]?.closed) {
-            toast.error("Barbeiro indisponível nesta data", {
-              description: "Este barbeiro bloqueou a agenda para este dia.",
-            });
-            return;
-          }
-          if (availability?.[dayKey]?.hasLunchBreak && availability[dayKey].lunchStart && availability[dayKey].lunchEnd) {
-            lunchBreak = {
-              start_time: availability[dayKey].lunchStart,
-              end_time: availability[dayKey].lunchEnd,
-            };
-          }
-        }
-        
-        // Fallback para horário de almoço da loja
-        if (!lunchBreak) {
-          const { data: shopHours } = await supabase
-            .from('site_config')
-            .select('config_value')
-            .eq('config_key', 'operating_hours')
-            .maybeSingle();
-          
-          if (shopHours?.config_value) {
-            const operatingHours = shopHours.config_value as any;
-            const dayKey = getDayKey(selectedDate) as any;
-            const dayHours = operatingHours?.[dayKey];
-            if (dayHours?.hasLunchBreak && dayHours.lunchStart && dayHours.lunchEnd) {
-              lunchBreak = {
-                start_time: dayHours.lunchStart,
-                end_time: dayHours.lunchEnd,
-              };
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("Falha ao validar dia fechado no agendamento rápido:", e);
+      const barberHours = await getBarberHoursForDate(selectedBarberId, true);
+      if (barberHours.closed) {
+        toast.error("Barbeiro indisponível nesta data");
+        return;
       }
       // Validações de conflito no momento do envio (paridade com online)
       const selectedService = services.find(s => s.id === serviceId);
@@ -440,8 +439,12 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
       };
       const newStart = timeToMinutes(slotToUse);
       const newEnd = newStart + newDuration;
+      if (newStart < timeToMinutes(barberHours.open) || newEnd > timeToMinutes(barberHours.close)) {
+        toast.error("Horário fora do expediente do barbeiro");
+        return;
+      }
       // 1) Conflito com agendamentos existentes (sobreposição de intervalos)
-      const appts = await getBarberBusySlots(selectedBarberId, date);
+      const appts = await getBarberBusySlots(selectedBarberId, date, true);
       const hasAppointmentOverlap = (appts || []).some((a: any) => {
         const aStart = timeToMinutes(a.appointment_time);
         const aEnd = aStart + (a.service?.duration ?? 30);
@@ -454,15 +457,11 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         return;
       }
       // 2) Conflito com pausas/bloqueios
-      const { data: breaks } = await (supabase as any)
-        .from('barber_breaks')
-        .select('start_time, end_time')
-        .eq('barber_id', selectedBarberId)
-        .eq('date', date);
+      const { data: breaks } = await getBarberBreaks(selectedBarberId, date, true);
       
       const combinedBreaks = [
         ...(breaks || []),
-        ...(lunchBreak ? [lunchBreak] : []),
+        ...barberHours.breaks,
       ];
 
       const hasBreakOverlap = combinedBreaks.some((b: any) => {
@@ -546,6 +545,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
         .single();
 
       if (appointmentError) throw appointmentError;
+      invalidateBarberBusySlots(selectedBarberId, date);
 
       // Processamento em background para não travar a UI
       const runBackgroundNotifications = async () => {
@@ -715,6 +715,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
           });
         if (insertErr) throw insertErr;
       }
+      invalidateBarberBreaks(selectedBarberId, date);
       toast.success(`Horário ${slot} liberado`);
       await loadSlotsForBarber(selectedBarberId);
     } catch {
@@ -804,6 +805,7 @@ export const QuickBookingDialog = ({ open, onOpenChange, date, timeSlot = "", pr
                 Horários disponíveis - <span style={{ color: "#FFD700" }}>{date}</span>
               </h3>
               <p className="text-gray-400 text-sm mt-1">Selecione um horário para continuar</p>
+              <Button type="button" variant="outline" size="sm" className="mt-3" disabled={loadingSlots} onClick={refreshQuickSlots}>Atualizar horários</Button>
             </div>
             
             {showReleaseMode && (

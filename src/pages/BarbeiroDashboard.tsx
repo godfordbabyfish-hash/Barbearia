@@ -1278,6 +1278,7 @@ const BarbeiroDashboard = () => {
   useEffect(() => {
     if (selectedBarber) {
       loadAppointments();
+      loadTodayBreaks();
     }
   }, [selectedBarber]);
 
@@ -1713,7 +1714,6 @@ const BarbeiroDashboard = () => {
       void loadHistoryAppointments(historyPage);
     }
 
-    await loadTodayBreaks();
   };
 
   const loadHistoryAppointments = async (page: number = 1) => {

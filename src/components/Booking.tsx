@@ -24,7 +24,17 @@ import barber2Img from "@/assets/barber-2.jpg";
 import barber3Img from "@/assets/barber-3.jpg";
 import ReferralPromotionBanner from "@/components/ReferralPromotionBanner";
 import { getSiteConfig } from "@/lib/siteConfigCache";
-import { getBarberBusySlots } from "@/services/appointmentAvailability";
+import {
+  getBarberBreaks,
+  getBarberBusySlots,
+  getBarberSchedule,
+  getBarberWeeklyAvailability,
+  invalidateBarberBreaks,
+  invalidateBarberAvailability,
+  invalidateBarberBusySlots,
+  invalidateBarberSchedule,
+  invalidateBarberWeeklyAvailability,
+} from "@/services/appointmentAvailability";
 import { getOptimizedStorageImageUrl } from "@/utils/images";
 
 type ServiceRecord = Tables<"services">;
@@ -177,19 +187,19 @@ const getLunchBreakFromSchedule = (value: unknown, date: Date): BreakSlot | null
   return null;
 };
 
-const getBarberWorkingHours = async (barberId: string, date: Date, operatingHours: OperatingHours) => {
+const getBarberWorkingHours = async (barberId: string, date: Date, operatingHours: OperatingHours, fresh = false) => {
   if (!barberId) return null;
   
   const dateStr = formatLocalDate(date);
   const dayKey = getDayKey(date);
   
   // 1. Check monthly schedule first
-  const { data: monthly } = await supabase
-    .from('barber_schedules' as any)
-    .select('*')
-    .eq('barber_id', barberId)
-    .eq('date', dateStr)
-    .maybeSingle();
+  let monthly = null;
+  try {
+    ({ data: monthly } = await getBarberSchedule(barberId, dateStr, fresh));
+  } catch {
+    // Preserve the existing fallback to the barber's weekly availability.
+  }
     
   if (monthly) {
     const m = monthly as any;
@@ -209,11 +219,12 @@ const getBarberWorkingHours = async (barberId: string, date: Date, operatingHour
   }
   
   // 2. Fallback to weekly availability
-  const { data: barber } = await supabase
-    .from('barbers')
-    .select('availability')
-    .eq('id', barberId)
-    .maybeSingle();
+  let barber = null;
+  try {
+    ({ data: barber } = await getBarberWeeklyAvailability(barberId, fresh));
+  } catch {
+    // If profile availability cannot be read, use shop hours as before.
+  }
     
   const daySchedule = getDaySchedule(barber?.availability, date);
   if (daySchedule) {
@@ -221,7 +232,7 @@ const getBarberWorkingHours = async (barberId: string, date: Date, operatingHour
       open: daySchedule.open || '09:00',
       close: daySchedule.close || '20:00',
       closed: Boolean(daySchedule.closed),
-      lunchBreak: null
+      lunchBreak: getLunchBreakFromSchedule(barber?.availability, date)
     };
   }
   
@@ -248,23 +259,24 @@ const isBarberClosedOnDate = async (barberId: string | undefined, date: Date, op
   const dateStr = formatLocalDate(date);
   
   // 1. Check monthly schedule first
-  const { data: monthlySchedule } = await supabase
-    .from('barber_schedules' as any)
-    .select('closed')
-    .eq('barber_id', barberId)
-    .eq('date', dateStr)
-    .maybeSingle();
+  let monthlySchedule = null;
+  try {
+    ({ data: monthlySchedule } = await getBarberSchedule(barberId, dateStr));
+  } catch {
+    // Preserve the weekly availability fallback if the dated schedule fails.
+  }
     
   if (monthlySchedule) {
     return Boolean((monthlySchedule as any).closed);
   }
   
   // 2. Fallback to weekly availability
-  const { data: barber } = await supabase
-    .from('barbers')
-    .select('availability')
-    .eq('id', barberId)
-    .maybeSingle();
+  let barber = null;
+  try {
+    ({ data: barber } = await getBarberWeeklyAvailability(barberId));
+  } catch {
+    return false;
+  }
     
   const daySchedule = getDaySchedule(barber?.availability, date);
   return Boolean(daySchedule?.closed);
@@ -487,7 +499,7 @@ const Booking = () => {
       return;
     }
 
-    // Popularity is optional; avoid a full-history aggregate that can time out.
+    // Keep booking available without an expensive full-history aggregate query.
     const sortedServices = [...servicesData].sort(
       (a, b) => (a.order_index || 0) - (b.order_index || 0),
     );
@@ -554,11 +566,7 @@ const Booking = () => {
           continue;
         }
         const appointments = await getBarberBusySlots(barber.id, todayStr);
-        const { data: breaks } = await supabase
-          .from('barber_breaks')
-          .select('start_time, end_time')
-          .eq('barber_id', barber.id)
-          .eq('date', todayStr);
+        const { data: breaks } = await getBarberBreaks(barber.id, todayStr);
         
         // Generate slots based on the barber's own open/close, not the shop-wide slots
         const barberOpen = barberHours?.open || '09:00';
@@ -672,11 +680,7 @@ const Booking = () => {
       const appointments = await getBarberBusySlots(barber.id, todayStr);
 
       // Buscar pausas do barbeiro para hoje
-      const { data: breaks } = await supabase
-        .from('barber_breaks')
-        .select('start_time, end_time')
-        .eq('barber_id', barber.id)
-        .eq('date', todayStr);
+      const { data: breaks } = await getBarberBreaks(barber.id, todayStr);
 
       const serviceDuration = getServiceDuration(formData.service, services);
 
@@ -843,11 +847,7 @@ const Booking = () => {
       const appointments = await getBarberBusySlots(currentFormData.barber, dateStr);
 
       // Query barber breaks for this date
-      const { data: breaks, error: breaksError } = await supabase
-        .from('barber_breaks')
-        .select('start_time, end_time')
-        .eq('barber_id', currentFormData.barber)
-        .eq('date', dateStr);
+      const { data: breaks, error: breaksError } = await getBarberBreaks(currentFormData.barber, dateStr);
       
       // Escala mensal é autoritativa — só aplicar fallback semanal se não há registro mensal
       let lunchBreak: { start_time: string; end_time: string } | null = barberHours?.lunchBreak ?? null;
@@ -993,11 +993,7 @@ const Booking = () => {
       const appointments = await getBarberBusySlots(formData.barber, formData.date);
 
       // Query barber breaks for the selected date
-      const { data: breaks, error: breaksError } = await supabase
-        .from('barber_breaks')
-        .select('start_time, end_time')
-        .eq('barber_id', formData.barber)
-        .eq('date', formData.date);
+      const { data: breaks, error: breaksError } = await getBarberBreaks(formData.barber, formData.date);
       
       const combinedBreaks = [
         ...(breaks || []),
@@ -1071,7 +1067,6 @@ const Booking = () => {
       // Never overwrite the selected time on form/success steps, otherwise the
       // confirmation screen can show the next free slot instead of the real booking.
       if (slots.length > 0) {
-        // Check if current selected time is still available in new slots
         if (step === "time") {
           setFormData(prev => ({
             ...prev,
@@ -1109,8 +1104,32 @@ const Booking = () => {
     }
   }, [formData.date, formData.barber, formData.service, hoursLoading, loadAvailableSlots, step]);
 
-  // Subscription Realtime separada — recriada só quando o barbeiro muda
+  const lastFocusRefreshRef = useRef(Date.now());
+  const refreshVisibleSlots = useCallback(() => {
+    if (step !== "time" || !formData.date || !formData.barber || !formData.service) return;
+    invalidateBarberAvailability(formData.barber, formData.date);
+    void loadAvailableSlotsRef.current?.();
+  }, [formData.barber, formData.date, formData.service, step]);
 
+  useEffect(() => {
+    if (step !== "time") return;
+    lastFocusRefreshRef.current = Date.now();
+    const refreshOnReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - lastFocusRefreshRef.current < 15_000) return;
+      lastFocusRefreshRef.current = now;
+      refreshVisibleSlots();
+    };
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    window.addEventListener('focus', refreshOnReturn);
+    return () => {
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+      window.removeEventListener('focus', refreshOnReturn);
+    };
+  }, [refreshVisibleSlots, step]);
+
+  // Subscription Realtime separada — recriada só quando o barbeiro muda
   useEffect(() => {
     if (!formData.barber) return;
     const channel = supabase
@@ -1124,9 +1143,10 @@ const Booking = () => {
           filter: `barber_id=eq.${formData.barber}`,
         },
         () => {
+          invalidateBarberBusySlots(formData.barber);
           setTimeout(() => {
             setAvailableSlots([]);
-            loadAvailableSlotsRef.current();
+            void loadAvailableSlotsRef.current?.();
           }, 300);
         }
       )
@@ -1204,7 +1224,7 @@ const Booking = () => {
       const selectedBarber = barbers.find(b => b.id === formData.barber);
       if (!selectedBarber) return;
 
-      const barberHours = await getBarberWorkingHours(selectedBarber.id, selectedDate, operatingHours);
+      const barberHours = await getBarberWorkingHours(selectedBarber.id, selectedDate, operatingHours, true);
       if (barberHours?.closed) {
         toast.error("Barbeiro indisponível nesta data", {
           description: "Este barbeiro bloqueou a agenda para este dia.",
@@ -1239,18 +1259,14 @@ const Booking = () => {
       
       // 1. Verificações rápidas em paralelo
       const [existingAppointmentResult, breaksResult, shopHoursResult] = await Promise.all([
-        getBarberBusySlots(formData.barber, formData.date).then((slots) => ({
+        getBarberBusySlots(formData.barber, formData.date, true).then((slots) => ({
           data: slots.some((slot) => slot.appointment_time === formData.time) ? { occupied: true } : null,
           error: null,
         })),
         
         // Verificar pausas do barbeiro
         hasBarberBreaks
-          ? supabase
-              .from('barber_breaks')
-              .select('start_time, end_time')
-              .eq('barber_id', formData.barber)
-              .eq('date', formData.date)
+          ? getBarberBreaks(formData.barber, formData.date, true)
           : Promise.resolve({ data: [] as BreakSlot[], error: null }),
 
         // Carregar almoço da loja se necessário
@@ -1354,6 +1370,8 @@ const Booking = () => {
         });
         return;
       }
+
+      invalidateBarberBusySlots(formData.barber, formData.date);
 
       // 5. Sucesso imediato
       setConfirmedBooking({
@@ -1558,6 +1576,9 @@ const Booking = () => {
                   </div>
                   {formData.date && (
                     <div className="space-y-3">
+                      <div className="flex justify-end">
+                        <Button type="button" variant="outline" size="sm" disabled={loadingSlots} onClick={refreshVisibleSlots}>Atualizar horários</Button>
+                      </div>
                       <div className="p-6 bg-primary/10 border-2 border-primary/30 rounded-lg">
                         <p className="text-sm mb-2">Próxima data disponível:</p>
                         <p className="text-xl font-bold text-primary">{formatBookingDate(formData.date, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
