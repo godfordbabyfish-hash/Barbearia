@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AlertTriangle, CalendarCheck2, Clock3, Gauge, RefreshCw, Scissors, TrendingDown, TrendingUp, Users } from 'lucide-react';
 import { toast } from 'sonner';
+import BarberRevenueAnalytics from '@/components/admin/BarberRevenueAnalytics';
 
 type Metric = {
   barber_id: string; barber_name: string; image_url: string | null; available_minutes: number;
@@ -28,7 +29,9 @@ const money = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'curren
 const hours = (minutes: number) => `${(Number(minutes || 0) / 60).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}h`;
 const numberMetric = (row: any): Metric => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : value])) as Metric;
 
-export default function BarberProductivityDashboard() {
+type Props = { showRevenueAnalytics?: boolean };
+
+export default function BarberProductivityDashboard({ showRevenueAnalytics = true }: Props) {
   const now = new Date();
   const [period, setPeriod] = useState<Period>('week');
   const [from, setFrom] = useState(format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
@@ -69,6 +72,7 @@ export default function BarberProductivityDashboard() {
     const channel = supabase.channel('barber-productivity-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'barber_schedules' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'barbers' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'product_sales' }, load).subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [load]);
@@ -86,7 +90,8 @@ export default function BarberProductivityDashboard() {
   const chart = metrics.map((item) => ({ name: item.barber_name.split(' ')[0], Ocupação: item.occupancy_rate, Produtiva: item.productive_rate }));
   const delta = (item: Metric, field: keyof Metric) => Number(item[field] || 0) - Number(previous[item.barber_id]?.[field] || 0);
 
-  return <div className="space-y-4">
+  return <>
+    <div className="space-y-4">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-lg font-bold sm:text-xl">Produtividade da equipe</h2><p className="text-xs text-muted-foreground sm:text-sm">Ocupação calculada sobre a agenda disponível, descontando pausas e bloqueios.</p></div><div className="flex gap-2"><Select value={period} onValueChange={(value) => changePeriod(value as Period)}><SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="week">Semana atual</SelectItem><SelectItem value="month">Mês atual</SelectItem><SelectItem value="30days">Últimos 30 dias</SelectItem><SelectItem value="custom">Personalizado</SelectItem></SelectContent></Select><Button size="icon" variant="outline" onClick={load}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></Button></div></div>
     {period === 'custom' && <div className="grid grid-cols-2 gap-2 rounded-lg border p-3 sm:max-w-md"><div><p className="mb-1 text-xs text-muted-foreground">Início</p><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div><div><p className="mb-1 text-xs text-muted-foreground">Fim</p><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div></div>}
     <p className="text-xs text-muted-foreground">{format(new Date(`${from}T12:00:00`), "dd 'de' MMM", { locale: ptBR })} a {format(new Date(`${to}T12:00:00`), "dd 'de' MMM 'de' yyyy", { locale: ptBR })}</p>
@@ -107,5 +112,7 @@ export default function BarberProductivityDashboard() {
         {item.pending_finalizations > 0 && <Badge variant="destructive" className="w-full justify-center">{item.pending_finalizations} finalização(ões) pendente(s)</Badge>}
       </CardContent></Card>;
     })}</div>
-  </div>;
+    </div>
+    {showRevenueAnalytics && <BarberRevenueAnalytics barbers={metrics.map((item) => ({ barber_id: item.barber_id, barber_name: item.barber_name, image_url: item.image_url }))} />}
+  </>;
 }
