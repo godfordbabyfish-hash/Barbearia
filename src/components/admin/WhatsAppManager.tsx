@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -41,7 +41,7 @@ export const WhatsAppManager = () => {
   const [loading, setLoading] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [showQrModal, setShowQrModal] = useState(false);
-  const [autoAttempted, setAutoAttempted] = useState(false);
+  const qrRequestPending = useRef(false);
 
   // Carregar estado inicial e configurar listener
   useEffect(() => {
@@ -90,6 +90,8 @@ export const WhatsAppManager = () => {
   };
 
   const handleConnect = async () => {
+    if (qrRequestPending.current) return;
+    qrRequestPending.current = true;
     setLoading(true);
     setQrCode(null);
     
@@ -126,6 +128,7 @@ export const WhatsAppManager = () => {
       console.error('[WhatsApp Manager] Erro ao conectar:', error);
       toast.error('Erro ao conectar: ' + error.message);
     } finally {
+      qrRequestPending.current = false;
       setLoading(false);
     }
   };
@@ -257,7 +260,7 @@ export const WhatsAppManager = () => {
             Gerenciar WhatsApp
           </CardTitle>
           <CardDescription className="text-sm">
-            Controle manual: use Verificar Status para checar, Reconectar para gerar QR e Desconectar para encerrar a sessão.
+            Controle manual: use Verificar Status para checar, Gerar novo QR code para parear e Desconectar para encerrar a sessão.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-2 sm:p-3 md:p-4 lg:p-6 w-full" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
@@ -502,13 +505,13 @@ export const WhatsAppManager = () => {
                       ) : (
                         <>
                           <Power className="h-4 w-4 mr-1" />
-                          Reconectar
+                          Gerar novo QR code
                         </>
                       )}
                     </Button>
                   )}
                   <p className="text-xs text-muted-foreground">
-                    Para reconectar, clique em “Reconectar” e escaneie o QR.
+                    O pareamento é solicitado pelo botão “Gerar novo QR code”. Se o código expirar, solicite outro manualmente.
                   </p>
 
                   {showQrModal && qrCode && (
@@ -558,7 +561,7 @@ export const WhatsAppManager = () => {
                           ) : (
                             <>
                               <RefreshCw className="h-4 w-4 mr-1" />
-                              Reconectar
+                              Gerar novo QR code
                             </>
                           )}
                         </Button>

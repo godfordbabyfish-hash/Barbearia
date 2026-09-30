@@ -28,20 +28,7 @@ serve(async (req) => {
       );
     }
 
-    // Log da chamada (opcional - para debug)
-    const authHeader = req.headers.get('authorization');
-    const apikeyHeader = req.headers.get('apikey');
-    console.log('[WhatsApp Queue] Request received', {
-      hasAuth: !!authHeader,
-      hasApikey: !!apikeyHeader,
-      method: req.method,
-      authPrefix: authHeader?.substring(0, 20),
-    });
-
     const url = `${supabaseUrl}/functions/v1/whatsapp-notify/process-queue`;
-    console.log('[WhatsApp Queue] Chamando whatsapp-notify/process-queue em', url);
-
-    console.log('[WhatsApp Queue] Iniciando processamento da fila...');
     
     const requestBody = await req.json().catch(() => ({}));
     const response = await fetch(url, {
@@ -55,14 +42,12 @@ serve(async (req) => {
     });
 
     const data = await response.json().catch((err) => {
-      console.error('[WhatsApp Queue] Erro ao parsear resposta JSON:', err);
+      console.error('[WhatsApp Queue] Failed to parse processor response:', err?.name || 'UnknownError');
       return { error: 'Erro ao processar resposta' };
     });
 
     if (!response.ok) {
-      console.error('[WhatsApp Queue] whatsapp-notify retornou erro', response.status, data);
-      console.error('[WhatsApp Queue] URL chamada:', url);
-      console.error('[WhatsApp Queue] Resposta completa:', JSON.stringify(data, null, 2));
+      console.error('[WhatsApp Queue] Processor returned an error:', response.status);
       return new Response(
         JSON.stringify({
           success: false,
@@ -73,9 +58,6 @@ serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
-
-    console.log('[WhatsApp Queue] Fila processada com sucesso', data);
-    console.log('[WhatsApp Queue] Resultado:', JSON.stringify(data, null, 2));
 
     return new Response(
       JSON.stringify({

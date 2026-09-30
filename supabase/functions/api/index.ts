@@ -878,18 +878,8 @@ serve(async (req) => {
       }
     }
     
-    const authHeader = req.headers.get('authorization');
-    console.log(`API Request: ${req.method} ${path}`, {
-      hasAuthHeader: !!authHeader,
-      authHeaderPrefix: authHeader?.substring(0, 20),
-      pathFromUrl: url.pathname,
-      pathAfterProcessing: path,
-      bodyAction: body?.action
-    });
-
     // Validate API Key (optional)
     const authResult = validateApiKey(req);
-    console.log('Auth validation result:', { valid: authResult.valid, message: authResult.message });
     if (!authResult.valid) {
       return new Response(JSON.stringify({
         success: false,
@@ -1092,14 +1082,8 @@ serve(async (req) => {
     // GET or POST /admin/users - List all users (admin and gestor only)
     // Skip if this is a create request (has email, password, name, role in body)
     if ((req.method === 'GET' || req.method === 'POST') && path === 'admin/users' && !(body?.email && body?.password && body?.name && body?.role)) {
-      console.log('Processing admin/users list request');
-      // #region agent log
-      console.log(JSON.stringify({location:'api/index.ts:969',message:'ListUsers request',data:{hasBody:!!body,hasEmail:!!body?.email,hasPassword:!!body?.password,hasName:!!body?.name,hasRole:!!body?.role,isCreateRequest:!!(body?.email && body?.password && body?.name && body?.role)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
-      // #endregion
       const authHeader = req.headers.get('authorization');
-      console.log('Getting caller role, authHeader exists:', !!authHeader);
       const { userId: callerId, role: callerRole } = await getCallerRole(authHeader);
-      console.log('Caller role result:', { userId: callerId, role: callerRole });
 
       if (!callerRole || (callerRole !== 'admin' && callerRole !== 'gestor')) {
         return new Response(JSON.stringify({
@@ -1114,9 +1098,6 @@ serve(async (req) => {
 
       try {
         const users = await listAllUsers();
-        // #region agent log
-        console.log(JSON.stringify({location:'api/index.ts:990',message:'ListUsers result',data:{usersCount:users?.length,userIds:users?.slice(0,5).map((u:any)=>u.id),userEmails:users?.slice(0,5).map((u:any)=>u.email)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
-        // #endregion
         return new Response(JSON.stringify({
           success: true,
           users,
@@ -1138,10 +1119,6 @@ serve(async (req) => {
 
     // POST /admin/users - Create new user (admin and gestor only)
     if (req.method === 'POST' && path === 'admin/users') {
-      console.log('Processing admin/users create request');
-      // #region agent log
-      console.log(JSON.stringify({location:'api/index.ts:1009',message:'CreateUser request',data:{hasBody:!!body,email:body?.email,name:body?.name,role:body?.role,hasPassword:!!body?.password},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
-      // #endregion
       const authHeader = req.headers.get('authorization');
       const { userId: callerId, role: callerRole } = await getCallerRole(authHeader);
 
@@ -1169,9 +1146,6 @@ serve(async (req) => {
       }
 
       if (!body.email || !body.password || !body.name || !body.role) {
-        // #region agent log
-        console.log(JSON.stringify({location:'api/index.ts:1036',message:'CreateUser missing fields',data:{hasEmail:!!body?.email,hasPassword:!!body?.password,hasName:!!body?.name,hasRole:!!body?.role},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
-        // #endregion
         return new Response(JSON.stringify({
           success: false,
           error: 'MISSING_FIELDS',
@@ -1184,10 +1158,6 @@ serve(async (req) => {
 
       try {
         const user = await createUser(body);
-        console.log(`User created: ${user.email} with role ${user.role} by ${callerRole}`);
-        // #region agent log
-        console.log(JSON.stringify({location:'api/index.ts:1048',message:'CreateUser success',data:{userId:user?.id,email:user?.email,role:user?.role},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
-        // #endregion
         return new Response(JSON.stringify({
           success: true,
           user,
@@ -1196,9 +1166,7 @@ serve(async (req) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         });
       } catch (error: any) {
-        // #region agent log
-        console.log(JSON.stringify({location:'api/index.ts:1057',message:'CreateUser error',data:{errorMessage:error?.message,errorName:error?.name},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'J'}));
-        // #endregion
+        console.error('[Admin Users] User creation failed:', error?.name || 'UnknownError');
         return new Response(JSON.stringify({
           success: false,
           error: 'CREATE_ERROR',
@@ -1263,7 +1231,6 @@ serve(async (req) => {
 
       try {
         await updateUserPassword(userId, body.password);
-        console.log(`Password updated for user ${userId} by ${callerRole}`);
         return new Response(JSON.stringify({
           success: true,
           message: 'Senha atualizada com sucesso'
@@ -1344,7 +1311,6 @@ serve(async (req) => {
 
       try {
         await updateUserRole(userId, body.role);
-        console.log(`Role updated for user ${userId} to ${body.role} by ${callerRole}`);
         return new Response(JSON.stringify({
           success: true,
           message: 'Role atualizada com sucesso'
@@ -1415,7 +1381,6 @@ serve(async (req) => {
 
       try {
         await deleteUser(userId);
-        console.log(`User ${userId} deleted by ${callerRole}`);
         return new Response(JSON.stringify({
           success: true,
           message: 'Usuário excluído com sucesso'

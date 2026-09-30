@@ -139,15 +139,13 @@ const sendReminder = async (phone: string, message: string, instanceName: string
     );
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error(`[Reminder] Error sending reminder to ${formattedPhone}:`, errorData);
+      console.error(`[Reminder] Provider rejected reminder (HTTP ${response.status})`);
       return false;
     }
 
-    console.log(`[Reminder] Reminder sent successfully to ${formattedPhone}`);
     return true;
   } catch (error: any) {
-    console.error(`[Reminder] Error sending reminder to ${formattedPhone}:`, error.message || error);
+    console.error('[Reminder] Failed to send reminder:', error?.name || 'UnknownError');
     return false;
   }
 };
@@ -308,7 +306,6 @@ const processReminders = async (supabase: any) => {
       const clientName = appointment.profiles?.name;
       
       if (!clientWhatsApp) {
-        console.log(`[Reminder] Skipping appointment ${appointment.id} - no valid whatsapp`);
         continue;
       }
 
@@ -334,7 +331,6 @@ const processReminders = async (supabase: any) => {
           console.warn(`[Reminder] Could not update reminder_sent for appointment ${appointment.id}:`, updateError);
         } else {
           processed++;
-          console.log(`[Reminder] Reminder sent for appointment ${appointment.id}`);
         }
       } else {
         failed++;

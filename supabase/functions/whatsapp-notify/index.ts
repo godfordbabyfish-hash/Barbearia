@@ -40,7 +40,7 @@ const getActiveInstanceName = async (supabase: any): Promise<string> => {
       }
     }
   } catch (error) {
-    console.log('[WhatsApp] Could not load active instance from database, using env var');
+    console.warn('[WhatsApp] Could not load active instance from database; using configured fallback');
   }
   
   // Fallback to environment variable
@@ -62,11 +62,10 @@ const formatPhoneNumber = (phone: string): string => {
   if (cleaned.startsWith('55')) {
     if (cleaned.length >= 12) {
       // Já está formatado corretamente pela migration
-      console.log(`[WhatsApp] Phone já formatado: ${cleaned} (original: ${phone})`);
       return cleaned;
     } else {
       // Tem 55 mas tamanho inválido, tentar corrigir
-      console.warn(`[WhatsApp] Phone com 55 mas tamanho inválido: ${cleaned.length} dígitos (original: ${phone})`);
+      console.warn(`[WhatsApp] Phone has 55 prefix but invalid length (${cleaned.length} digits)`);
     }
   }
   
@@ -75,9 +74,8 @@ const formatPhoneNumber = (phone: string): string => {
     // Se tem 10 ou 11 dígitos, adiciona 55
     if (cleaned.length === 10 || cleaned.length === 11) {
       cleaned = '55' + cleaned;
-      console.log(`[WhatsApp] Phone formatado (adicionado 55): ${cleaned} (original: ${phone})`);
     } else {
-      console.warn(`[WhatsApp] Phone com tamanho inválido: ${cleaned.length} dígitos (original: ${phone})`);
+      console.warn(`[WhatsApp] Phone has invalid length (${cleaned.length} digits)`);
     }
   }
   
@@ -243,15 +241,8 @@ const generateMessage = async (data: WhatsAppMessage, supabase: any, mapsLink?: 
 const sendWhatsAppMessage = async (phone: string, message: string, instanceName: string, retries: number = 3): Promise<{ success: boolean; error?: string }> => {
   const formattedPhone = formatPhoneNumber(phone);
   
-  console.log(`[WhatsApp] Attempting to send message to ${formattedPhone}`);
-  console.log(`[WhatsApp] Evolution API URL: ${evolutionApiUrl}`);
-  console.log(`[WhatsApp] Instance Name: ${instanceName}`);
-  console.log(`[WhatsApp] Retries remaining: ${retries}`);
-  
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      console.log(`[WhatsApp] Attempt ${attempt}/${retries}`);
-      
       // Create AbortController for timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout (aumentado de 30s)
@@ -284,7 +275,7 @@ const sendWhatsAppMessage = async (phone: string, message: string, instanceName:
           errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
         }
         
-        console.error(`[WhatsApp] Evolution API error (attempt ${attempt}):`, errorData);
+        console.error(`[WhatsApp] Provider request failed (attempt ${attempt}, HTTP ${response.status})`);
         
         // If it's a client error (4xx), don't retry
         if (response.status >= 400 && response.status < 500) {
@@ -294,7 +285,6 @@ const sendWhatsAppMessage = async (phone: string, message: string, instanceName:
         // For server errors (5xx), retry
         if (attempt < retries) {
           const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff, max 5s
-          console.log(`[WhatsApp] Retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
@@ -303,13 +293,10 @@ const sendWhatsAppMessage = async (phone: string, message: string, instanceName:
       }
 
       const data = await response.json();
-      console.log(`[WhatsApp] Message sent successfully on attempt ${attempt}:`, JSON.stringify(data, null, 2));
-      console.log(`[WhatsApp] Response status: ${response.status}`);
-      console.log(`[WhatsApp] Response headers:`, Object.fromEntries(response.headers.entries()));
       
       // Verificar se a resposta indica sucesso
       if (data.success === false || data.error) {
-        console.error(`[WhatsApp] API retornou erro na resposta:`, data);
+        console.error(`[WhatsApp] Provider reported a send failure (HTTP ${response.status})`);
         return { success: false, error: data.error || data.message || 'Erro ao enviar mensagem' };
       }
       
@@ -322,7 +309,6 @@ const sendWhatsAppMessage = async (phone: string, message: string, instanceName:
       if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('tempo limite')) {
         if (attempt < retries) {
           const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-          console.log(`[WhatsApp] Timeout - retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
@@ -333,7 +319,6 @@ const sendWhatsAppMessage = async (phone: string, message: string, instanceName:
       if (error.message?.includes('fechada') || error.message?.includes('closed') || error.message?.includes('ECONNRESET')) {
         if (attempt < retries) {
           const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-          console.log(`[WhatsApp] Connection closed - retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
@@ -357,13 +342,8 @@ type QueueFilter = {
 // Process only the notification that caused this invocation. Legacy calls
 // without a scope may only consume fresh rows, never an old backlog.
 const processQueue = async (supabase: any, filter: QueueFilter = {}) => {
-  console.log('[Queue] Iniciando processamento da fila...');
-  
   // Get active instance name
   const activeInstanceName = await getActiveInstanceName(supabase);
-  console.log('[Queue] Instância ativa:', activeInstanceName);
-  console.log('[Queue] Evolution API URL:', evolutionApiUrl);
-  console.log('[Queue] Evolution API Key configurada:', !!evolutionApiKey);
   
   if (!activeInstanceName) {
     console.error('[Queue] Nenhuma instância ativa encontrada!');
@@ -372,10 +352,6 @@ const processQueue = async (supabase: any, filter: QueueFilter = {}) => {
   
   // Get barbershop maps link once (cache it for all messages in this batch)
   const mapsLink = await getBarbershopMapsLink(supabase);
-  if (mapsLink) {
-    console.log('[Queue] Barbershop maps link loaded:', mapsLink);
-  }
-  
   const freshCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   let queueQuery = supabase
     .from('whatsapp_notifications_queue')
@@ -402,10 +378,7 @@ const processQueue = async (supabase: any, filter: QueueFilter = {}) => {
     return { processed: 0, error: error.message };
   }
 
-  console.log(`[Queue] Encontradas ${queue?.length || 0} mensagens pendentes`);
-  
   if (!queue || queue.length === 0) {
-    console.log('[Queue] Nenhuma mensagem pendente na fila');
     return { processed: 0 };
   }
 
@@ -432,7 +405,6 @@ const processQueue = async (supabase: any, filter: QueueFilter = {}) => {
       }
 
       if (!claimed) {
-        console.log(`[Queue] Item ${item.id} já foi reservado por outro processo`);
         continue;
       }
 
@@ -453,18 +425,12 @@ const processQueue = async (supabase: any, filter: QueueFilter = {}) => {
             error_message: 'Envio desativado pelo administrador',
           })
           .eq('id', item.id);
-        console.log(`[Queue] Item ${item.id} ignorado: modelo desativado pelo administrador`);
         continue;
       }
 
-      console.log(`[Queue] Processando item ${item.id} para ${targetPhone} (targetType=${targetType}, appointmentId=${payload.appointmentId})`);
-      console.log(`[Queue] Payload:`, JSON.stringify(payload, null, 2));
-
       // Passar o mapsLink apenas para mensagens de cliente
       const message = await generateMessage(payload, supabase, targetType === 'client' ? mapsLink : null);
-      console.log(`[Queue] Mensagem gerada (${message.length} caracteres):`, message.substring(0, 100) + '...');
       const result = await sendWhatsAppMessage(targetPhone, message, activeInstanceName);
-      console.log(`[Queue] Resultado do envio:`, result);
       
       // Update queue status
       const updateData: any = {
@@ -476,7 +442,6 @@ const processQueue = async (supabase: any, filter: QueueFilter = {}) => {
         updateData.status = 'sent';
         updateData.error_message = null;
         processed++;
-        console.log(`[Queue] Item ${item.id} sent successfully`);
       } else {
         updateData.error_message = result.error || 'Erro desconhecido';
         // If failed after 3 attempts, mark as failed
