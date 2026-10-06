@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Calculator, CalendarDays, Clock3, Scissors, TrendingUp, Users } from 'lucide-react';
+import { Calculator, CalendarDays, Clock3, HandCoins, Scissors, Store, TrendingUp, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { calculateBarberCapacity } from '@/lib/barberCapacitySimulator';
+import { supabase } from '@/integrations/supabase/client';
 
 export type CapacityBarberOption = {
   barber_id: string;
@@ -31,6 +32,7 @@ export default function BarberCapacitySimulator({ barbers, month: analysisMonth,
   const [averageServiceMinutes, setAverageServiceMinutes] = useState(30);
   const [averageTicket, setAverageTicket] = useState(0);
   const [occupancyPercent, setOccupancyPercent] = useState(100);
+  const [commissionPercent, setCommissionPercent] = useState(0);
   const selectedBarber = barbers.find((barber) => barber.barber_id === barberId);
 
   useEffect(() => { if (analysisMonth) setMonth(analysisMonth); }, [analysisMonth]);
@@ -42,10 +44,22 @@ export default function BarberCapacitySimulator({ barbers, month: analysisMonth,
     setAverageTicket(Number(selectedBarber.average_ticket || 0));
     setAverageServiceMinutes(Math.max(1, Math.round(Number(selectedBarber.average_service_minutes || 30))));
   }, [selectedBarber]);
+  useEffect(() => {
+    let active = true;
+    if (!barberId) return () => { active = false; };
+    void supabase.from('barber_fixed_commissions')
+      .select('service_commission_percentage')
+      .eq('barber_id', barberId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active) setCommissionPercent(Number(data?.service_commission_percentage || 0));
+      });
+    return () => { active = false; };
+  }, [barberId]);
 
   const result = useMemo(() => calculateBarberCapacity({
-    month, workingWeekdays, startTime, endTime, breakMinutes, averageServiceMinutes, averageTicket, occupancyPercent,
-  }), [month, workingWeekdays, startTime, endTime, breakMinutes, averageServiceMinutes, averageTicket, occupancyPercent]);
+    month, workingWeekdays, startTime, endTime, breakMinutes, averageServiceMinutes, averageTicket, occupancyPercent, commissionPercent,
+  }), [month, workingWeekdays, startTime, endTime, breakMinutes, averageServiceMinutes, averageTicket, occupancyPercent, commissionPercent]);
   const toggleWeekday = (weekday: number) => setWorkingWeekdays((current) => current.includes(weekday)
     ? current.filter((item) => item !== weekday)
     : [...current, weekday]);
@@ -64,23 +78,26 @@ export default function BarberCapacitySimulator({ barbers, month: analysisMonth,
 
       <div><p className="mb-2 text-xs text-muted-foreground">Dias trabalhados — padrão: segunda a sábado, uma folga semanal</p><div className="grid grid-cols-4 gap-2 sm:grid-cols-7">{weekdays.map((day) => <Button key={day.value} type="button" size="sm" variant={workingWeekdays.includes(day.value) ? 'default' : 'outline'} onClick={() => toggleWeekday(day.value)}>{day.label}</Button>)}</div></div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <label className="space-y-1 text-xs text-muted-foreground">Intervalo por dia (min)<Input className="mt-1 text-foreground" type="number" min="0" max="600" value={breakMinutes} onChange={(event) => setBreakMinutes(Number(event.target.value))} /></label>
         <label className="space-y-1 text-xs text-muted-foreground">Duração média por cliente (min)<Input className="mt-1 text-foreground" type="number" min="1" max="600" value={averageServiceMinutes} onChange={(event) => setAverageServiceMinutes(Number(event.target.value))} /></label>
         <label className="space-y-1 text-xs text-muted-foreground">Ticket médio (R$)<Input className="mt-1 text-foreground" type="number" min="0" step="0.01" value={averageTicket} onChange={(event) => setAverageTicket(Number(event.target.value))} /></label>
         <label className="space-y-1 text-xs text-muted-foreground">Ocupação desejada (%)<Input className="mt-1 text-foreground" type="number" min="0" max="100" value={occupancyPercent} onChange={(event) => setOccupancyPercent(Number(event.target.value))} /></label>
+        <label className="space-y-1 text-xs text-muted-foreground">Comissão estimada (%)<Input className="mt-1 text-foreground" type="number" min="0" max="100" step="0.01" value={commissionPercent} onChange={(event) => setCommissionPercent(Number(event.target.value))} /></label>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 xl:grid-cols-7">
         {[
           ['Dias trabalhados', result.workingDays, CalendarDays],
           ['Horas por dia', hours(result.dailyAvailableMinutes), Clock3],
           ['Horas no mês', hours(result.monthlyAvailableMinutes), Scissors],
           ['Atendimentos', result.estimatedAppointments, Users],
           ['Faturamento projetado', money(result.projectedRevenue), TrendingUp],
-        ].map(([label, value, Icon]) => <Card key={String(label)} className="bg-muted/20 last:col-span-2 lg:last:col-span-1"><CardContent className="flex items-start justify-between gap-2 p-3"><div><p className="text-[11px] text-muted-foreground">{String(label)}</p><p className="mt-1 text-lg font-bold">{String(value)}</p></div><Icon className="h-4 w-4 shrink-0 text-primary" /></CardContent></Card>)}
+          ['Comissão estimada', money(result.estimatedCommission), HandCoins],
+          ['Barbearia após comissão', money(result.barbershopRevenueAfterCommission), Store],
+        ].map(([label, value, Icon]) => <Card key={String(label)} className="bg-muted/20"><CardContent className="flex items-start justify-between gap-2 p-3"><div><p className="text-[11px] text-muted-foreground">{String(label)}</p><p className="mt-1 text-lg font-bold">{String(value)}</p></div><Icon className="h-4 w-4 shrink-0 text-primary" /></CardContent></Card>)}
       </div>
-      <p className="text-[11px] leading-relaxed text-muted-foreground">Simulação sem alterar a agenda real. Cálculo: dias selecionados × horas líquidas do dia × ocupação desejada ÷ duração média, multiplicado pelo ticket médio. Produtos, comissões, impostos e custos não entram no faturamento projetado.</p>
+      <p className="text-[11px] leading-relaxed text-muted-foreground">Simulação sem alterar a agenda real. Cálculo: dias selecionados × horas líquidas do dia × ocupação desejada ÷ duração média, multiplicado pelo ticket médio. A comissão é carregada da regra fixa de serviços configurada para o barbeiro e pode ser ajustada neste cenário; regras individuais por serviço podem produzir um valor efetivo diferente. Produtos, impostos e outros custos não entram no cálculo.</p>
     </CardContent>
   </Card>;
 }

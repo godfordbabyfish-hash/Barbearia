@@ -9,6 +9,7 @@ export type BarberCapacitySimulationInput = {
   averageServiceMinutes: number;
   averageTicket: number;
   occupancyPercent: number;
+  commissionPercent: number;
 };
 
 export type BarberCapacitySimulation = {
@@ -17,6 +18,8 @@ export type BarberCapacitySimulation = {
   monthlyAvailableMinutes: number;
   estimatedAppointments: number;
   projectedRevenue: number;
+  estimatedCommission: number;
+  barbershopRevenueAfterCommission: number;
 };
 
 const parseTime = (value: string) => {
@@ -29,7 +32,7 @@ const parseTime = (value: string) => {
 };
 
 export function calculateBarberCapacity(input: BarberCapacitySimulationInput): BarberCapacitySimulation {
-  const empty = { workingDays: 0, dailyAvailableMinutes: 0, monthlyAvailableMinutes: 0, estimatedAppointments: 0, projectedRevenue: 0 };
+  const empty = { workingDays: 0, dailyAvailableMinutes: 0, monthlyAvailableMinutes: 0, estimatedAppointments: 0, projectedRevenue: 0, estimatedCommission: 0, barbershopRevenueAfterCommission: 0 };
   if (!/^\d{4}-\d{2}$/.test(input.month)) return empty;
   const monthDate = new Date(`${input.month}-01T12:00:00`);
   const startMinutes = parseTime(input.startTime);
@@ -45,6 +48,9 @@ export function calculateBarberCapacity(input: BarberCapacitySimulationInput): B
   const averageServiceMinutes = Math.max(1, input.averageServiceMinutes || 0);
   const estimatedAppointments = Math.floor(monthlyAvailableMinutes * occupancy / averageServiceMinutes);
   const projectedRevenue = Math.round(estimatedAppointments * Math.max(0, input.averageTicket || 0) * 100) / 100;
+  const commissionRate = Math.min(100, Math.max(0, input.commissionPercent || 0)) / 100;
+  const estimatedCommission = Math.round(projectedRevenue * commissionRate * 100) / 100;
+  const barbershopRevenueAfterCommission = Math.round((projectedRevenue - estimatedCommission) * 100) / 100;
 
-  return { workingDays, dailyAvailableMinutes, monthlyAvailableMinutes, estimatedAppointments, projectedRevenue };
+  return { workingDays, dailyAvailableMinutes, monthlyAvailableMinutes, estimatedAppointments, projectedRevenue, estimatedCommission, barbershopRevenueAfterCommission };
 }
