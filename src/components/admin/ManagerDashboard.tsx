@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { endOfWeek, format, startOfDay, startOfWeek, subDays } from 'date-fns';
+import { differenceInCalendarDays, endOfWeek, format, startOfDay, startOfWeek, subDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import {
   AlertTriangle,
@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import BarberProductivityDashboard from '@/components/admin/BarberProductivityDashboard';
 import ManagementForecastDashboard from '@/components/admin/ManagementForecastDashboard';
@@ -28,6 +29,7 @@ import BarberRevenueAnalytics from '@/components/admin/BarberRevenueAnalytics';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { getProductivityMonthRange } from '@/lib/productivityPeriod';
 
 type ManagerDashboardProps = {
   onNavigate: (tab: string) => void;
@@ -83,6 +85,7 @@ type MonthlyFinancial = {
   supply_consumption_cost: number; net_profit: number; estimated_commission_rate_count: number;
 };
 type BarberOption = { barber_id: string; barber_name: string; image_url: string | null };
+type ProductivityPeriod = 'week' | 'month' | '30days' | 'custom';
 
 export default function ManagerDashboard({ onNavigate }: ManagerDashboardProps) {
   const [data, setData] = useState<DashboardData>(emptyData);
@@ -95,8 +98,30 @@ export default function ManagerDashboard({ onNavigate }: ManagerDashboardProps) 
   const [focusMonth, setFocusMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [monthlyFinancials, setMonthlyFinancials] = useState<MonthlyFinancial[]>([]);
   const [barbers, setBarbers] = useState<BarberOption[]>([]);
-  const weekStart = useMemo(() => startOfWeek(new Date(), { weekStartsOn: 1 }), []);
-  const weekEnd = useMemo(() => endOfWeek(new Date(), { weekStartsOn: 1 }), []);
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const currentMonth = format(new Date(), 'yyyy-MM');
+  const [productivityPeriod, setProductivityPeriod] = useState<ProductivityPeriod>('month');
+  const [productivityMonth, setProductivityMonth] = useState(currentMonth);
+  const initialMonthRange = getProductivityMonthRange(currentMonth, new Date())!;
+  const [productivityFrom, setProductivityFrom] = useState(initialMonthRange.from);
+  const [productivityTo, setProductivityTo] = useState(initialMonthRange.to);
+
+  const changeProductivityPeriod = (value: ProductivityPeriod) => {
+    setProductivityPeriod(value);
+    const now = new Date();
+    if (value === 'week') { setProductivityFrom(format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd')); setProductivityTo(format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd')); }
+    if (value === 'month') { const range = getProductivityMonthRange(productivityMonth, now); if (range) { setProductivityFrom(range.from); setProductivityTo(range.to); } }
+    if (value === '30days') { setProductivityFrom(format(subDays(now, 29), 'yyyy-MM-dd')); setProductivityTo(format(now, 'yyyy-MM-dd')); }
+  };
+
+  const changeProductivityMonth = (value: string) => {
+    const range = getProductivityMonthRange(value, new Date());
+    if (!range) return;
+    setProductivityPeriod('month');
+    setProductivityMonth(value);
+    setProductivityFrom(range.from);
+    setProductivityTo(range.to);
+  };
 
   const loadMonthlyFinancials = useCallback(async () => {
     const version = ++financialRequestVersion.current;
@@ -146,8 +171,8 @@ export default function ManagerDashboard({ onNavigate }: ManagerDashboardProps) 
 
   const load = useCallback(async () => {
     setLoading(true);
-    const from = format(weekStart, 'yyyy-MM-dd');
-    const to = format(weekEnd, 'yyyy-MM-dd');
+    const from = productivityFrom;
+    const to = productivityTo;
     const today = format(startOfDay(new Date()), 'yyyy-MM-dd');
     const expiryLimit = format(subDays(new Date(Date.now() + 30 * 86400000), 15), 'yyyy-MM-dd');
 
@@ -259,7 +284,7 @@ export default function ManagerDashboard({ onNavigate }: ManagerDashboardProps) 
     } finally {
       setLoading(false);
     }
-  }, [weekEnd, weekStart]);
+  }, [productivityFrom, productivityTo]);
 
   useEffect(() => {
     if (section !== 'productivity') return;
@@ -287,9 +312,14 @@ export default function ManagerDashboard({ onNavigate }: ManagerDashboardProps) 
   }, [load, section]);
 
   const completionRate = data.appointments > 0 ? Math.round((data.completed / data.appointments) * 100) : 0;
-  const goalProgress = data.weeklyGoal > 0 ? Math.min(100, (data.revenue / data.weeklyGoal) * 100) : 0;
+  const productivityDays = differenceInCalendarDays(new Date(`${productivityTo}T12:00:00`), new Date(`${productivityFrom}T12:00:00`)) + 1;
+  const periodGoal = data.weeklyGoal * productivityDays / 7;
+  const goalProgress = periodGoal > 0 ? Math.min(100, (data.revenue / periodGoal) * 100) : 0;
+  const productivityPeriodLabel = productivityPeriod === 'week' ? 'Semana atual' : productivityPeriod === 'month'
+    ? format(new Date(`${productivityMonth}-01T12:00:00`), 'MMMM yyyy', { locale: ptBR })
+    : productivityPeriod === '30days' ? 'Últimos 30 dias' : 'Período personalizado';
   const cards = [
-    { label: 'Faturamento', value: money(data.revenue), detail: 'Semana atual', icon: CircleDollarSign, tab: 'financial' },
+    { label: 'Faturamento', value: money(data.revenue), detail: productivityPeriodLabel, icon: CircleDollarSign, tab: 'financial' },
     { label: 'Agendamentos', value: data.appointments, detail: `${data.completed} concluídos`, icon: CalendarCheck2, tab: 'fila' },
     { label: 'Conclusão', value: `${completionRate}%`, detail: `${data.cancelled} cancelados`, icon: CheckCircle2, tab: 'financial' },
     { label: 'Ticket médio', value: money(data.averageTicket), detail: 'Serviços', icon: TrendingUp, tab: 'financial' },
@@ -364,10 +394,11 @@ export default function ManagerDashboard({ onNavigate }: ManagerDashboardProps) 
         </TabsContent>
 
         <TabsContent value="productivity" className="space-y-5">
+          <Card className="border-primary/30"><CardContent className="p-3 sm:p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-sm font-semibold">Período de toda a produtividade</p><p className="text-xs text-muted-foreground">Os cartões, a meta, os destaques, o ranking e os cálculos abaixo usam este mesmo intervalo.</p></div><div className="flex flex-col gap-2 sm:flex-row sm:items-end"><div><p className="mb-1 text-xs text-muted-foreground">Período</p><Select value={productivityPeriod} onValueChange={(value) => changeProductivityPeriod(value as ProductivityPeriod)}><SelectTrigger className="w-full sm:w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="week">Semana atual</SelectItem><SelectItem value="month">Por mês</SelectItem><SelectItem value="30days">Últimos 30 dias</SelectItem><SelectItem value="custom">Personalizado</SelectItem></SelectContent></Select></div><div><p className="mb-1 text-xs text-muted-foreground">Mês</p><Input aria-label="Mês global da produtividade" className={productivityPeriod === 'month' ? 'border-primary' : ''} type="month" value={productivityMonth} max={currentMonth} onChange={(event) => changeProductivityMonth(event.target.value)} /></div><Button aria-label="Atualizar toda a produtividade" size="icon" variant="outline" onClick={() => void load()}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></Button></div></div>{productivityPeriod === 'custom' && <div className="mt-3 grid grid-cols-2 gap-2 sm:max-w-md"><label className="text-xs text-muted-foreground">Início<Input className="mt-1 text-foreground" type="date" value={productivityFrom} max={today} onChange={(event) => setProductivityFrom(event.target.value)} /></label><label className="text-xs text-muted-foreground">Fim<Input className="mt-1 text-foreground" type="date" value={productivityTo} min={productivityFrom} max={today} onChange={(event) => setProductivityTo(event.target.value)} /></label></div>}<p className="mt-3 text-xs capitalize text-muted-foreground">{format(new Date(`${productivityFrom}T12:00:00`), "dd 'de' MMM", { locale: ptBR })} a {format(new Date(`${productivityTo}T12:00:00`), "dd 'de' MMM 'de' yyyy", { locale: ptBR })}</p></CardContent></Card>
           <div className="grid grid-cols-3 gap-2 lg:grid-cols-6">{cards.map(({ label, value, detail, icon: Icon, tab }) => <Card key={label} className="cursor-pointer transition-colors hover:border-primary/50" onClick={() => onNavigate(tab)}><CardContent className="p-2.5 sm:p-4"><div className="flex items-start justify-between gap-1"><p className="text-[10px] leading-tight text-muted-foreground sm:text-xs">{label}</p><Icon className="h-3.5 w-3.5 shrink-0 text-primary sm:h-4 sm:w-4" /></div>{loading ? <Skeleton className="mt-2 h-6 w-16" /> : <p className="mt-2 break-words text-sm font-bold leading-tight sm:text-xl">{value}</p>}<p className="mt-1 hidden text-[10px] text-muted-foreground sm:block">{detail}</p></CardContent></Card>)}</div>
-          <div className="grid gap-4 lg:grid-cols-3"><Card className="lg:col-span-2"><CardHeader className="pb-3"><CardTitle className="text-base">Meta semanal</CardTitle></CardHeader><CardContent className="space-y-3"><div className="flex items-end justify-between gap-3"><div><p className="text-2xl font-bold text-primary">{money(data.revenue)}</p><p className="text-xs text-muted-foreground">Realizado nesta semana</p></div><div className="text-right"><p className="font-semibold">{data.weeklyGoal > 0 ? money(data.weeklyGoal) : 'Não definida'}</p><p className="text-xs text-muted-foreground">Meta configurada</p></div></div><Progress value={goalProgress} className="h-2.5" /><div className="flex justify-between text-xs text-muted-foreground"><span>{data.weeklyGoal > 0 ? `${goalProgress.toFixed(0)}% atingido` : 'Configure a meta no WhatsApp › Relatório automático'}</span>{data.weeklyGoal > data.revenue && <span>Faltam {money(data.weeklyGoal - data.revenue)}</span>}</div><div className="grid grid-cols-2 gap-2 pt-2"><div className="rounded-lg bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Serviços</p><p className="font-bold">{money(data.servicesRevenue)}</p></div><div className="rounded-lg bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Produtos</p><p className="font-bold">{money(data.productsRevenue)}</p></div></div></CardContent></Card><Card><CardHeader className="pb-3"><CardTitle className="text-base">Destaques da equipe</CardTitle></CardHeader><CardContent className="space-y-2">{data.topBarbers.length === 0 ? <p className="text-sm text-muted-foreground">Sem faturamento no período.</p> : data.topBarbers.map((barber, index) => <div key={barber.name} className="flex items-center justify-between rounded-lg border p-2.5"><div className="flex min-w-0 items-center gap-2"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{index + 1}</span><div className="min-w-0"><p className="truncate text-sm font-medium">{barber.name}</p><p className="text-[11px] text-muted-foreground">{barber.appointments} atendimentos</p></div></div><p className="text-sm font-bold">{money(barber.revenue)}</p></div>)}<Button variant="ghost" size="sm" className="w-full" onClick={() => onNavigate('financial')}>Ver análise financeira</Button></CardContent></Card></div>
+          <div className="grid gap-4 lg:grid-cols-3"><Card className="lg:col-span-2"><CardHeader className="pb-3"><CardTitle className="text-base">Meta do período</CardTitle></CardHeader><CardContent className="space-y-3"><div className="flex items-end justify-between gap-3"><div><p className="text-2xl font-bold text-primary">{money(data.revenue)}</p><p className="text-xs capitalize text-muted-foreground">Realizado · {productivityPeriodLabel}</p></div><div className="text-right"><p className="font-semibold">{data.weeklyGoal > 0 ? money(periodGoal) : 'Não definida'}</p><p className="text-xs text-muted-foreground">Meta semanal proporcional a {productivityDays} dia(s)</p></div></div><Progress value={goalProgress} className="h-2.5" /><div className="flex justify-between text-xs text-muted-foreground"><span>{data.weeklyGoal > 0 ? `${goalProgress.toFixed(0)}% atingido` : 'Configure a meta no WhatsApp › Relatório automático'}</span>{periodGoal > data.revenue && <span>Faltam {money(periodGoal - data.revenue)}</span>}</div><div className="grid grid-cols-2 gap-2 pt-2"><div className="rounded-lg bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Serviços</p><p className="font-bold">{money(data.servicesRevenue)}</p></div><div className="rounded-lg bg-muted/30 p-3"><p className="text-xs text-muted-foreground">Produtos</p><p className="font-bold">{money(data.productsRevenue)}</p></div></div></CardContent></Card><Card><CardHeader className="pb-3"><CardTitle className="text-base">Destaques da equipe</CardTitle></CardHeader><CardContent className="space-y-2">{data.topBarbers.length === 0 ? <p className="text-sm text-muted-foreground">Sem faturamento no período.</p> : data.topBarbers.map((barber, index) => <div key={barber.name} className="flex items-center justify-between rounded-lg border p-2.5"><div className="flex min-w-0 items-center gap-2"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{index + 1}</span><div className="min-w-0"><p className="truncate text-sm font-medium">{barber.name}</p><p className="text-[11px] text-muted-foreground">{barber.appointments} atendimentos</p></div></div><p className="text-sm font-bold">{money(barber.revenue)}</p></div>)}<Button variant="ghost" size="sm" className="w-full" onClick={() => onNavigate('financial')}>Ver análise financeira</Button></CardContent></Card></div>
           <Card><CardHeader className="pb-3"><CardTitle className="text-base">Atenção da gestão</CardTitle></CardHeader><CardContent className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">{alerts.map(({ label, value, icon: Icon, tab, critical }) => <button key={label} type="button" onClick={() => onNavigate(tab)} className={`rounded-lg border p-3 text-left transition-colors hover:border-primary/50 ${critical && value > 0 ? 'border-red-500/30 bg-red-500/5' : 'bg-muted/20'}`}><div className="flex items-start justify-between gap-2"><Icon className={`h-4 w-4 ${critical && value > 0 ? 'text-red-400' : 'text-primary'}`} /><span className="text-lg font-bold">{loading ? '—' : value}</span></div><p className="mt-2 text-[11px] leading-tight text-muted-foreground sm:text-xs">{label}</p></button>)}</CardContent></Card>
-          <BarberProductivityDashboard showRevenueAnalytics={false} />
+          <BarberProductivityDashboard showRevenueAnalytics={false} showPeriodControls={false} dateRange={{ from: productivityFrom, to: productivityTo }} />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><Button variant="outline" onClick={() => onNavigate('financial')}><CircleDollarSign className="mr-2 h-4 w-4" />Financeiro</Button><Button variant="outline" onClick={() => onNavigate('users')}><Users className="mr-2 h-4 w-4" />Clientes</Button><Button variant="outline" onClick={() => onNavigate('fila')}><Scissors className="mr-2 h-4 w-4" />Atendimentos</Button><Button variant="outline" onClick={() => onNavigate('supplies')}><PackageSearch className="mr-2 h-4 w-4" />Estoque</Button></div>
           {data.availableCredits > 0 && <p className="text-center text-xs text-muted-foreground">Há {data.availableCredits} crédito(s) de indicação disponível(is) para clientes.</p>}
         </TabsContent>
