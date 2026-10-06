@@ -12,8 +12,9 @@ import { Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ResponsiveC
 import { Armchair, CalendarDays, CircleDollarSign, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { buildBarberRevenueSummary, buildFullCapacityProjection, type BarberRevenueRow } from '@/lib/barberRevenueAnalytics';
+import BarberCapacitySimulator from '@/components/admin/BarberCapacitySimulator';
 
-type BarberOption = { barber_id: string; barber_name: string; image_url: string | null };
+type BarberOption = { barber_id: string; barber_name: string; image_url: string | null; average_ticket?: number; average_service_minutes?: number };
 type ViewMode = 'month' | 'year';
 const db = supabase as any;
 const money = (value: number | null) => value === null
@@ -252,6 +253,7 @@ export default function BarberRevenueAnalytics({ barbers }: Props) {
       <p className="text-[11px] leading-relaxed text-muted-foreground">A oportunidade é uma estimativa, não faturamento contabilizado. Cada barbeiro usa sua própria receita por hora produtiva no período; horários de quem não tem serviços concluídos ficam sem estimativa. Considera somente serviços e horários disponíveis sem agendamento ativo; cancelamentos liberam a cadeira. A análise usa dias completos até ontem.</p>
       {summary.unestimated_idle_minutes > 0 && !loading && !loadError && <p className="text-xs text-amber-300">Há {hours(summary.unestimated_idle_minutes)} ociosas sem base de serviços concluídos para estimar. O potencial exibido é parcial.</p>}
       {viewMode === 'month' && fullCapacityProjection.unestimated_capacity_minutes > 0 && !loading && !loadError && <p className="text-xs text-amber-300">Há {hours(fullCapacityProjection.unestimated_capacity_minutes)} de capacidade mensal sem serviços concluídos para calcular a projeção. O valor projetado é parcial.</p>}
+      {viewMode === 'month' && <BarberCapacitySimulator barbers={barbers} month={month} maxMonth={currentMonth} />}
     </CardContent>
   </Card>;
 }

@@ -129,6 +129,12 @@ export default function BarberProductivityDashboard({ showRevenueAnalytics = tru
       </CardContent></Card>;
     })}</div>
     </div>
-    {showRevenueAnalytics && <BarberRevenueAnalytics barbers={metrics.map((item) => ({ barber_id: item.barber_id, barber_name: item.barber_name, image_url: item.image_url }))} />}
+    {showRevenueAnalytics && <BarberRevenueAnalytics barbers={metrics.map((item) => ({
+      barber_id: item.barber_id,
+      barber_name: item.barber_name,
+      image_url: item.image_url,
+      average_ticket: item.average_ticket,
+      average_service_minutes: item.completed_appointments > 0 ? item.productive_minutes / item.completed_appointments : 30,
+    }))} />}
   </>;
 }
