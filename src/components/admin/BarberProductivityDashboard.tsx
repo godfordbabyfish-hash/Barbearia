@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { differenceInCalendarDays, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek, subDays } from 'date-fns';
+import { differenceInCalendarDays, endOfWeek, format, startOfWeek, subDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { supabase } from '@/integrations/supabase/client';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -14,6 +14,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { AlertTriangle, CalendarCheck2, Clock3, Gauge, RefreshCw, Scissors, TrendingDown, TrendingUp, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import BarberRevenueAnalytics from '@/components/admin/BarberRevenueAnalytics';
+import { getProductivityMonthRange } from '@/lib/productivityPeriod';
 
 type Metric = {
   barber_id: string; barber_name: string; image_url: string | null; available_minutes: number;
@@ -33,7 +34,10 @@ type Props = { showRevenueAnalytics?: boolean };
 
 export default function BarberProductivityDashboard({ showRevenueAnalytics = true }: Props) {
   const now = new Date();
+  const currentMonth = format(now, 'yyyy-MM');
+  const today = format(now, 'yyyy-MM-dd');
   const [period, setPeriod] = useState<Period>('week');
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [from, setFrom] = useState(format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [to, setTo] = useState(format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'));
   const [metrics, setMetrics] = useState<Metric[]>([]);
@@ -43,8 +47,19 @@ export default function BarberProductivityDashboard({ showRevenueAnalytics = tru
   const changePeriod = (value: Period) => {
     setPeriod(value);
     if (value === 'week') { setFrom(format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd')); setTo(format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd')); }
-    if (value === 'month') { setFrom(format(startOfMonth(now), 'yyyy-MM-dd')); setTo(format(endOfMonth(now), 'yyyy-MM-dd')); }
+    if (value === 'month') {
+      const range = getProductivityMonthRange(selectedMonth, now);
+      if (range) { setFrom(range.from); setTo(range.to); }
+    }
     if (value === '30days') { setFrom(format(subDays(now, 29), 'yyyy-MM-dd')); setTo(format(now, 'yyyy-MM-dd')); }
+  };
+
+  const changeMonth = (value: string) => {
+    const range = getProductivityMonthRange(value, now);
+    if (!range) return;
+    setSelectedMonth(value);
+    setFrom(range.from);
+    setTo(range.to);
   };
 
   const load = useCallback(async () => {
@@ -92,8 +107,9 @@ export default function BarberProductivityDashboard({ showRevenueAnalytics = tru
 
   return <>
     <div className="space-y-4">
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-lg font-bold sm:text-xl">Produtividade da equipe</h2><p className="text-xs text-muted-foreground sm:text-sm">Ocupação calculada sobre a agenda disponível, descontando pausas e bloqueios.</p></div><div className="flex gap-2"><Select value={period} onValueChange={(value) => changePeriod(value as Period)}><SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="week">Semana atual</SelectItem><SelectItem value="month">Mês atual</SelectItem><SelectItem value="30days">Últimos 30 dias</SelectItem><SelectItem value="custom">Personalizado</SelectItem></SelectContent></Select><Button size="icon" variant="outline" onClick={load}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></Button></div></div>
-    {period === 'custom' && <div className="grid grid-cols-2 gap-2 rounded-lg border p-3 sm:max-w-md"><div><p className="mb-1 text-xs text-muted-foreground">Início</p><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div><div><p className="mb-1 text-xs text-muted-foreground">Fim</p><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div></div>}
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-lg font-bold sm:text-xl">Produtividade da equipe</h2><p className="text-xs text-muted-foreground sm:text-sm">Ocupação calculada sobre a agenda disponível, descontando pausas e bloqueios.</p></div><div className="flex gap-2"><Select value={period} onValueChange={(value) => changePeriod(value as Period)}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="week">Semana atual</SelectItem><SelectItem value="month">Selecionar mês</SelectItem><SelectItem value="30days">Últimos 30 dias</SelectItem><SelectItem value="custom">Período personalizado</SelectItem></SelectContent></Select><Button size="icon" variant="outline" onClick={load}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></Button></div></div>
+    {period === 'month' && <div className="rounded-lg border p-3 sm:max-w-xs"><p className="mb-1 text-xs text-muted-foreground">Mês da análise</p><Input aria-label="Mês da produtividade" type="month" value={selectedMonth} max={currentMonth} onChange={(e) => changeMonth(e.target.value)} /></div>}
+    {period === 'custom' && <div className="grid grid-cols-2 gap-2 rounded-lg border p-3 sm:max-w-md"><div><p className="mb-1 text-xs text-muted-foreground">Início</p><Input type="date" value={from} max={today} onChange={(e) => setFrom(e.target.value)} /></div><div><p className="mb-1 text-xs text-muted-foreground">Fim</p><Input type="date" value={to} max={today} onChange={(e) => setTo(e.target.value)} /></div></div>}
     <p className="text-xs text-muted-foreground">{format(new Date(`${from}T12:00:00`), "dd 'de' MMM", { locale: ptBR })} a {format(new Date(`${to}T12:00:00`), "dd 'de' MMM 'de' yyyy", { locale: ptBR })}</p>
     <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
       {[["Ocupação geral", `${totals.occupancy.toFixed(1)}%`, Gauge], ["Faturamento", money(totals.revenue), TrendingUp], ["Concluídos", totals.completed, CalendarCheck2], ["Finalizações pendentes", totals.pending, AlertTriangle]].map(([title, value, Icon]) => <Card key={String(title)}><CardContent className="p-3 sm:p-4"><div className="flex justify-between gap-1"><div><p className="text-[11px] text-muted-foreground sm:text-sm">{String(title)}</p>{loading ? <Skeleton className="mt-2 h-6 w-16" /> : <p className="mt-1 break-words text-lg font-bold sm:text-xl">{String(value)}</p>}</div><Icon className="h-4 w-4 text-primary" /></div></CardContent></Card>)}
