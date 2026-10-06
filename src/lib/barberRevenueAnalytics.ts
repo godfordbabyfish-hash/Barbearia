@@ -34,6 +34,13 @@ export type BarberRevenueSummary = {
   unestimated_idle_minutes: number;
 };
 
+export type FullCapacityProjection = {
+  projected_revenue: number | null;
+  full_capacity_minutes: number;
+  unestimated_capacity_minutes: number;
+  has_projection_base: boolean;
+};
+
 const toNumber = (value: number | string | null | undefined) => {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -106,5 +113,49 @@ export function buildBarberRevenueSummary(rows: BarberRevenueRow[]): BarberReven
     potential_revenue: hasProjectionBase ? roundMoney(serviceRevenue + estimatedOpportunity) : null,
     has_projection_base: hasProjectionBase,
     unestimated_idle_minutes: unestimatedIdleMinutes,
+  };
+}
+
+export function buildFullCapacityProjection(
+  observedRows: BarberRevenueRow[],
+  fullMonthRows: BarberRevenueRow[],
+): FullCapacityProjection {
+  const ratesByBarber = new Map<string, { revenue: number; productive: number }>();
+  observedRows.forEach((row) => {
+    const current = ratesByBarber.get(row.barber_id) || { revenue: 0, productive: 0 };
+    current.revenue += toNumber(row.service_revenue);
+    current.productive += toNumber(row.productive_minutes);
+    ratesByBarber.set(row.barber_id, current);
+  });
+
+  const capacityByBarber = new Map<string, number>();
+  fullMonthRows.forEach((row) => {
+    capacityByBarber.set(
+      row.barber_id,
+      (capacityByBarber.get(row.barber_id) || 0) + Math.max(0, toNumber(row.available_minutes)),
+    );
+  });
+
+  let projectedRevenue = 0;
+  let fullCapacityMinutes = 0;
+  let unestimatedCapacityMinutes = 0;
+  let hasProjectionBase = false;
+
+  capacityByBarber.forEach((capacity, barberId) => {
+    fullCapacityMinutes += capacity;
+    const rate = ratesByBarber.get(barberId);
+    if (rate && rate.productive > 0) {
+      projectedRevenue += capacity * rate.revenue / rate.productive;
+      hasProjectionBase = true;
+    } else {
+      unestimatedCapacityMinutes += capacity;
+    }
+  });
+
+  return {
+    projected_revenue: hasProjectionBase ? roundMoney(projectedRevenue) : null,
+    full_capacity_minutes: fullCapacityMinutes,
+    unestimated_capacity_minutes: unestimatedCapacityMinutes,
+    has_projection_base: hasProjectionBase,
   };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildBarberRevenueSummary, type BarberRevenueRow } from './barberRevenueAnalytics';
+import { buildBarberRevenueSummary, buildFullCapacityProjection, type BarberRevenueRow } from './barberRevenueAnalytics';
 
 const row = (overrides: Partial<BarberRevenueRow> = {}): BarberRevenueRow => ({
   period_start: '2026-09-01',
@@ -12,6 +12,41 @@ const row = (overrides: Partial<BarberRevenueRow> = {}): BarberRevenueRow => ({
   booked_minutes: 60,
   idle_minutes: 420,
   ...overrides,
+});
+
+describe('buildFullCapacityProjection', () => {
+  it('projects a full month using each barber own observed revenue rate', () => {
+    const observed = [
+      row({ barber_id: 'a', service_revenue: 600, productive_minutes: 600, available_minutes: 900 }),
+      row({ barber_id: 'b', service_revenue: 300, productive_minutes: 300, available_minutes: 600 }),
+    ];
+    const capacity = [
+      row({ barber_id: 'a', available_minutes: 6000 }),
+      row({ barber_id: 'b', available_minutes: 3000 }),
+    ];
+
+    expect(buildFullCapacityProjection(observed, capacity)).toEqual({
+      projected_revenue: 9000,
+      full_capacity_minutes: 9000,
+      unestimated_capacity_minutes: 0,
+      has_projection_base: true,
+    });
+  });
+
+  it('keeps capacity without completed services out of the monetary estimate', () => {
+    const observed = [row({ barber_id: 'a', service_revenue: 300, productive_minutes: 300 })];
+    const capacity = [
+      row({ barber_id: 'a', available_minutes: 3000 }),
+      row({ barber_id: 'b', available_minutes: 1200 }),
+    ];
+
+    expect(buildFullCapacityProjection(observed, capacity)).toEqual({
+      projected_revenue: 3000,
+      full_capacity_minutes: 4200,
+      unestimated_capacity_minutes: 1200,
+      has_projection_base: true,
+    });
+  });
 });
 
 describe('buildBarberRevenueSummary', () => {

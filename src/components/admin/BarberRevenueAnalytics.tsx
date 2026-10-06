@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Armchair, CalendarDays, CircleDollarSign, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
 import { toast } from 'sonner';
-import { buildBarberRevenueSummary, type BarberRevenueRow } from '@/lib/barberRevenueAnalytics';
+import { buildBarberRevenueSummary, buildFullCapacityProjection, type BarberRevenueRow } from '@/lib/barberRevenueAnalytics';
 
 type BarberOption = { barber_id: string; barber_name: string; image_url: string | null };
 type ViewMode = 'month' | 'year';
@@ -44,6 +44,13 @@ function getDateRange(mode: ViewMode, month: string, year: string) {
   return { from: format(start, 'yyyy-MM-dd'), to: format(end, 'yyyy-MM-dd') };
 }
 
+function getFullMonthRange(month: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) return null;
+  const start = startOfMonth(new Date(`${month}-01T12:00:00`));
+  if (Number.isNaN(start.getTime())) return null;
+  return { from: format(start, 'yyyy-MM-dd'), to: format(endOfMonth(start), 'yyyy-MM-dd') };
+}
+
 function normalizeRow(row: any): BarberRevenueRow {
   return {
     period_start: row.period_start,
@@ -69,17 +76,23 @@ export default function BarberRevenueAnalytics({ barbers }: Props) {
   const [year, setYear] = useState(currentYear);
   const [barberId, setBarberId] = useState('all');
   const [rows, setRows] = useState<BarberRevenueRow[]>([]);
+  const [fullMonthRows, setFullMonthRows] = useState<BarberRevenueRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const requestVersion = useRef(0);
   const range = useMemo(() => getDateRange(viewMode, month, year), [viewMode, month, year]);
   const selectedBarber = barbers.find((barber) => barber.barber_id === barberId);
   const summary = useMemo(() => buildBarberRevenueSummary(rows), [rows]);
+  const fullCapacityProjection = useMemo(
+    () => buildFullCapacityProjection(rows, fullMonthRows),
+    [rows, fullMonthRows],
+  );
 
   const load = useCallback(async () => {
     const version = ++requestVersion.current;
     setLoadError(false);
     setRows([]);
+    setFullMonthRows([]);
     if (!range) {
       setRows([]);
       setLoading(false);
@@ -87,15 +100,23 @@ export default function BarberRevenueAnalytics({ barbers }: Props) {
     }
     setLoading(true);
     try {
-      const { data, error } = await db.rpc('get_barber_revenue_evolution', {
-        p_start: range.from,
-        p_end: range.to,
+      const fullMonthRange = viewMode === 'month' ? getFullMonthRange(month) : null;
+      const queryRange = fullMonthRange || range;
+      const result = await db.rpc('get_barber_revenue_evolution', {
+        p_start: queryRange.from,
+        p_end: queryRange.to,
         p_granularity: viewMode === 'month' ? 'day' : 'month',
         p_barber_id: barberId === 'all' ? null : barberId,
       });
       if (version !== requestVersion.current) return;
-      if (error) throw error;
-      setRows((data || []).map(normalizeRow));
+      if (result.error) throw result.error;
+      const normalizedRows = (result.data || []).map(normalizeRow);
+      if (fullMonthRange) {
+        setFullMonthRows(normalizedRows);
+        setRows(normalizedRows.filter((row: BarberRevenueRow) => row.period_start >= range.from && row.period_start <= range.to));
+      } else {
+        setRows(normalizedRows);
+      }
     } catch (error: any) {
       if (version !== requestVersion.current) return;
       setLoadError(true);
@@ -188,6 +209,7 @@ export default function BarberRevenueAnalytics({ barbers }: Props) {
                   ['Tempo ocioso', hours(summary.idle_minutes), Armchair],
                 ].map(([label, value, Icon]) => <Card key={String(label)} className="bg-muted/20"><CardContent className="flex items-start justify-between gap-2 p-3 sm:p-4"><div className="min-w-0"><p className="text-[11px] text-muted-foreground sm:text-xs">{String(label)}</p>{loading ? <Skeleton className="mt-2 h-6 w-20" /> : <p className="mt-1 break-words text-base font-bold sm:text-lg">{String(value)}</p>}</div><Icon className="h-4 w-4 shrink-0 text-primary" /></CardContent></Card>)}
               </div>
+              {viewMode === 'month' && <Card className="border-primary/30 bg-primary/5"><CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center"><div><p className="text-xs font-medium text-primary">Projeção do mês com agenda cheia</p><p className="mt-1 text-xs text-muted-foreground">Quanto poderia faturar ocupando todos os horários disponíveis cadastrados no mês, usando a receita real por hora produtiva deste barbeiro.</p></div><div className="sm:text-right">{loading ? <Skeleton className="h-8 w-28" /> : <p className="text-2xl font-bold">{money(fullCapacityProjection.projected_revenue)}</p>}<p className="text-[11px] text-muted-foreground">{hours(fullCapacityProjection.full_capacity_minutes)} de capacidade mensal</p></div></CardContent></Card>}
               <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Faturamento realizado e potencial estimado</CardTitle><CardDescription>O potencial acrescenta ao realizado a oportunidade calculada nos horários sem reserva.</CardDescription></CardHeader><CardContent className="h-64 px-1 sm:h-80 sm:px-4">
                 {loading ? <Skeleton className="h-full w-full" /> : chartData.length === 0 ? <p className="flex h-full items-center justify-center text-sm text-muted-foreground">Sem barbeiros ativos para exibir neste período.</p> : <ResponsiveContainer width="100%" height="100%"><LineChart data={chartData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.2} /><XAxis dataKey="label" fontSize={10} minTickGap={viewMode === 'month' ? 12 : 8} /><YAxis tickFormatter={compactMoney} fontSize={10} width={60} /><Tooltip labelFormatter={(label) => `${label} · ${periodLabel}`} formatter={(value: number | null, name: string) => [money(value), name]} /><Legend />
@@ -229,6 +251,7 @@ export default function BarberRevenueAnalytics({ barbers }: Props) {
 
       <p className="text-[11px] leading-relaxed text-muted-foreground">A oportunidade é uma estimativa, não faturamento contabilizado. Cada barbeiro usa sua própria receita por hora produtiva no período; horários de quem não tem serviços concluídos ficam sem estimativa. Considera somente serviços e horários disponíveis sem agendamento ativo; cancelamentos liberam a cadeira. A análise usa dias completos até ontem.</p>
       {summary.unestimated_idle_minutes > 0 && !loading && !loadError && <p className="text-xs text-amber-300">Há {hours(summary.unestimated_idle_minutes)} ociosas sem base de serviços concluídos para estimar. O potencial exibido é parcial.</p>}
+      {viewMode === 'month' && fullCapacityProjection.unestimated_capacity_minutes > 0 && !loading && !loadError && <p className="text-xs text-amber-300">Há {hours(fullCapacityProjection.unestimated_capacity_minutes)} de capacidade mensal sem serviços concluídos para calcular a projeção. O valor projetado é parcial.</p>}
     </CardContent>
   </Card>;
 }
