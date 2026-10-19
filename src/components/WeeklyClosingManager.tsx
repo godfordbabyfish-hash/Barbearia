@@ -12,12 +12,13 @@ import { buildWeeklyClosureSnapshot, downloadWeeklyClosurePdf, WeeklyClosureSnap
 interface WeeklyClosingManagerProps {
   barberId?: string;
   canClose: boolean;
+  onSelectedWeekChange?: (range: { start: string; end: string }) => void;
 }
 
 interface BarberOption { id: string; name: string }
 interface StoredClosure { id: string; snapshot: WeeklyClosureSnapshot; closed_at: string }
 
-export default function WeeklyClosingManager({ barberId, canClose }: WeeklyClosingManagerProps) {
+export default function WeeklyClosingManager({ barberId, canClose, onSelectedWeekChange }: WeeklyClosingManagerProps) {
   const currentCompetence = useMemo(() => getCurrentFinancialCompetence(), []);
   const currentWeekStartISO = useMemo(
     () => listFinancialWeeks(currentCompetence.year, currentCompetence.month)
@@ -34,6 +35,10 @@ export default function WeeklyClosingManager({ barberId, canClose }: WeeklyClosi
   const weeks = useMemo(() => listFinancialWeeks(year, month), [year, month]);
   const selectedWeek = weeks.find((week) => week.number === weekNumber) || weeks[0];
   const availability = selectedWeek ? getWeekAvailability(selectedWeek) : 'open';
+
+  useEffect(() => {
+    if (selectedWeek) onSelectedWeekChange?.({ start: selectedWeek.startISO, end: selectedWeek.endISO });
+  }, [onSelectedWeekChange, selectedWeek?.startISO, selectedWeek?.endISO]);
 
   useEffect(() => {
     if (barberId) {

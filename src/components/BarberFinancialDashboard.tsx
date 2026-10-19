@@ -9,24 +9,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { DollarSign, TrendingUp, Calendar, Users, Plus, Banknote, Filter } from 'lucide-react';
-import { 
-  DropdownMenu, 
-  DropdownMenuTrigger, 
-  DropdownMenuContent, 
-  DropdownMenuLabel, 
-  DropdownMenuRadioGroup, 
-  DropdownMenuRadioItem 
-} from '@/components/ui/dropdown-menu';
-import { addDays, format, startOfDay, endOfDay, startOfWeek, startOfMonth, endOfMonth, startOfYear } from 'date-fns';
+import { DollarSign, TrendingUp, Calendar, Users, Plus, Banknote } from 'lucide-react';
+import { addDays, format, startOfWeek } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
 import { calculateServiceReportAmount } from '@/lib/reportCommission';
 import WeeklyClosingManager from '@/components/WeeklyClosingManager';
-import FilterPopup from '@/components/FilterPopup';
-import WeeklyOverviewSelector from '@/components/WeeklyOverviewSelector';
 
 interface Appointment {
   id: string;
@@ -43,11 +33,6 @@ interface Appointment {
   discount_amount?: number;
   commission_basis?: 'original' | 'final' | null;
   commission_percentage_applied?: number | null;
-}
-
-interface Service {
-  id: string;
-  title: string;
 }
 
 interface ProductSale {
@@ -74,18 +59,13 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
   
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [productSales, setProductSales] = useState<ProductSale[]>([]);
-  const [services, setServices] = useState<Service[]>([]);
-  const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year' | 'custom'>('week');
-  const [selectedWeekStart, setSelectedWeekStart] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'));
-  const [dateFrom, setDateFrom] = useState<string>(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
-  const [dateTo, setDateTo] = useState<string>(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
-  const [filterType, setFilterType] = useState<'all' | 'local' | 'online' | 'manual'>('all');
-  const [filterService, setFilterService] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'confirmed' | 'cancelled'>('all');
+  const [selectedWeek, setSelectedWeek] = useState(() => {
+    const monday = startOfWeek(new Date(), { weekStartsOn: 1 });
+    return { start: format(monday, 'yyyy-MM-dd'), end: format(addDays(monday, 6), 'yyyy-MM-dd') };
+  });
   const [totalAdvances, setTotalAdvances] = useState(0);
   const latestQueryIdRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
   
   // Estados para solicitação de vale
   const [advanceDialogOpen, setAdvanceDialogOpen] = useState(false);
@@ -121,10 +101,6 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
     }).commission;
   };
 
-  useEffect(() => {
-    loadServices();
-  }, []);
-
   const reloadData = () => {
     if (!barberId) return;
     const id = ++latestQueryIdRef.current;
@@ -147,7 +123,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
         debounceRef.current = null;
       }
     };
-  }, [barberId, period, selectedWeekStart, dateFrom, dateTo, filterType, filterService, filterStatus]);
+  }, [barberId, selectedWeek.start, selectedWeek.end]);
 
   // Realtime subscription - separate effect to avoid re-subscribing on filter changes
   useEffect(() => {
@@ -199,58 +175,13 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
       try { supabase.removeChannel(channel); } catch { /* ignore */ }
       try { supabase.removeChannel(salesChannel); } catch { /* ignore */ }
     };
-  }, [barberId]);
-
-  const loadServices = async () => {
-    const { data } = await supabase
-      .from('services')
-      .select('id, title')
-      .eq('visible', true);
-    setServices(data || []);
-  };
-
-  const getDateRange = () => {
-    const today = new Date();
-    let start: Date;
-    let end: Date;
-
-    if (period === 'custom' && dateFrom && dateTo) {
-      start = startOfDay(parseLocalISODate(dateFrom));
-      end = endOfDay(parseLocalISODate(dateTo));
-      return { start, end };
-    }
-
-    switch (period) {
-      case 'day':
-        start = startOfDay(today);
-        end = endOfDay(today);
-        break;
-      case 'week':
-        start = startOfDay(parseLocalISODate(selectedWeekStart));
-        end = endOfDay(addDays(start, 6));
-        break;
-      case 'month':
-        start = startOfMonth(today);
-        end = today;
-        break;
-      case 'year':
-        start = startOfYear(today);
-        end = today;
-        break;
-      default:
-        start = startOfWeek(today, { weekStartsOn: 1 });
-        end = today;
-    }
-
-    return { start, end };
-  };
+  }, [barberId, selectedWeek.start, selectedWeek.end]);
 
   const loadAppointments = async (currentId?: number) => {
     if (!barberId) return;
 
-    const { start, end } = getDateRange();
-    const startDate = format(start, 'yyyy-MM-dd');
-    const endDate = format(end, 'yyyy-MM-dd');
+    const startDate = selectedWeek.start;
+    const endDate = selectedWeek.end;
     
     let query = supabase
       .from('appointments')
@@ -277,16 +208,6 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
       query = query.gte('appointment_date', startDate).lte('appointment_date', endDate);
     }
 
-    if (filterType !== 'all') {
-      query = query.eq('booking_type', filterType);
-    }
-    if (filterService !== 'all') {
-      query = query.eq('service_id', filterService);
-    }
-    if (filterStatus !== 'all') {
-      query = query.eq('status', filterStatus);
-    }
-
     const { data, error } = await query.order('appointment_date', { ascending: false });
 
     if (error) {
@@ -302,9 +223,8 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
   const loadProductSales = async (currentId?: number) => {
     if (!barberId) return;
 
-    const { start, end } = getDateRange();
-    const startDate = format(start, 'yyyy-MM-dd');
-    const endDate = format(end, 'yyyy-MM-dd');
+    const startDate = selectedWeek.start;
+    const endDate = selectedWeek.end;
 
     let query = supabase
       .from('product_sales')
@@ -339,9 +259,8 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
   const loadAdvances = async (currentId?: number) => {
     if (!barberId) return;
 
-    const { start, end } = getDateRange();
-    const startDate = format(start, 'yyyy-MM-dd');
-    const endDate = format(end, 'yyyy-MM-dd');
+    const startDate = selectedWeek.start;
+    const endDate = selectedWeek.end;
 
     let query = supabase
       .from('barber_advances')
@@ -465,9 +384,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
     appointments
       .filter(apt => apt.status === 'completed' || apt.status === 'confirmed')
       .forEach((apt) => {
-        const dateKey = period === 'day' 
-          ? apt.appointment_time.slice(0, 2) + 'h'
-          : format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM');
+        const dateKey = format(new Date(apt.appointment_date + 'T00:00:00'), 'dd/MM');
         
         if (!grouped[dateKey]) {
           grouped[dateKey] = { date: dateKey, receita: 0, agendamentos: 0 };
@@ -517,22 +434,10 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
   const chartByTypeData = chartDataByType;
   const chartByStatusData = chartDataByStatus;
   const chartByServiceData = commissionByService();
-  const chartGlobalKey = `${barberId}-${period}-${dateFrom}-${dateTo}-${filterType}-${filterService}-${filterStatus}`;
+  const chartGlobalKey = `${barberId}-${selectedWeek.start}-${selectedWeek.end}`;
 
   const getPeriodLabel = () => {
-    if (period === 'custom' && dateFrom && dateTo) {
-      return `${format(parseLocalISODate(dateFrom), 'dd/MM/yyyy', { locale: ptBR })} até ${format(parseLocalISODate(dateTo), 'dd/MM/yyyy', { locale: ptBR })}`;
-    }
-    switch (period) {
-      case 'day': return 'Hoje';
-      case 'week': {
-        const start = parseLocalISODate(selectedWeekStart);
-        return `${format(start, 'dd/MM/yyyy')} até ${format(addDays(start, 6), 'dd/MM/yyyy')}`;
-      }
-      case 'month': return 'Este Mês';
-      case 'year': return 'Este Ano';
-      default: return 'Período';
-    }
+    return `${format(parseLocalISODate(selectedWeek.start), 'dd/MM/yyyy')} até ${format(parseLocalISODate(selectedWeek.end), 'dd/MM/yyyy')}`;
   };
 
   if (!barberId) {
@@ -547,113 +452,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
 
   return (
     <div className="space-y-6">
-      <WeeklyClosingManager barberId={barberId} canClose={false} />
-      <div className="flex justify-end">
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-8 px-2 text-xs"
-          onClick={() => setShowFilters((v) => !v)}
-        >
-          <Filter className="h-3 w-3 mr-1" />
-          Filtros
-        </Button>
-      </div>
-      {/* Filters */}
-      <FilterPopup open={showFilters} onOpenChange={setShowFilters}>
-          <div className="grid grid-cols-2 gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
-                  <Calendar className="h-3 w-3 mr-1" />
-                  Período: {period === 'day' ? 'Diário' : period === 'week' ? 'Semanal' : period === 'month' ? 'Mensal' : period === 'year' ? 'Anual' : 'Personalizado'}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuLabel className="text-xs">Período</DropdownMenuLabel>
-                <DropdownMenuRadioGroup value={period} onValueChange={(v) => setPeriod(v as any)}>
-                  <DropdownMenuRadioItem value="day">Diário</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="week">Semanal</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="month">Mensal</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="year">Anual</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="custom">Personalizado</DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            {period === 'week' && <WeeklyOverviewSelector value={selectedWeekStart} onChange={setSelectedWeekStart} />}
-            {period === 'custom' && (
-              <>
-                <div className="min-w-[160px]">
-                  <label className="text-xs text-muted-foreground mb-1 block">Data inicial</label>
-                  <Input
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                  />
-                </div>
-                <div className="min-w-[160px]">
-                  <label className="text-xs text-muted-foreground mb-1 block">Data final</label>
-                  <Input
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
-                  />
-                </div>
-              </>
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
-                  <Users className="h-3 w-3 mr-1" />
-                  Tipo: {filterType === 'all' ? 'Todos' : filterType === 'local' ? 'Local' : filterType === 'online' ? 'Online' : 'Manual'}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuLabel className="text-xs">Tipo</DropdownMenuLabel>
-                <DropdownMenuRadioGroup value={filterType} onValueChange={(v) => setFilterType(v as any)}>
-                  <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="local">Local</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="online">Online</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="manual">Manual (Barbeiro)</DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
-                  <TrendingUp className="h-3 w-3 mr-1" />
-                  Serviço: {(services.find(s => s.id === filterService)?.title || 'Todos')}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuLabel className="text-xs">Serviço</DropdownMenuLabel>
-                <DropdownMenuRadioGroup value={filterService} onValueChange={setFilterService}>
-                  <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
-                  {services.map((s) => (
-                    <DropdownMenuRadioItem key={s.id} value={s.id}>{s.title}</DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 px-2 text-xs w-full truncate justify-center">
-                  <Filter className="h-3 w-3 mr-1" />
-                  Status: {filterStatus === 'all' ? 'Todos' : filterStatus === 'confirmed' ? 'Confirmados' : filterStatus === 'completed' ? 'Concluídos' : 'Cancelados'}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuLabel className="text-xs">Status</DropdownMenuLabel>
-                <DropdownMenuRadioGroup value={filterStatus} onValueChange={(v) => setFilterStatus(v as any)}>
-                  <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="confirmed">Confirmados</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="completed">Concluídos</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="cancelled">Cancelados</DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-      </FilterPopup>
+      <WeeklyClosingManager barberId={barberId} canClose={false} onSelectedWeekChange={setSelectedWeek} />
 
       {/* Stats Cards */}
       <div className="financial-metric-grid grid grid-cols-3 gap-2 lg:grid-cols-4 lg:gap-3">
@@ -669,6 +468,10 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
             <p className="text-xs text-muted-foreground">
               {confirmedCount + completedCount} serviços + {productSales.length} vendas
             </p>
+            <p className={`mt-1 text-[11px] ${netCommission < 0 ? 'text-amber-500' : 'text-muted-foreground'}`}>
+              Comissão bruta {`R$ ${totalCommission.toFixed(2)}`} − vales aprovados {`R$ ${totalAdvances.toFixed(2)}`}
+            </p>
+            {netCommission < 0 && <p className="mt-1 text-[11px] text-amber-500">Os vales aprovados superam a comissão deste período em R$ {Math.abs(netCommission).toFixed(2)}.</p>}
           </CardContent>
         </Card>
 
@@ -687,7 +490,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
 
       <Card className="bg-card border-border">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Vales no Período</CardTitle>
+          <CardTitle className="text-sm font-medium">Vales aprovados no Período</CardTitle>
           <div className="flex items-center gap-2">
             <Dialog open={advanceDialogOpen} onOpenChange={setAdvanceDialogOpen}>
               <DialogTrigger asChild>
