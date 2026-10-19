@@ -44,6 +44,21 @@ interface Barber {
   name: string;
 }
 
+const getLocalDateISO = () => {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+};
+
+const formatDateOnly = (value: string) => {
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  return new Intl.DateTimeFormat("pt-BR").format(new Date(year, month - 1, day));
+};
+
+const formatCreatedAt = (value: string) =>
+  new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+
 const BarberAdvancesManager = () => {
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [selectedBarberId, setSelectedBarberId] = useState<string>("all");
@@ -61,7 +76,7 @@ const BarberAdvancesManager = () => {
     barber_id: "",
     amount: "",
     description: "",
-    effective_date: new Date().toISOString().split("T")[0],
+    effective_date: getLocalDateISO(),
   });
 
   useEffect(() => {
@@ -161,7 +176,7 @@ const BarberAdvancesManager = () => {
       barber_id: "",
       amount: "",
       description: "",
-      effective_date: new Date().toISOString().split("T")[0],
+      effective_date: getLocalDateISO(),
     });
     setCreateDialogOpen(false);
     loadAdvances();
@@ -413,8 +428,9 @@ const BarberAdvancesManager = () => {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-xs text-muted-foreground">
-                          {new Date(adv.effective_date).toLocaleDateString('pt-BR')} • {(adv as any).barber?.name || '—'}
+                          Efeito: {formatDateOnly(adv.effective_date)} • {(adv as any).barber?.name || '—'}
                         </div>
+                        <div className="text-[11px] text-muted-foreground">Criado em {formatCreatedAt(adv.created_at)}</div>
                         <div className="font-semibold text-sm truncate" title={adv.description || '—'}>
                           {adv.description || '—'}
                         </div>
@@ -478,7 +494,9 @@ const BarberAdvancesManager = () => {
                                   <br />
                                   <strong>Status:</strong> {getStatusLabel(adv.status)}
                                   <br />
-                                  <strong>Data:</strong> {new Date(adv.effective_date).toLocaleDateString('pt-BR')}
+                                  <strong>Data de efeito:</strong> {formatDateOnly(adv.effective_date)}
+                                  <br />
+                                  <strong>Criado em:</strong> {formatCreatedAt(adv.created_at)}
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
@@ -501,7 +519,7 @@ const BarberAdvancesManager = () => {
                 <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '700px' }}>
                   <thead>
                     <tr className="border-b border-border text-left">
-                      <th className="py-2 pr-2 sm:pr-4 w-[80px] sm:w-[100px]">Data</th>
+                      <th className="py-2 pr-2 sm:pr-4 w-[115px] sm:w-[140px]">Efeito / criação</th>
                       <th className="py-2 pr-2 sm:pr-4 w-[100px] sm:w-[120px]">Barbeiro</th>
                       <th className="py-2 pr-2 sm:pr-4 w-[80px] sm:w-[100px]">Valor</th>
                       <th className="py-2 pr-2 sm:pr-4 w-[80px] sm:w-[100px]">Status</th>
@@ -516,9 +534,8 @@ const BarberAdvancesManager = () => {
                       className="border-b border-border/60 last:border-0"
                     >
                       <td className="py-2 pr-2 sm:pr-4 align-top">
-                        {new Date(adv.effective_date).toLocaleDateString(
-                          "pt-BR"
-                        )}
+                        <div>{formatDateOnly(adv.effective_date)}</div>
+                        <div className="text-[11px] text-muted-foreground">Criado {formatCreatedAt(adv.created_at)}</div>
                       </td>
                       <td className="py-2 pr-2 sm:pr-4 align-top">
                         <div className="truncate max-w-[80px] sm:max-w-[100px]" title={(adv as any).barber?.name || "—"}>
@@ -592,7 +609,9 @@ const BarberAdvancesManager = () => {
                                     <br /><br />
                                     <strong>Vale:</strong> {formatCurrency(adv.amount)} para {(adv as any).barber?.name}
                                     <br />
-                                    <strong>Data:</strong> {new Date(adv.effective_date).toLocaleDateString("pt-BR")}
+                                    <strong>Data de efeito:</strong> {formatDateOnly(adv.effective_date)}
+                                    <br />
+                                    <strong>Criado em:</strong> {formatCreatedAt(adv.created_at)}
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
@@ -627,7 +646,9 @@ const BarberAdvancesManager = () => {
                                   <br />
                                   <strong>Status:</strong> {getStatusLabel(adv.status)}
                                   <br />
-                                  <strong>Data:</strong> {new Date(adv.effective_date).toLocaleDateString("pt-BR")}
+                                  <strong>Data de efeito:</strong> {formatDateOnly(adv.effective_date)}
+                                  <br />
+                                  <strong>Criado em:</strong> {formatCreatedAt(adv.created_at)}
                                   {adv.status === "approved" && (
                                     <>
                                       <br /><br />
