@@ -511,8 +511,8 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
       </FilterPopup>
 
       {/* Stats Cards */}
-      <div className="financial-metric-grid grid grid-cols-3 gap-2 lg:grid-cols-4 lg:gap-3">
-        <Card className="bg-card border-border">
+      <div className="financial-metric-grid grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 lg:gap-3">
+        <Card className="col-span-2 bg-card border-border lg:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Minha Comissão Líquida ({getPeriodLabel()})</CardTitle>
             <DollarSign className="h-4 w-4 text-primary" />
@@ -546,7 +546,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
 
       <Card className="bg-card border-border">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Vales aprovados no Período</CardTitle>
+          <CardTitle className="min-w-0 text-sm font-medium leading-snug">Vales no período</CardTitle>
           <div className="flex items-center gap-2">
             <Dialog open={advanceDialogOpen} onOpenChange={setAdvanceDialogOpen}>
               <DialogTrigger asChild>
