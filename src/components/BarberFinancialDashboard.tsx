@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { DollarSign, TrendingUp, Calendar, Users, Plus, Banknote } from 'lucide-react';
+import { DollarSign, TrendingUp, Calendar, Users, Plus, Banknote, Filter } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -17,6 +17,7 @@ import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
 import { calculateServiceReportAmount } from '@/lib/reportCommission';
 import { getCurrentFinancialCompetence, listFinancialWeeks } from '@/lib/financialWeek';
+import FilterPopup from '@/components/FilterPopup';
 
 interface Appointment {
   id: string;
@@ -66,6 +67,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
     ? { start: selectedFinancialWeek.startISO, end: selectedFinancialWeek.endISO }
     : { start: '', end: '' };
   const [totalAdvances, setTotalAdvances] = useState(0);
+  const [periodFilterOpen, setPeriodFilterOpen] = useState(false);
   const latestQueryIdRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
@@ -466,8 +468,14 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
 
   return (
     <div className="space-y-6">
-      <Card className="bg-card border-border">
-        <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">Período selecionado: {getPeriodLabel()}</p>
+        <Button variant="outline" size="sm" onClick={() => setPeriodFilterOpen(true)}>
+          <Filter className="mr-2 h-4 w-4" />Filtros
+        </Button>
+      </div>
+      <FilterPopup open={periodFilterOpen} onOpenChange={setPeriodFilterOpen} title="Filtros do financeiro">
+        <div className="grid gap-4 sm:grid-cols-3">
           <div className="min-w-36">
             <Label htmlFor="finance-year" className="mb-1 block text-xs text-muted-foreground">Ano</Label>
             <Select value={String(competence.year)} onValueChange={(value) => setCompetence((current) => ({ ...current, year: Number(value) }))}>
@@ -499,9 +507,8 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
               </SelectContent>
             </Select>
           </div>
-          <p className="pb-2 text-xs text-muted-foreground sm:ml-auto">Período: {getPeriodLabel()}</p>
-        </CardContent>
-      </Card>
+        </div>
+      </FilterPopup>
 
       {/* Stats Cards */}
       <div className="financial-metric-grid grid grid-cols-3 gap-2 lg:grid-cols-4 lg:gap-3">
