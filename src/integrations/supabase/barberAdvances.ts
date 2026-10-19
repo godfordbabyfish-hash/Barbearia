@@ -49,8 +49,6 @@ export const createAdvance = async (input: CreateBarberAdvanceInput) => {
 export const listAdvancesAdmin = async (options?: {
   barberId?: string;
   status?: BarberAdvanceStatus | "all";
-  startDate?: string;
-  endDate?: string;
 }) => {
   let query = (supabase as any)
     .from("barber_advances")
@@ -65,12 +63,6 @@ export const listAdvancesAdmin = async (options?: {
   if (options?.status && options.status !== "all") {
     query = query.eq("status", options.status);
   }
-  if (options?.startDate && options?.endDate) {
-    query = query
-      .gte("effective_date", options.startDate)
-      .lte("effective_date", options.endDate);
-  }
-
   const { data, error } = await query;
   return { data: (data as BarberAdvance[]) || [], error };
 };
@@ -94,9 +86,11 @@ export const approveAdvance = async (
     return { error: new Error("Usuário não autenticado") };
   }
 
+  // Approval time is authoritative in Postgres. Ignore any timestamp supplied
+  // by callers (or the browser clock) and let the database trigger populate it.
+  const { approved_at: _clientApprovedAt, ...signatureDetails } = signatureMeta;
   const digital_signature = {
-    ...signatureMeta,
-    approved_at: new Date().toISOString(),
+    ...signatureDetails,
     approved_by: user.id,
   };
 
@@ -104,7 +98,6 @@ export const approveAdvance = async (
     .from("barber_advances")
     .update({
       status: "approved",
-      approved_at: new Date().toISOString(),
       approved_by: user.id,
       digital_signature,
     })

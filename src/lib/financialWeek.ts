@@ -9,6 +9,18 @@ export interface FinancialWeek {
   label: string;
 }
 
+/** Convert a business-date interval into ISO timestamps in São Paulo time. */
+export function getFinancialTimestampRange(startISO: string, endISO: string) {
+  const nextDay = new Date(`${endISO}T00:00:00.000Z`);
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  const endExclusiveISO = nextDay.toISOString().slice(0, 10);
+
+  return {
+    start: new Date(`${startISO}T00:00:00-03:00`).toISOString(),
+    endExclusive: new Date(`${endExclusiveISO}T00:00:00-03:00`).toISOString(),
+  };
+}
+
 export function getCurrentFinancialCompetence(now = new Date()) {
   const monday = startOfWeek(now, { weekStartsOn: 1 });
   const year = Number(format(monday, 'yyyy'));

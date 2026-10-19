@@ -4539,9 +4539,17 @@ const BarbeiroDashboard = () => {
                                   })}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {new Date(
-                                    adv.effective_date
-                                  ).toLocaleDateString("pt-BR")}
+                                  {adv.status === "approved" && adv.approved_at
+                                    ? `Aprovado em ${new Date(adv.approved_at).toLocaleString("pt-BR", {
+                                        dateStyle: "short",
+                                        timeStyle: "short",
+                                        timeZone: "America/Sao_Paulo",
+                                      })}`
+                                    : `${adv.status === "pending" ? "Solicitado em" : "Atualizado em"} ${new Date(adv.status === "rejected" ? adv.updated_at : adv.created_at).toLocaleString("pt-BR", {
+                                        dateStyle: "short",
+                                        timeStyle: "short",
+                                        timeZone: "America/Sao_Paulo",
+                                      })}`}
                                   {adv.description
                                     ? ` • ${adv.description.slice(0, 40)}${
                                         adv.description.length > 40 ? "..." : ""

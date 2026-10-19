@@ -26,7 +26,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import FilterPopup from "@/components/FilterPopup";
-import { listRecentFinancialWeeks } from "@/lib/financialWeek";
+import { getFinancialTimestampRange, listRecentFinancialWeeks } from "@/lib/financialWeek";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -57,7 +57,17 @@ const formatDateOnly = (value: string) => {
 };
 
 const formatCreatedAt = (value: string) =>
-  new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  new Date(value).toLocaleString("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "America/Sao_Paulo",
+  });
+
+const getAdvancePeriodTimestamp = (advance: BarberAdvance) => {
+  if (advance.status === "approved") return advance.approved_at;
+  if (advance.status === "rejected") return advance.updated_at;
+  return advance.created_at;
+};
 
 const BarberAdvancesManager = () => {
   const [barbers, setBarbers] = useState<Barber[]>([]);
@@ -111,8 +121,6 @@ const BarberAdvancesManager = () => {
     const { data, error } = await listAdvancesAdmin({
       barberId: selectedBarberId !== "all" ? selectedBarberId : undefined,
       status: statusFilter,
-      startDate: selectedWeek?.startISO,
-      endDate: selectedWeek?.endISO,
     });
     setLoading(false);
 
@@ -125,9 +133,25 @@ const BarberAdvancesManager = () => {
     console.log('📊 Vales carregados:', data?.length || 0, 'vales');
     
     // Filtrar vales que foram "removidos pelo admin" para não aparecerem na lista
-    const filteredData = data?.filter(advance => 
-      !advance.description?.includes('[REMOVIDO PELO ADMIN]')
-    ) || [];
+    const weekBounds = selectedWeek
+      ? getFinancialTimestampRange(selectedWeek.startISO, selectedWeek.endISO)
+      : null;
+    const weekStartMs = weekBounds ? Date.parse(weekBounds.start) : null;
+    const weekEndMs = weekBounds ? Date.parse(weekBounds.endExclusive) : null;
+    const filteredData = (data || [])
+      .filter((advance) => {
+        if (advance.description?.includes('[REMOVIDO PELO ADMIN]')) return false;
+        if (!weekStartMs || !weekEndMs) return true;
+        const periodTimestamp = getAdvancePeriodTimestamp(advance);
+        if (!periodTimestamp) return false;
+        const timestamp = Date.parse(periodTimestamp);
+        return timestamp >= weekStartMs && timestamp < weekEndMs;
+      })
+      .sort((a, b) => {
+        const timestampA = getAdvancePeriodTimestamp(a);
+        const timestampB = getAdvancePeriodTimestamp(b);
+        return Date.parse(timestampB || b.created_at) - Date.parse(timestampA || a.created_at);
+      });
     
     console.log('📊 Vales após filtro:', filteredData.length, 'vales (removidos os marcados como REMOVIDO PELO ADMIN)');
     
@@ -407,7 +431,7 @@ const BarberAdvancesManager = () => {
                   ))}
                 </SelectContent>
               </Select>
-              {selectedWeek && <p className="text-xs text-muted-foreground">Mostrando vales com data de efeito de {selectedWeek.label.replace(' (Semana atual)', '')}.</p>}
+              {selectedWeek && <p className="text-xs text-muted-foreground">Aprovados pela data da aprovação; pendentes pela criação e rejeitados pela última atualização — {selectedWeek.label.replace(' (Semana atual)', '')}.</p>}
             </div>
             </FilterPopup>
 
@@ -428,9 +452,13 @@ const BarberAdvancesManager = () => {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-xs text-muted-foreground">
-                          Efeito: {formatDateOnly(adv.effective_date)} • {(adv as any).barber?.name || '—'}
+                          {adv.status === 'approved' && adv.approved_at
+                            ? `Aprovado em ${formatCreatedAt(adv.approved_at)}`
+                            : `${adv.status === 'pending' ? 'Solicitado em' : 'Atualizado em'} ${formatCreatedAt(getAdvancePeriodTimestamp(adv) || adv.created_at)}`}
+                          {' • '}{(adv as any).barber?.name || '—'}
                         </div>
                         <div className="text-[11px] text-muted-foreground">Criado em {formatCreatedAt(adv.created_at)}</div>
+                        <div className="text-[11px] text-muted-foreground">Efeito cadastrado: {formatDateOnly(adv.effective_date)}</div>
                         <div className="font-semibold text-sm truncate" title={adv.description || '—'}>
                           {adv.description || '—'}
                         </div>
@@ -448,7 +476,6 @@ const BarberAdvancesManager = () => {
                                 onClick={async () => {
                                   const { error } = await approveAdvance(adv.id, {
                                     approved_by_name: 'Gestor',
-                                    approved_at: new Date().toISOString(),
                                   });
                                   if (error) {
                                     toast.error('Erro ao aprovar vale');
@@ -519,7 +546,7 @@ const BarberAdvancesManager = () => {
                 <table className="w-full text-sm" style={{ tableLayout: 'fixed', minWidth: '700px' }}>
                   <thead>
                     <tr className="border-b border-border text-left">
-                      <th className="py-2 pr-2 sm:pr-4 w-[115px] sm:w-[140px]">Efeito / criação</th>
+                      <th className="py-2 pr-2 sm:pr-4 w-[115px] sm:w-[140px]">Aprovação / criação</th>
                       <th className="py-2 pr-2 sm:pr-4 w-[100px] sm:w-[120px]">Barbeiro</th>
                       <th className="py-2 pr-2 sm:pr-4 w-[80px] sm:w-[100px]">Valor</th>
                       <th className="py-2 pr-2 sm:pr-4 w-[80px] sm:w-[100px]">Status</th>
@@ -534,7 +561,10 @@ const BarberAdvancesManager = () => {
                       className="border-b border-border/60 last:border-0"
                     >
                       <td className="py-2 pr-2 sm:pr-4 align-top">
-                        <div>{formatDateOnly(adv.effective_date)}</div>
+                        <div>{adv.status === 'approved' && adv.approved_at ? formatCreatedAt(adv.approved_at) : '—'}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {adv.status === 'approved' ? 'Aprovado em' : 'Aguardando aprovação'}
+                        </div>
                         <div className="text-[11px] text-muted-foreground">Criado {formatCreatedAt(adv.created_at)}</div>
                       </td>
                       <td className="py-2 pr-2 sm:pr-4 align-top">
@@ -565,7 +595,6 @@ const BarberAdvancesManager = () => {
                               onClick={async () => {
                                 const { error } = await approveAdvance(adv.id, {
                                   approved_by_name: "Gestor", // Você pode pegar o nome do usuário logado
-                                  approved_at: new Date().toISOString(),
                                 });
                                 if (error) {
                                   toast.error("Erro ao aprovar vale");

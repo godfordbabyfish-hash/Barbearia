@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
 import { calculateServiceReportAmount } from '@/lib/reportCommission';
-import { getCurrentFinancialCompetence, listFinancialWeeks } from '@/lib/financialWeek';
+import { getCurrentFinancialCompetence, getFinancialTimestampRange, listFinancialWeeks } from '@/lib/financialWeek';
 import FilterPopup from '@/components/FilterPopup';
 
 interface Appointment {
@@ -280,12 +280,15 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
 
     let query = supabase
       .from('barber_advances')
-      .select('amount, status, effective_date')
+      .select('amount, status, approved_at')
       .eq('barber_id', barberId)
       .eq('status', 'approved');
 
     if (startDate && endDate) {
-      query = query.gte('effective_date', startDate).lte('effective_date', endDate);
+      const approvalRange = getFinancialTimestampRange(startDate, endDate);
+      query = query
+        .gte('approved_at', approvalRange.start)
+        .lt('approved_at', approvalRange.endExclusive);
     }
 
     const { data, error } = await query;
@@ -545,9 +548,12 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
         </Card>
 
       <Card className="bg-card border-border">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="min-w-0 text-sm font-medium leading-snug">Vales no período</CardTitle>
-          <div className="flex items-center gap-2">
+        <CardHeader className="flex flex-col items-stretch gap-2 pb-2 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+          <div className="flex min-w-0 items-start justify-between gap-2">
+            <CardTitle className="min-w-0 text-sm font-medium leading-tight">Vales na semana</CardTitle>
+            <DollarSign className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+          </div>
+          <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
             <Dialog open={advanceDialogOpen} onOpenChange={setAdvanceDialogOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" className="h-6 px-2 text-xs">
@@ -636,7 +642,6 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
                 </div>
               </DialogContent>
             </Dialog>
-            <DollarSign className="h-4 w-4 text-primary" />
           </div>
         </CardHeader>
         <CardContent>
@@ -644,7 +649,7 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
             R$ {totalAdvances.toFixed(2)}
           </div>
           <p className="text-xs text-muted-foreground">
-            Descontados da sua comissão neste período.
+            Descontados pela data de aprovação nesta semana.
           </p>
         </CardContent>
       </Card>

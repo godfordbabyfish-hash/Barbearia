@@ -15,6 +15,7 @@ import WeeklyClosingManager from '@/components/WeeklyClosingManager';
 import FilterPopup from '@/components/FilterPopup';
 import WeeklyOverviewSelector from '@/components/WeeklyOverviewSelector';
 import { calculateServiceReportAmount } from '@/lib/reportCommission';
+import { getFinancialTimestampRange } from '@/lib/financialWeek';
 
 interface ReportData {
   period: string;
@@ -124,6 +125,7 @@ const ReportsManager = () => {
     const { start, end } = getDateRange();
     const startDate = format(start, 'yyyy-MM-dd');
     const endDate = format(end, 'yyyy-MM-dd');
+    const approvalRange = getFinancialTimestampRange(startDate, endDate);
 
     try {
       // Load appointments with proper error handling
@@ -349,12 +351,12 @@ const ReportsManager = () => {
           id,
           barber_id,
           amount,
-          effective_date,
+          approved_at,
           status,
           description
         `, { count: 'exact' })
-        .gte('effective_date', startDate)
-        .lte('effective_date', endDate)
+        .gte('approved_at', approvalRange.start)
+        .lt('approved_at', approvalRange.endExclusive)
         .eq('status', 'approved');
 
       if (selectedBarber !== 'all') {
@@ -385,7 +387,7 @@ const ReportsManager = () => {
         barber: barbers.find(b => b.id === advance.barber_id)
       }));
       advancesWithDetails.sort((a: any, b: any) => {
-        return a.effective_date.localeCompare(b.effective_date);
+        return a.approved_at.localeCompare(b.approved_at);
       });
 
       // Calculate summary

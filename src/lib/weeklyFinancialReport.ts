@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { getFinancialTimestampRange } from '@/lib/financialWeek';
 
 export interface WeeklyServiceLine {
   id: string;
@@ -24,7 +25,7 @@ export interface WeeklyProductLine {
 export interface WeeklyAdvanceLine { id: string; date: string; description: string; amount: number }
 
 export interface WeeklyClosureSnapshot {
-  version: 1;
+  version: 1 | 2;
   generatedAt: string;
   preview: boolean;
   barber: { id: string; name: string };
@@ -59,11 +60,12 @@ export async function buildWeeklyClosureSnapshot(params: {
   preview: boolean;
 }): Promise<WeeklyClosureSnapshot> {
   const db = supabase as any;
+  const approvalRange = getFinancialTimestampRange(params.start, params.end);
   const [barberResult, appointmentsResult, productsResult, advancesResult, individualResult, fixedResult] = await Promise.all([
     db.from('barbers').select('id,name').eq('id', params.barberId).single(),
     db.from('appointments').select('id,appointment_date,appointment_time,status,service_id,client_id,client_name,payment_method,original_price,final_price,commission_basis,commission_percentage_applied').eq('barber_id', params.barberId).gte('appointment_date', params.start).lte('appointment_date', params.end),
     db.from('product_sales').select('id,sale_date,product_id,total_price,commission_value,status').eq('barber_id', params.barberId).gte('sale_date', params.start).lte('sale_date', params.end).eq('status', 'confirmed'),
-    db.from('barber_advances').select('id,effective_date,description,amount,status').eq('barber_id', params.barberId).gte('effective_date', params.start).lte('effective_date', params.end).eq('status', 'approved'),
+    db.from('barber_advances').select('id,approved_at,description,amount,status').eq('barber_id', params.barberId).gte('approved_at', approvalRange.start).lt('approved_at', approvalRange.endExclusive).eq('status', 'approved'),
     db.from('barber_commissions').select('service_id,commission_percentage').eq('barber_id', params.barberId),
     db.from('barber_fixed_commissions').select('service_commission_percentage,product_commission_percentage').eq('barber_id', params.barberId).maybeSingle(),
   ]);
@@ -140,7 +142,7 @@ export async function buildWeeklyClosureSnapshot(params: {
   }));
   const advances: WeeklyAdvanceLine[] = (advancesResult.data || []).map((advance: any) => ({
     id: advance.id,
-    date: advance.effective_date,
+    date: advance.approved_at,
     description: advance.description || 'Vale / adiantamento',
     amount: money(advance.amount),
   }));
@@ -154,7 +156,7 @@ export async function buildWeeklyClosureSnapshot(params: {
   const grossCommission = serviceCommission + productCommission;
 
   return {
-    version: 1,
+    version: 2,
     generatedAt: new Date().toISOString(),
     preview: params.preview,
     barber: barberResult.data,
@@ -179,7 +181,13 @@ export async function buildWeeklyClosureSnapshot(params: {
 }
 
 const brl = (value: number) => `R$ ${value.toFixed(2).replace('.', ',')}`;
-const dateBR = (value: string) => value.split('-').reverse().join('/');
+const dateBR = (value: string) => value.includes('T')
+  ? new Date(value).toLocaleString('pt-BR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+      timeZone: 'America/Sao_Paulo',
+    })
+  : value.split('-').reverse().join('/');
 
 export function downloadWeeklyClosurePdf(snapshot: WeeklyClosureSnapshot, saved: boolean) {
   const doc = new jsPDF();
