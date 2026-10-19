@@ -26,6 +26,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import FilterPopup from "@/components/FilterPopup";
+import { listRecentFinancialWeeks } from "@/lib/financialWeek";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,6 +49,9 @@ const BarberAdvancesManager = () => {
   const [selectedBarberId, setSelectedBarberId] = useState<string>("all");
   const [showFilters, setShowFilters] = useState(false);
   const [statusFilter, setStatusFilter] = useState<BarberAdvanceStatus | "all">("all");
+  const recentWeeks = listRecentFinancialWeeks(12);
+  const [weekStart, setWeekStart] = useState(() => listRecentFinancialWeeks(12)[0]?.startISO ?? "all");
+  const selectedWeek = recentWeeks.find((week) => week.startISO === weekStart);
   const [loading, setLoading] = useState(false);
   const [advances, setAdvances] = useState<BarberAdvance[]>([]);
 
@@ -68,7 +72,7 @@ const BarberAdvancesManager = () => {
     if (barbers.length > 0) {
       loadAdvances();
     }
-  }, [selectedBarberId, statusFilter, barbers]);
+  }, [selectedBarberId, statusFilter, weekStart, barbers]);
 
   const loadBarbers = async () => {
     const { data, error } = await (supabase as any)
@@ -92,6 +96,8 @@ const BarberAdvancesManager = () => {
     const { data, error } = await listAdvancesAdmin({
       barberId: selectedBarberId !== "all" ? selectedBarberId : undefined,
       status: statusFilter,
+      startDate: selectedWeek?.startISO,
+      endDate: selectedWeek?.endISO,
     });
     setLoading(false);
 
@@ -372,6 +378,21 @@ const BarberAdvancesManager = () => {
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
+            </div>
+            <div className="mt-3 space-y-2">
+              <Label htmlFor="advance-week-filter" className="text-xs">Semana</Label>
+              <Select value={weekStart} onValueChange={setWeekStart}>
+                <SelectTrigger id="advance-week-filter" className="w-full">
+                  <SelectValue placeholder="Selecione uma semana" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as semanas</SelectItem>
+                  {recentWeeks.map((week) => (
+                    <SelectItem key={week.startISO} value={week.startISO}>{week.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedWeek && <p className="text-xs text-muted-foreground">Mostrando vales com data de efeito de {selectedWeek.label.replace(' (Semana atual)', '')}.</p>}
             </div>
             </FilterPopup>
 
