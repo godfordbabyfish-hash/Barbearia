@@ -10,13 +10,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { DollarSign, TrendingUp, Calendar, Users, Plus, Banknote } from 'lucide-react';
-import { addDays, format, startOfWeek } from 'date-fns';
+import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { useBarberFixedCommissions } from '@/hooks/useBarberFixedCommissions';
 import { useBarberCommissions } from '@/hooks/useBarberCommissions';
 import { calculateServiceReportAmount } from '@/lib/reportCommission';
-import WeeklyClosingManager from '@/components/WeeklyClosingManager';
+import { getCurrentFinancialCompetence, listFinancialWeeks } from '@/lib/financialWeek';
 
 interface Appointment {
   id: string;
@@ -59,10 +59,12 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
   
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [productSales, setProductSales] = useState<ProductSale[]>([]);
-  const [selectedWeek, setSelectedWeek] = useState(() => {
-    const monday = startOfWeek(new Date(), { weekStartsOn: 1 });
-    return { start: format(monday, 'yyyy-MM-dd'), end: format(addDays(monday, 6), 'yyyy-MM-dd') };
-  });
+  const [competence, setCompetence] = useState(getCurrentFinancialCompetence);
+  const financialWeeks = listFinancialWeeks(competence.year, competence.month);
+  const selectedFinancialWeek = financialWeeks.find((week) => week.number === competence.weekNumber) ?? financialWeeks[0];
+  const selectedWeek = selectedFinancialWeek
+    ? { start: selectedFinancialWeek.startISO, end: selectedFinancialWeek.endISO }
+    : { start: '', end: '' };
   const [totalAdvances, setTotalAdvances] = useState(0);
   const latestQueryIdRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,6 +75,18 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
   const [advanceReason, setAdvanceReason] = useState('');
   const [advanceRequestDate, setAdvanceRequestDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [submittingAdvance, setSubmittingAdvance] = useState(false);
+
+  useEffect(() => {
+    const weeks = listFinancialWeeks(competence.year, competence.month);
+    const currentWeek = weeks.find((week) => {
+      const today = format(new Date(), 'yyyy-MM-dd');
+      return today >= week.startISO && today <= week.endISO;
+    });
+    setCompetence((current) => ({
+      ...current,
+      weekNumber: currentWeek?.number ?? weeks[weeks.length - 1]?.number ?? 1,
+    }));
+  }, [competence.year, competence.month]);
 
   // Parse 'yyyy-MM-dd' as LOCAL date (avoids UTC shift)
   const parseLocalISODate = (iso: string): Date => {
@@ -452,7 +466,42 @@ const BarberFinancialDashboard = ({ barberId, isActive = true }: BarberFinancial
 
   return (
     <div className="space-y-6">
-      <WeeklyClosingManager barberId={barberId} canClose={false} onSelectedWeekChange={setSelectedWeek} />
+      <Card className="bg-card border-border">
+        <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-end">
+          <div className="min-w-36">
+            <Label htmlFor="finance-year" className="mb-1 block text-xs text-muted-foreground">Ano</Label>
+            <Select value={String(competence.year)} onValueChange={(value) => setCompetence((current) => ({ ...current, year: Number(value) }))}>
+              <SelectTrigger id="finance-year" className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 4 }, (_, index) => new Date().getFullYear() - 2 + index).map((year) => (
+                  <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-44">
+            <Label htmlFor="finance-month" className="mb-1 block text-xs text-muted-foreground">Mês de competência</Label>
+            <Select value={String(competence.month)} onValueChange={(value) => setCompetence((current) => ({ ...current, month: Number(value) }))}>
+              <SelectTrigger id="finance-month" className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
+                  <SelectItem key={month} value={String(month)}>{format(new Date(2000, month - 1, 1), 'MMMM', { locale: ptBR })}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-64 flex-1">
+            <Label htmlFor="finance-week" className="mb-1 block text-xs text-muted-foreground">Semana</Label>
+            <Select value={String(competence.weekNumber)} onValueChange={(value) => setCompetence((current) => ({ ...current, weekNumber: Number(value) }))}>
+              <SelectTrigger id="finance-week" className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {financialWeeks.map((week) => <SelectItem key={week.number} value={String(week.number)}>{week.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="pb-2 text-xs text-muted-foreground sm:ml-auto">Período: {getPeriodLabel()}</p>
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       <div className="financial-metric-grid grid grid-cols-3 gap-2 lg:grid-cols-4 lg:gap-3">
