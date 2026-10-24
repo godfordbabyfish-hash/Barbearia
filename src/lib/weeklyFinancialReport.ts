@@ -2,6 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getFinancialTimestampRange } from '@/lib/financialWeek';
+import { calculateServiceReportAmount } from '@/lib/reportCommission';
 
 export interface WeeklyServiceLine {
   id: string;
@@ -34,7 +35,8 @@ export interface WeeklyClosureSnapshot {
   products: WeeklyProductLine[];
   advances: WeeklyAdvanceLine[];
   summary: {
-    paidServices: number;
+    paidServices?: number;
+    completedServices?: number;
     cancelledAppointments: number;
     serviceRevenue: number;
     productRevenue: number;
@@ -103,34 +105,30 @@ export async function buildWeeklyClosureSnapshot(params: {
     paymentsByAppointment.set(payment.appointment_id, list);
   }
 
-  const services: WeeklyServiceLine[] = completed.flatMap((appointment: any) => {
+  const services: WeeklyServiceLine[] = completed.map((appointment: any) => {
     const payments = paymentsByAppointment.get(appointment.id) || [];
-    const paidTotal = payments.reduce((sum, item) => sum + money(item.amount), 0);
-    const received = money(appointment.final_price) > 0
-      ? money(appointment.final_price)
-      : paidTotal > 0
-        ? paidTotal
-        : appointment.payment_method
-          ? money(servicesById.get(appointment.service_id)?.price)
-          : 0;
-    if (received <= 0) return [];
-    const original = money(appointment.original_price) || money(servicesById.get(appointment.service_id)?.price);
-    const commissionBase = appointment.commission_basis === 'original' ? original : received;
-    const percentage = appointment.commission_percentage_applied != null
-      ? money(appointment.commission_percentage_applied)
-      : commissionByService.has(appointment.service_id)
-      ? money(commissionByService.get(appointment.service_id))
-      : fixedService;
-    return [{
+    const amount = calculateServiceReportAmount({
+      servicePrice: money(servicesById.get(appointment.service_id)?.price),
+      originalPrice: appointment.original_price == null ? null : money(appointment.original_price),
+      finalPrice: appointment.final_price == null ? null : money(appointment.final_price),
+      commissionBasis: appointment.commission_basis || null,
+      payments: payments.map((item) => money(item.amount)),
+      capturedPercentage: appointment.commission_percentage_applied == null
+        ? null
+        : money(appointment.commission_percentage_applied),
+      individualPercentage: commissionByService.get(appointment.service_id),
+      fixedPercentage: fixedService,
+    });
+    return {
       id: appointment.id,
       date: appointment.appointment_date,
       time: appointment.appointment_time,
       client: appointment.client_name || clientsById.get(appointment.client_id) || 'Cliente',
       service: servicesById.get(appointment.service_id)?.title || 'Serviço',
-      received,
-      commission: commissionBase * percentage / 100,
+      received: amount.received,
+      commission: amount.commission,
       payment: payments.length ? payments.map((item) => item.payment_method).join(' + ') : appointment.payment_method || 'Registrado',
-    }];
+    };
   });
 
   const products: WeeklyProductLine[] = (productsResult.data || []).map((sale: any) => ({
@@ -165,7 +163,7 @@ export async function buildWeeklyClosureSnapshot(params: {
     products,
     advances,
     summary: {
-      paidServices: services.length,
+      completedServices: services.length,
       cancelledAppointments: appointments.filter((item: any) => item.status === 'cancelled').length,
       serviceRevenue,
       productRevenue,
@@ -189,26 +187,40 @@ const dateBR = (value: string) => value.includes('T')
     })
   : value.split('-').reverse().join('/');
 
-export function downloadWeeklyClosurePdf(snapshot: WeeklyClosureSnapshot, saved: boolean) {
+export function downloadWeeklyClosurePdf(
+  snapshot: WeeklyClosureSnapshot,
+  saved: boolean,
+  options: { updatedPreview?: boolean } = {},
+) {
   const doc = new jsPDF();
   doc.setFontSize(18);
-  doc.text(saved ? 'FECHAMENTO FINANCEIRO SEMANAL' : 'PRÉVIA DO FECHAMENTO SEMANAL', 14, 18);
+  doc.text(
+    saved
+      ? 'FECHAMENTO FINANCEIRO SEMANAL'
+      : options.updatedPreview
+        ? 'PRÉVIA ATUALIZADA DO FECHAMENTO'
+        : 'PRÉVIA DO FECHAMENTO SEMANAL',
+    14,
+    18,
+  );
   doc.setFontSize(11);
   doc.text(`Barbeiro: ${snapshot.barber.name}`, 14, 27);
   doc.text(`Semana ${snapshot.period.weekNumber}: ${dateBR(snapshot.period.start)} a ${dateBR(snapshot.period.end)}`, 14, 34);
-  doc.text(saved ? `Fechado em: ${new Date(snapshot.generatedAt).toLocaleString('pt-BR')}` : 'Documento parcial — ainda não é um fechamento definitivo.', 14, 41);
+  const statusLine = saved
+    ? `Fechado em: ${new Date(snapshot.generatedAt).toLocaleString('pt-BR')}`
+    : options.updatedPreview
+      ? `Gerado em: ${new Date(snapshot.generatedAt).toLocaleString('pt-BR')} — não substitui o fechamento salvo.`
+      : 'Documento parcial — ainda não é um fechamento definitivo.';
+  doc.text(statusLine, 14, 41);
 
   autoTable(doc, {
     startY: 48,
     head: [['Resumo', 'Valor']],
     body: [
-      ['Serviços concluídos e pagos', String(snapshot.summary.paidServices)],
-      ['Receita de serviços', brl(snapshot.summary.serviceRevenue)],
-      ['Receita de produtos', brl(snapshot.summary.productRevenue)],
+      ['Serviços concluídos', String(snapshot.summary.completedServices ?? snapshot.summary.paidServices ?? 0)],
       ['Comissão bruta', brl(snapshot.summary.grossCommission)],
       ['Vales aprovados', brl(snapshot.summary.advances)],
       ['Comissão líquida', brl(snapshot.summary.netCommission)],
-      ['Parte da barbearia', brl(snapshot.summary.barbershopShare)],
     ],
     theme: 'grid',
     headStyles: { fillColor: [245, 180, 30] },
@@ -218,8 +230,8 @@ export function downloadWeeklyClosurePdf(snapshot: WeeklyClosureSnapshot, saved:
     doc.text('Serviços', 14, y);
     autoTable(doc, {
       startY: y + 3,
-      head: [['Data', 'Cliente', 'Serviço', 'Recebido', 'Comissão']],
-      body: snapshot.services.map((item) => [dateBR(item.date), item.client, item.service, brl(item.received), brl(item.commission)]),
+      head: [['Data', 'Cliente', 'Serviço', 'Comissão do barbeiro']],
+      body: snapshot.services.map((item) => [dateBR(item.date), item.client, item.service, brl(item.commission)]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [35, 35, 35] },
     });
@@ -234,6 +246,6 @@ export function downloadWeeklyClosurePdf(snapshot: WeeklyClosureSnapshot, saved:
       headStyles: { fillColor: [35, 35, 35] },
     });
   }
-  const prefix = saved ? 'fechamento' : 'previa';
+  const prefix = saved ? 'fechamento' : options.updatedPreview ? 'previa-atualizada' : 'previa';
   doc.save(`${prefix}-${snapshot.barber.name.toLowerCase().replace(/\s+/g, '-')}-${snapshot.period.start}.pdf`);
 }

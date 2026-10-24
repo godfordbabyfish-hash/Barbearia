@@ -35,6 +35,9 @@ export default function WeeklyClosingManager({ barberId, canClose, onSelectedWee
   const weeks = useMemo(() => listFinancialWeeks(year, month), [year, month]);
   const selectedWeek = weeks.find((week) => week.number === weekNumber) || weeks[0];
   const availability = selectedWeek ? getWeekAvailability(selectedWeek) : 'open';
+  const canCloseEarly = Boolean(
+    canClose && selectedWeek?.startISO === currentWeekStartISO && availability !== 'closed',
+  );
 
   useEffect(() => {
     if (selectedWeek) onSelectedWeekChange?.({ start: selectedWeek.startISO, end: selectedWeek.endISO });
@@ -103,10 +106,51 @@ export default function WeeklyClosingManager({ barberId, canClose, onSelectedWee
     }
   };
 
-  const handleClose = async () => {
-    if (!canClose || !selectedWeek || availability !== 'closed') return;
+  const handleRefreshPdf = async () => {
     setLoading(true);
     try {
+      const snapshot = await createSnapshot(true);
+      downloadWeeklyClosurePdf(snapshot, false, { updatedPreview: true });
+      toast.success('Prévia atualizada baixada. O fechamento salvo permanece inalterado.');
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao atualizar o PDF');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClose = async (early = false) => {
+    if (!canClose || !selectedWeek || (!early && availability !== 'closed')) return;
+    setLoading(true);
+    try {
+      const db = supabase as any;
+      const [servicesResult, productsResult] = await Promise.all([
+        db.from('appointments')
+          .select('id', { count: 'exact', head: true })
+          .eq('barber_id', selectedBarber)
+          .gte('appointment_date', selectedWeek.startISO)
+          .lte('appointment_date', selectedWeek.endISO)
+          .in('status', ['pending', 'confirmed']),
+        db.from('product_sales')
+          .select('id', { count: 'exact', head: true })
+          .eq('barber_id', selectedBarber)
+          .gte('sale_date', selectedWeek.startISO)
+          .lte('sale_date', selectedWeek.endISO)
+          .eq('status', 'pending'),
+      ]);
+      if (servicesResult.error) throw servicesResult.error;
+      if (productsResult.error) throw productsResult.error;
+
+      const pendingServices = servicesResult.count || 0;
+      const pendingProducts = productsResult.count || 0;
+      if (pendingServices > 0 || pendingProducts > 0) {
+        toast.error(
+          `Fechamento bloqueado: ${pendingServices} serviço(s) aguardam finalização e ${pendingProducts} venda(s) de produto aguardam confirmação do barbeiro. Finalize, confirme ou cancele as pendências e tente novamente.`,
+          { duration: 8000 },
+        );
+        return;
+      }
+
       const snapshot = await createSnapshot(false);
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error('Sessão inválida');
@@ -164,25 +208,36 @@ export default function WeeklyClosingManager({ barberId, canClose, onSelectedWee
         <div className="flex flex-col gap-3 rounded-lg border border-border bg-secondary/20 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             {closure ? (
-              <><p className="flex items-center gap-2 font-medium text-green-500"><FileCheck2 className="h-4 w-4" /> Fechamento salvo</p><p className="text-xs text-muted-foreground">Imutável desde {new Date(closure.closed_at).toLocaleString('pt-BR')}.</p></>
+              <><p className="flex items-center gap-2 font-medium text-green-500"><FileCheck2 className="h-4 w-4" /> Fechamento salvo</p><p className="text-xs text-muted-foreground">Imutável desde {new Date(closure.closed_at).toLocaleString('pt-BR')}. Use “Baixar PDF atualizado” para refletir os dados atuais sem alterar o registro oficial.</p></>
             ) : availability === 'closed' ? (
               <><p className="font-medium">Semana encerrada e disponível para fechamento</p><p className="text-xs text-muted-foreground">Somente serviços concluídos e pagos entram no total.</p></>
             ) : availability === 'preview' ? (
-              <><p className="font-medium text-amber-500">Semana em andamento — prévia disponível</p><p className="text-xs text-muted-foreground">O fechamento definitivo será liberado na segunda-feira.</p></>
+              <><p className="font-medium text-amber-500">Semana em andamento — prévia disponível</p><p className="text-xs text-muted-foreground">O gestor pode fechar antecipadamente se todos os serviços estiverem finalizados e as vendas de produtos confirmadas.</p></>
+            ) : canCloseEarly ? (
+              <><p className="font-medium text-amber-500">Semana atual ainda em andamento</p><p className="text-xs text-muted-foreground">O gestor pode fechá-la antecipadamente quando todos os serviços estiverem finalizados e as vendas de produtos confirmadas.</p></>
             ) : (
               <><p className="flex items-center gap-2 font-medium"><LockKeyhole className="h-4 w-4" /> Semana ainda aberta</p><p className="text-xs text-muted-foreground">Aguarde o sábado para a prévia ou o encerramento do domingo.</p></>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             {closure ? (
-              <Button onClick={() => downloadWeeklyClosurePdf(closure.snapshot, true)}><Download className="mr-2 h-4 w-4" />Baixar fechamento salvo</Button>
-            ) : availability === 'preview' ? (
-              <Button variant="outline" onClick={handlePreview} disabled={loading}>{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Baixar prévia</Button>
-            ) : availability === 'closed' && canClose ? (
-              <Button onClick={handleClose} disabled={loading || !selectedBarber}>{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileCheck2 className="mr-2 h-4 w-4" />}Salvar fechamento</Button>
-            ) : availability === 'closed' ? (
-              <p className="text-sm text-muted-foreground">Aguardando o fechamento do gestor.</p>
-            ) : null}
+              <>
+                <Button variant="outline" onClick={handleRefreshPdf} disabled={loading || !selectedBarber}>
+                  {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                  Baixar PDF atualizado
+                </Button>
+                <Button onClick={() => downloadWeeklyClosurePdf(closure.snapshot, true)}>
+                  <Download className="mr-2 h-4 w-4" />Baixar fechamento salvo
+                </Button>
+              </>
+            ) : (
+              <>
+                {availability === 'preview' && <Button variant="outline" onClick={handlePreview} disabled={loading}>{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Baixar prévia</Button>}
+                {canCloseEarly && <Button onClick={() => handleClose(true)} disabled={loading || !selectedBarber}>{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileCheck2 className="mr-2 h-4 w-4" />}Fechar antecipadamente</Button>}
+                {availability === 'closed' && canClose && <Button onClick={handleClose} disabled={loading || !selectedBarber}>{loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileCheck2 className="mr-2 h-4 w-4" />}Salvar fechamento</Button>}
+                {availability === 'closed' && !canClose && <p className="text-sm text-muted-foreground">Aguardando o fechamento do gestor.</p>}
+              </>
+            )}
           </div>
         </div>
       </CardContent>
